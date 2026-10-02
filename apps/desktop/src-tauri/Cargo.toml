@@ -1,0 +1,28 @@
+[package]
+name = "narrc-desktop"
+description = "NarciPHBrowser desktop application."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+narrc-core = { workspace = true }
+narrc-sidecar = { path = "../../sidecar" }
+reqwest = { version = "0.11", features = ["blocking", "json", "socks"] }
+zip = "0.6"
+walkdir = "2.4"
+dirs-next = "2.0"
+getrandom = "0.2"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

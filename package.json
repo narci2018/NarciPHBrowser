@@ -1,0 +1,27 @@
+{
+  "name": "narciphbrowser",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NarciPHBrowser - an open-source fingerprint browser: Donut-style product surface, Camoufox engine.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "dev": "pnpm --filter @narc/desktop dev",
+    "build": "pnpm --filter @narc/sdk build && pnpm --filter @narc/desktop build",
+    "typecheck": "pnpm -r --no-bail typecheck",
+    "test": "pnpm -r --no-bail test",
+    "lint": "pnpm -r --no-bail lint",
+    "tauri": "pnpm --filter @narc/desktop tauri",
+    "app:dev": "pnpm build:sidecar && pnpm --filter @narc/desktop tauri dev",
+    "app:build": "pnpm build:sidecar && pnpm --filter @narc/desktop tauri build --no-bundle",
+    "app:release": "pnpm --filter @narc/desktop build && cargo build --release -p narrc-desktop --features custom-protocol && cargo build --release -p narrc-sidecar && node -e \"const fs=require('fs'),path=require('path');for(const d of [path.join('target','release','binaries'),path.join('apps','desktop','src-tauri','binaries')]){fs.mkdirSync(d,{recursive:true});fs.copyFileSync(path.join('target','release',process.platform==='win32'?'narrc-sidecar.exe':'narrc-sidecar'),path.join(d,process.platform==='win32'?'narrc-sidecar.exe':'narrc-sidecar'));console.log('sidecar copied to',d);}\"",
+    "build:sidecar": "cargo build -p narrc-sidecar && pnpm copy:sidecar",
+    "copy:sidecar": "node -e \"const fs=require('fs'),path=require('path');const src=path.join('target','debug',process.platform==='win32'?'narrc-sidecar.exe':'narrc-sidecar');const dst=path.join('apps','desktop','src-tauri','binaries',process.platform==='win32'?'narrc-sidecar.exe':'narrc-sidecar');fs.mkdirSync(path.dirname(dst),{recursive:true});fs.copyFileSync(src,dst);console.log('sidecar copied to',dst);\""
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}

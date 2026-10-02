@@ -1,0 +1,26 @@
+node_modules/
+dist/
+dist-ssr/
+build/
+.vite/
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+
+apps/desktop/src-tauri/target/
+target/
+apps/desktop/src-tauri/gen/
+
+# sidecar
+apps/sidecar/.venv/
+apps/sidecar/dist/
+apps/sidecar/*.egg-info/
+__pycache__/
+*.py[cod]
+
+# local runtime state
+.narci/
+*.db
+*.db-wal
+*.db-shm
+logs/

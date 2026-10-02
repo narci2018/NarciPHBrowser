@@ -1,0 +1,251 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useCallback, useEffect, useRef } from "react";
+import { GoPlus } from "react-icons/go";
+import { LuCircleHelp, LuSearch, LuX } from "react-icons/lu";
+import { cn } from "@/lib/utils";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+
+const HOLD_MS = 150;
+const DRAG_THRESHOLD_PX = 3;
+
+const isInteractiveTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof Element)) return false;
+  const el = target.closest(
+    "button, a, [role='button'], input, select, textarea, [contenteditable=''], [contenteditable='true']",
+  );
+  return el !== null;
+};
+
+const SearchSyntaxHelp = () => (
+  <Popover>
+    <PopoverTrigger asChild>
+      <button
+        type="button"
+        aria-label="Search help"
+        className="grid size-6 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors duration-100 hover:bg-accent hover:text-accent-foreground"
+      >
+        <LuCircleHelp className="size-3.5" />
+      </button>
+    </PopoverTrigger>
+    <PopoverContent align="end" className="w-80 p-0">
+      <div className="space-y-3 p-3 text-xs">
+        <div>
+          <p className="font-medium text-foreground">Search profiles</p>
+          <p className="mt-1 text-muted-foreground">
+            Type freely — name, notes, country, operating system and the
+            machine summary are all matched at once.
+          </p>
+        </div>
+        <div>
+          <p className="font-medium text-foreground">Examples</p>
+          <div className="mt-1.5 space-y-1.5">
+            <div>
+              <code className="font-mono text-[11px] text-foreground">de</code>
+              <p className="text-muted-foreground">
+                Profiles in or summarised as Germany
+              </p>
+            </div>
+            <div>
+              <code className="font-mono text-[11px] text-foreground">
+                windows
+              </code>
+              <p className="text-muted-foreground">
+                Profiles presenting as Windows
+              </p>
+            </div>
+            <div>
+              <code className="font-mono text-[11px] text-foreground">
+                proxy
+              </code>
+              <p className="text-muted-foreground">
+                Profiles with a proxy configured
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </PopoverContent>
+  </Popover>
+);
+
+interface Props {
+  onCreateProfileDialogOpen: (open: boolean) => void;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
+  totalProfiles: number;
+  pageTitle?: string;
+}
+
+const HomeHeader = ({
+  onCreateProfileDialogOpen,
+  searchQuery,
+  onSearchQueryChange,
+  totalProfiles,
+  pageTitle,
+}: Props) => {
+  const holdTimeoutRef = useRef<number | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const dragStartedRef = useRef(false);
+  const activePointerIdRef = useRef<number | null>(null);
+
+  const clearHold = useCallback(() => {
+    if (holdTimeoutRef.current !== null) {
+      window.clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+  }, []);
+
+  const beginDrag = useCallback(() => {
+    if (dragStartedRef.current) return;
+    dragStartedRef.current = true;
+    clearHold();
+    void getCurrentWindow().startDragging();
+  }, [clearHold]);
+
+  useEffect(() => {
+    return () => {
+      clearHold();
+    };
+  }, [clearHold]);
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      if (isInteractiveTarget(e.target)) return;
+
+      dragStartedRef.current = false;
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+      activePointerIdRef.current = e.pointerId;
+
+      clearHold();
+      holdTimeoutRef.current = window.setTimeout(() => {
+        holdTimeoutRef.current = null;
+        beginDrag();
+      }, HOLD_MS);
+    },
+    [beginDrag, clearHold],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (
+        dragStartedRef.current ||
+        dragStartRef.current === null ||
+        activePointerIdRef.current !== e.pointerId
+      ) {
+        return;
+      }
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) {
+        beginDrag();
+      }
+    },
+    [beginDrag],
+  );
+
+  const handlePointerEnd = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (activePointerIdRef.current !== e.pointerId) return;
+      clearHold();
+      dragStartRef.current = null;
+      activePointerIdRef.current = null;
+      dragStartedRef.current = false;
+    },
+    [clearHold],
+  );
+
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isInteractiveTarget(e.target)) return;
+      clearHold();
+      void getCurrentWindow().toggleMaximize();
+    },
+    [clearHold],
+  );
+
+  const showProfileToolbar = !pageTitle;
+
+  return (
+    <div
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
+      onDoubleClick={handleDoubleClick}
+      className={cn(
+        "flex h-11 shrink-0 items-center gap-2 border-b border-border bg-card select-none",
+        "pl-3 pr-[144px]",
+      )}
+    >
+      {pageTitle ? (
+        <span className="ml-2 text-xs font-semibold text-card-foreground">
+          {pageTitle}
+        </span>
+      ) : (
+        <span className="ml-1 flex h-7 shrink-0 items-center gap-1.5 px-1 text-xs font-medium text-foreground">
+          All
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            {totalProfiles}
+          </span>
+        </span>
+      )}
+
+      {!showProfileToolbar && <div className="flex-1" />}
+
+      {showProfileToolbar && (
+        <div className="relative shrink-0">
+          <Input
+            type="text"
+            placeholder="Search profiles..."
+            value={searchQuery}
+            onChange={(e) => {
+              onSearchQueryChange(e.target.value);
+            }}
+            className="h-7 w-36 pr-7 pl-8 text-xs min-[860px]:w-52"
+          />
+          <LuSearch className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 transform text-muted-foreground" />
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={() => {
+                onSearchQueryChange("");
+              }}
+              className="absolute top-1/2 right-1.5 -translate-y-1/2 transform rounded-sm p-0.5 transition-colors hover:bg-accent hover:text-accent-foreground"
+              aria-label="Clear search"
+            >
+              <LuX className="size-3.5 text-muted-foreground hover:text-foreground" />
+            </button>
+          ) : null}
+        </div>
+      )}
+
+      {showProfileToolbar && <SearchSyntaxHelp />}
+
+      {showProfileToolbar && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="shrink-0">
+              <Button
+                size="sm"
+                onClick={() => {
+                  onCreateProfileDialogOpen(true);
+                }}
+                className="flex h-7 items-center gap-1.5 px-2.5 text-xs"
+              >
+                <GoPlus className="size-3.5" />
+                New
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Create a new profile</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  );
+};
+
+export default HomeHeader;

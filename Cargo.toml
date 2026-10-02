@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = ["crates/narrc-core", "apps/sidecar", "apps/desktop/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MPL-2.0"
+repository = "https://github.com/narci/narciphbrowser"
+authors = ["NarciPHBrowser contributors"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+narrc-core = { path = "crates/narrc-core" }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

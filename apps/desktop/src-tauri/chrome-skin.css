@@ -1,0 +1,189 @@
+:root {
+  --nc-strip: #dee1e6;
+  --nc-surface: #ffffff;
+  --nc-text: #202124;
+  --nc-muted: #5f6368;
+  --nc-line: #dadce0;
+  --nc-pill: #f1f3f4;
+  --nc-pill-hover: #e8eaed;
+  --nc-hover: rgba(0, 0, 0, 0.06);
+  --nc-active: rgba(0, 0, 0, 0.1);
+  --nc-focus: #d2e3fc;
+  --nc-shadow: rgba(32, 33, 36, 0.28);
+  --tab-selected-bgcolor: var(--nc-surface);
+  --tab-selected-textcolor: var(--nc-text);
+  --toolbarbutton-hover-background: var(--nc-hover);
+  --toolbarbutton-active-background: var(--nc-active);
+  --toolbarbutton-icon-fill: var(--nc-muted);
+  --toolbar-separator-color: var(--nc-line);
+  --tab-min-height: 29px !important;
+  --tab-max-height: 29px !important;
+  --lwt-accent-color: var(--nc-strip);
+  --lwt-text-color: var(--nc-text);
+  --lwt-toolbar-field-background-color: var(--nc-pill);
+  --lwt-toolbar-field-color: var(--nc-text);
+  --lwt-toolbar-field-border-color: transparent;
+  --lwt-toolbar-field-focus-background-color: var(--nc-surface);
+  --lwt-toolbar-field-focus-color: var(--nc-text);
+  --lwt-toolbar-button-icon-fill: var(--nc-muted);
+  --bookmark-text-color: var(--nc-text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --nc-strip: #1f2023;
+    --nc-surface: #202124;
+    --nc-text: #e8eaed;
+    --nc-muted: #9aa0a6;
+    --nc-line: #3c4043;
+    --nc-pill: #3a3d41;
+    --nc-pill-hover: #4a4d51;
+    --nc-hover: rgba(255, 255, 255, 0.08);
+    --nc-active: rgba(255, 255, 255, 0.14);
+    --nc-focus: rgba(138, 180, 248, 0.4);
+    --nc-shadow: rgba(0, 0, 0, 0.6);
+  }
+}
+
+#navigator-toolbox,
+#titlebar,
+#TabsToolbar {
+  background: var(--nc-strip) !important;
+}
+
+#nav-bar,
+#PersonalToolbar {
+  background: var(--nc-surface) !important;
+}
+
+.tabbrowser-tab .tab-background {
+  background: transparent !important;
+  border-radius: 8px 8px 0 0 !important;
+  box-shadow: none !important;
+}
+
+.tabbrowser-tab[selected] > .tab-background {
+  background: var(--nc-surface) !important;
+}
+
+.tabbrowser-tab:not([selected]):hover > .tab-background {
+  background: var(--nc-hover) !important;
+}
+
+.tab-context-line {
+  display: none !important;
+}
+
+.tab-label,
+.tab-text {
+  color: var(--nc-text) !important;
+}
+
+.tab-close-button {
+  border-radius: 9999px !important;
+}
+
+.tab-close-button:hover {
+  background: var(--nc-hover) !important;
+}
+
+#tabs-newtab-button,
+#new-tab-button {
+  background: transparent !important;
+  border-radius: 8px 8px 0 0 !important;
+}
+
+#tabs-newtab-button:hover,
+#new-tab-button:hover {
+  background: var(--nc-hover) !important;
+}
+
+#nav-bar {
+  --toolbar-field-background-color: var(--nc-pill) !important;
+  --toolbar-field-color: var(--nc-text) !important;
+  --toolbar-field-border-color: transparent !important;
+  --toolbar-field-focus-background-color: var(--nc-surface) !important;
+  --toolbar-field-separator-color: var(--nc-line) !important;
+}
+
+#nav-bar toolbarbutton,
+#PersonalToolbar toolbarbutton {
+  color: var(--nc-text) !important;
+}
+
+#urlbar {
+  color: var(--nc-text) !important;
+  --arrowpanel-background: var(--nc-surface) !important;
+  --arrowpanel-border-color: var(--nc-line) !important;
+  --arrowpanel-color: var(--nc-text) !important;
+  --arrowpanel-secondary-color: var(--nc-muted) !important;
+  --urlbarView-highlight-background: var(--nc-pill) !important;
+  --urlbarView-highlight-hover-background: var(--nc-pill-hover) !important;
+}
+
+#urlbar > #urlbar-background {
+  background: var(--nc-pill) !important;
+  border: none !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+}
+
+#urlbar:focus-within > #urlbar-background,
+#urlbar[open] > #urlbar-background {
+  background: var(--nc-surface) !important;
+  box-shadow: 0 0 0 2px var(--nc-focus) !important;
+}
+
+#urlbar-input {
+  color: var(--nc-text) !important;
+}
+
+#urlbar-input::placeholder {
+  color: var(--nc-muted) !important;
+}
+
+.urlbarView {
+  color: var(--nc-text) !important;
+}
+
+.urlbarView-url {
+  color: var(--nc-muted) !important;
+}
+
+menupopup,
+panel {
+  --panel-background: var(--nc-surface) !important;
+  --panel-border-color: var(--nc-line) !important;
+  --panel-color: var(--nc-text) !important;
+  --panel-secondary-color: var(--nc-muted) !important;
+  --arrowpanel-background: var(--nc-surface) !important;
+  --arrowpanel-border-color: var(--nc-line) !important;
+  --menuitem-hover-background: var(--nc-pill) !important;
+  --menuitem-hover-color: var(--nc-text) !important;
+}
+
+.titlebar-buttonbox-container .titlebar-button:hover {
+  background: var(--nc-hover) !important;
+}
+
+.titlebar-buttonbox-container .titlebar-button:active {
+  background: var(--nc-active) !important;
+}
+
+toolbar#nav-bar > .titlebar-buttonbox-container {
+  display: none !important;
+}
+
+#PanelUI-menu-button {
+  list-style-image: none !important;
+}
+
+#PanelUI-menu-button .toolbarbutton-icon {
+  -moz-appearance: none !important;
+  list-style-image: none !important;
+  background-image: none !important;
+  background-color: var(--nc-muted) !important;
+  width: 16px !important;
+  height: 16px !important;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='5.5' r='2'/><circle cx='12' cy='12' r='2'/><circle cx='12' cy='18.5' r='2'/></svg>") center / 16px 16px no-repeat !important;
+}

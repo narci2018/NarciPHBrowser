@@ -1,0 +1,18 @@
+{
+  "name": "@narc/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the NarciPHBrowser sidecar protocol.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"no tests yet\" && exit 0",
+    "lint": "echo \"no lint yet\" && exit 0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.2"
+  }
+}

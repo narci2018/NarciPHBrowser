@@ -1,0 +1,25 @@
+[package]
+name = "narrc-sidecar"
+description = "The NarciPHBrowser sidecar: a process boundary between the desktop UI and the identity engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+name = "narrc_sidecar"
+path = "src/lib.rs"
+
+[[bin]]
+name = "narrc-sidecar"
+path = "src/main.rs"
+
+[dependencies]
+narrc-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
