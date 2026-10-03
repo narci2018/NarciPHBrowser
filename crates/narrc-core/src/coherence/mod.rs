@@ -72,6 +72,30 @@ fn dpr_steps(os: TargetOs) -> &'static [f64] {
         .unwrap_or(&[1.0])
 }
 
+/// The properties that spoof WebGL *beyond* the vendor/renderer pair: context
+/// attributes, extensions, parameters and shader precisions for both context
+/// versions. Each describes one recorded GPU, so none of them can survive
+/// without a renderer to be that GPU's.
+const WEBGL_CONTEXT_OVERRIDES: &[&str] = &[
+    keys::WEBGL_EXTENSIONS,
+    keys::WEBGL2_EXTENSIONS,
+    keys::WEBGL_PARAMETERS,
+    keys::WEBGL2_PARAMETERS,
+    keys::WEBGL_PRECISION,
+    keys::WEBGL2_PRECISION,
+    keys::WEBGL_CONTEXT_ATTRS,
+    keys::WEBGL2_CONTEXT_ATTRS,
+];
+
+/// Every WebGL context override set on the identity, by name.
+fn webgl_context_overrides(identity: &Identity) -> Vec<&'static str> {
+    WEBGL_CONTEXT_OVERRIDES
+        .iter()
+        .copied()
+        .filter(|name| identity.is_set(name))
+        .collect()
+}
+
 /// The taskbar the OS reserves out of `screen.height`.
 pub fn taskbar_for(os: TargetOs) -> u32 {
     TASKBAR_HEIGHT
@@ -140,6 +164,29 @@ fn check_gpu_matches_os(identity: &Identity, os: TargetOs) -> Option<String> {
         }
         TargetOs::Linux => format!("Linux identity with {renderer:?}"),
     })
+}
+
+/// An override family that describes one GPU, arriving with no renderer.
+///
+/// The renderer property unset means the engine falls back to the *host's*
+/// GPU; a parameter set beside it then answers `getParameter` with one
+/// machine's values and `WEBGL_debug_renderer_info` with another's — the
+/// same contradiction a GPU/core-count mismatch is, one layer deeper. There
+/// is no repair, because the fix is data the identity does not carry: name
+/// the renderer the parameters came from, or drop them.
+fn check_webgl_context_override(identity: &Identity, _os: TargetOs) -> Option<String> {
+    if identity.is_set(keys::WEBGL_RENDERER) {
+        return None;
+    }
+    let set = webgl_context_overrides(identity);
+    if set.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "WebGL override(s) {} set without a webGl:renderer, whose absence \
+         falls back to the host GPU the parameters cannot belong to",
+        set.join(", ")
+    ))
 }
 
 fn check_intel_mac_hardware(identity: &Identity, os: TargetOs) -> Option<String> {
@@ -433,6 +480,11 @@ fn rules() -> Vec<Rule> {
             repair: None,
         },
         Rule {
+            name: "webgl-context-override",
+            check: check_webgl_context_override,
+            repair: None,
+        },
+        Rule {
             name: "intel-mac-hardware",
             check: check_intel_mac_hardware,
             repair: None,
@@ -549,8 +601,10 @@ pub fn screen_is_implausible(identity: &Identity) -> bool {
 /// core count with a 20-core host's — at which point normal sampling draws a
 /// coherent one instead.
 ///
-/// Only values another pool can replace are dropped; everything else is left
-/// for [`apply`].
+/// The WebGL context overrides travel with the pair that owns them: a
+/// parameter set describing a dropped GPU answers `getParameter` with one
+/// machine and falls back to the host for its renderer. Only values another
+/// pool can replace are dropped; everything else is left for [`apply`].
 pub fn drop_incoherent_source_values(identity: &mut Identity, os: TargetOs) -> Vec<Violation> {
     let renderer = renderer(identity);
     if renderer.is_empty() {
@@ -565,6 +619,9 @@ pub fn drop_incoherent_source_values(identity: &mut Identity, os: TargetOs) -> V
     };
     identity.remove(keys::WEBGL_RENDERER);
     identity.remove(keys::WEBGL_VENDOR);
+    for name in webgl_context_overrides(identity) {
+        identity.remove(name);
+    }
     vec![Violation::new(
         rule,
         format!("dropped {renderer:?} for a {} identity", os.as_str()),

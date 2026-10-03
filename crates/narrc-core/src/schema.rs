@@ -312,6 +312,25 @@ pub mod keys {
     pub const CERTIFICATES: &str = "certificates";
     pub const CERTIFICATE_PATHS: &str = "certificatePaths";
     pub const DEBUG: &str = "debug";
+
+    /// Humanised cursor movement (upstream's automation surface). The engine
+    /// animates programmatic cursor moves along a human-like path when this is
+    /// on; `humanize:maxTime` / `humanize:minTime` bound that duration.
+    pub const HUMANIZE: &str = "humanize";
+    pub const HUMANIZE_MAX_TIME: &str = "humanize:maxTime";
+    pub const HUMANIZE_MIN_TIME: &str = "humanize:minTime";
+
+    /// Whether a WebGL override family that arrives without a renderer is
+    /// blocked from reading rather than falling back to the host's values.
+    pub const WEBGL_SHADER_PRECISION_BLOCK: &str =
+        "webGl:shaderPrecisionFormats:blockIfNotDefined";
+    pub const WEBGL2_SHADER_PRECISION_BLOCK: &str =
+        "webGl2:shaderPrecisionFormats:blockIfNotDefined";
+
+    /// Automation-world controls: whether scripts may run in the page's main
+    /// world, and whether content world isolation is disabled.
+    pub const ALLOW_MAIN_WORLD: &str = "allowMainWorld";
+    pub const DISABLE_WORLD_ISOLATION: &str = "disableWorldIsolation";
 }
 
 #[cfg(test)]
@@ -428,6 +447,13 @@ mod tests {
             keys::CERTIFICATES,
             keys::CERTIFICATE_PATHS,
             keys::DEBUG,
+            keys::HUMANIZE,
+            keys::HUMANIZE_MAX_TIME,
+            keys::HUMANIZE_MIN_TIME,
+            keys::WEBGL_SHADER_PRECISION_BLOCK,
+            keys::WEBGL2_SHADER_PRECISION_BLOCK,
+            keys::ALLOW_MAIN_WORLD,
+            keys::DISABLE_WORLD_ISOLATION,
         ];
         for name in constants {
             assert!(
@@ -435,6 +461,114 @@ mod tests {
                 "keys::{name} is not a Camoufox property; it would be silently ignored"
             );
         }
+    }
+
+    /// The reverse of `every_constant_names_a_real_property`: every property
+    /// the engine can consume has a named constant, so a key the vendored
+    /// schema gains upstream cannot be forgotten here.
+    #[test]
+    fn every_engine_property_has_a_named_constant() {
+        let named: &[&str] = &[
+            keys::USER_AGENT,
+            keys::DO_NOT_TRACK,
+            keys::APP_VERSION,
+            keys::OSCPU,
+            keys::LANGUAGE,
+            keys::PLATFORM,
+            keys::HARDWARE_CONCURRENCY,
+            keys::MAX_TOUCH_POINTS,
+            keys::GLOBAL_PRIVACY_CONTROL,
+            keys::BUILD_ID,
+            keys::SCREEN_AVAIL_HEIGHT,
+            keys::SCREEN_AVAIL_WIDTH,
+            keys::SCREEN_AVAIL_TOP,
+            keys::SCREEN_AVAIL_LEFT,
+            keys::SCREEN_HEIGHT,
+            keys::SCREEN_WIDTH,
+            keys::COLOR_DEPTH,
+            keys::PIXEL_DEPTH,
+            keys::OUTER_HEIGHT,
+            keys::OUTER_WIDTH,
+            keys::INNER_HEIGHT,
+            keys::INNER_WIDTH,
+            keys::SCREEN_X,
+            keys::SCREEN_Y,
+            keys::DEVICE_PIXEL_RATIO,
+            keys::HEADER_USER_AGENT,
+            keys::HEADER_ACCEPT_LANGUAGE,
+            keys::HEADER_ACCEPT_ENCODING,
+            keys::WEBRTC_IPV4,
+            keys::WEBRTC_IPV6,
+            keys::FONTS,
+            keys::AUDIO_SEED,
+            keys::GEO_LATITUDE,
+            keys::GEO_LONGITUDE,
+            keys::GEO_ACCURACY,
+            keys::TIMEZONE,
+            keys::LOCALE_LANGUAGE,
+            keys::LOCALE_REGION,
+            keys::LOCALE_SCRIPT,
+            keys::LOCALE_ALL,
+            keys::HUMANIZE,
+            keys::HUMANIZE_MAX_TIME,
+            keys::HUMANIZE_MIN_TIME,
+            keys::SHOW_CURSOR,
+            keys::AUDIO_SAMPLE_RATE,
+            keys::AUDIO_OUTPUT_LATENCY,
+            keys::AUDIO_MAX_CHANNELS,
+            keys::WEBGL_RENDERER,
+            keys::WEBGL_VENDOR,
+            keys::WEBGL_EXTENSIONS,
+            keys::WEBGL2_EXTENSIONS,
+            keys::WEBGL_PARAMETERS,
+            keys::WEBGL2_PARAMETERS,
+            keys::WEBGL_PRECISION,
+            keys::WEBGL2_PRECISION,
+            keys::WEBGL_SHADER_PRECISION_BLOCK,
+            keys::WEBGL2_SHADER_PRECISION_BLOCK,
+            keys::WEBGL_CONTEXT_ATTRS,
+            keys::WEBGL2_CONTEXT_ATTRS,
+            keys::VOICES,
+            keys::VOICES_BLOCK_IF_UNDEFINED,
+            keys::MEDIA_MICS,
+            keys::MEDIA_WEBCAMS,
+            keys::MEDIA_SPEAKERS,
+            keys::MEDIA_ENABLED,
+            keys::MEDIA_MIC_LABELS,
+            keys::MEDIA_MIC_GROUPS,
+            keys::MEDIA_WEBCAM_LABELS,
+            keys::MEDIA_WEBCAM_GROUPS,
+            keys::MEDIA_SPEAKER_LABELS,
+            keys::MEDIA_SPEAKER_GROUPS,
+            keys::MEDIA_SPOOF_CODECS,
+            keys::ALLOW_MAIN_WORLD,
+            keys::DISABLE_WORLD_ISOLATION,
+            keys::ALLOW_ADDON_NEWTAB,
+            keys::FORCE_SCOPE_ACCESS,
+            keys::DISABLE_THEMING,
+            keys::INSTANT_ANIMATIONS,
+            keys::ADDONS,
+            keys::CERTIFICATE_PATHS,
+            keys::CERTIFICATES,
+            keys::DEBUG,
+        ];
+        let schema = PropertySchema::load().unwrap();
+        let mut unnamed = schema
+            .map()
+            .keys()
+            .filter(|name| !named.contains(&name.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        unnamed.sort();
+        assert!(
+            unnamed.is_empty(),
+            "the engine reads {unnamed:?} but schema::keys has no constant for it"
+        );
+        assert_eq!(
+            named.len(),
+            schema.len(),
+            "a constant names nothing, or one is listed twice"
+        );
     }
 
     #[test]

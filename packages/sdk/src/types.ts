@@ -10,10 +10,10 @@
  * this will be wrong in a way that only shows up at runtime, in a UI, when
  * a field is `undefined`.
  *
- * So every type here is written out in full, and the fixture test in
- * `src/__tests__/wire.test.ts` pins them against the actual JSON the sidecar
- * produces. A change on either side fails the build rather than the user's
- * UI.
+ * So every type here is written out in full, and `src/wire.test.mjs` pins the
+ * protocol envelope — the request line the client emits and the reply shapes
+ * the parsers accept — against byte-exact fixtures. A change on either side
+ * fails the build rather than the user's UI.
  *
  * # The rule for adding a field
  *
@@ -87,6 +87,11 @@ export interface Profile {
   proxy?: ProxyConfig;
   /** Extra engine arguments, verbatim. */
   extra_args: string[];
+  /**
+   * Browser extensions that load with the profile, as paths to `.xpi` files
+   * or unpacked addon directories. Absent when the profile carries none.
+   */
+  addons?: string[];
 }
 
 // ---------------------------------------------------------------- summary
@@ -118,6 +123,8 @@ export interface ProfileSummary {
   coherent: boolean;
   /** Whether a proxy is configured. */
   proxied: boolean;
+  /** How many browser extensions load with this profile. */
+  addon_count: number;
   /** A one-line summary, for the row. */
   summary: string;
 }
@@ -265,6 +272,124 @@ export interface Launched {
   discarded: Violation[];
 }
 
+// ------------------------------------------------------------------ verify
+
+/**
+ * What the comparison concluded about one property.
+ *
+ * Mirrors the Rust `Verdict`; kebab-case on the wire.
+ */
+export type Verdict =
+  /** The browser exposed exactly what the identity claimed. */
+  | "match"
+  /**
+   * The same value in a different representation — a signed 32-bit reading of
+   * an unsigned limit, or an unspecified `doNotTrack` for `"0"`. The `note`
+   * says which.
+   */
+  | "equivalent"
+  /** The browser exposed a different value. */
+  | "mismatch"
+  /** The identity claims a value the probe could not read at all. */
+  | "unread"
+  /**
+   * The browser exposed a value the identity does not claim. With no recorded
+   * table this is the host's own value, which is the leak the corpus exists to
+   * close.
+   */
+  | "unclaimed"
+  /** The identity asked for the query to be refused and it was. */
+  | "refused";
+
+/** One property, its claim, its observation, and the verdict. */
+export interface VerifyDifference {
+  /** The identity key, so a mismatch names the field to edit. */
+  property: string;
+  /** What the comparison concluded. */
+  verdict: Verdict;
+  /** What the identity claimed, or `null` when it claimed nothing. */
+  expected: unknown;
+  /** What the browser exposed, or `null` when it exposed nothing. */
+  observed: unknown;
+  /** A short explanation, when the verdict needs one. */
+  note?: string;
+}
+
+/**
+ * The result of one read-back verification run.
+ *
+ * Produced by launching the engine at a bundled probe page and diffing what a
+ * page can read against the identity the engine was handed. The only result in
+ * this SDK that is measured rather than asserted.
+ */
+export interface VerifyReport {
+  /** The engine binary that was launched. */
+  program: string;
+  /** How long the run took, in milliseconds. */
+  elapsed_ms: number;
+  /** How many properties were compared. */
+  checked: number;
+  /** How many of them agreed. */
+  agreed: number;
+  /**
+   * Every comparison that did not agree, plus the ones that did when
+   * `keep_agreements` was set. The default report is the problems.
+   */
+  differences: VerifyDifference[];
+  /**
+   * The request headers the browser sent for the probe page — the only place
+   * the wire-level claims can be observed from inside the run.
+   */
+  headers: Record<string, string>;
+  /** The renderer the page read back through `WEBGL_debug_renderer_info`. */
+  unmasked_renderer: string | null;
+}
+
+/**
+ * What an automation session needs beyond a launch.
+ *
+ * The session drives the profile's browser over Playwright's WebSocket
+ * endpoint; `driver_path` is the `playwright-core` package root the vendored
+ * automation script requires — `node_modules/playwright-core` for the Node
+ * package, `site-packages/playwright/driver/package` for Python Playwright.
+ */
+export interface AgentStartSpec {
+  /** The profile's id. */
+  id: string;
+  /** An explicit engine binary. Omit for the default. */
+  engine?: string;
+  /** The proxy's observed exit country, for the geo gate. */
+  exit_country?: string;
+  /** The `playwright-core` package root to require. */
+  driver_path: string;
+  /** An explicit Node runtime. Omit to run `node` from `PATH`. */
+  node_path?: string;
+  /** A WebSocket port to ask for. Omit for Playwright's choice. */
+  port?: number;
+  /** Whether the automated browser opens a window. Default `false`. */
+  headless?: boolean;
+}
+
+/** A running automation session: where Playwright clients connect. */
+export interface AgentSession {
+  /** The profile's id. */
+  id: string;
+  /** The endpoint a Playwright client passes to `firefox.connect`. */
+  wsEndpoint: string;
+  /** The Node process running the automation server. */
+  pid: number;
+}
+
+/** The reply to starting one automation session. */
+export interface AgentStarted {
+  /** The endpoint a Playwright client passes to `firefox.connect`. */
+  wsEndpoint: string;
+  /** The Node process running the automation server. */
+  pid: number;
+  /** The geo gate's verdict, when a proxy was configured. */
+  geo_gate?: GeoGate;
+}
+
 // ------------------------------------------------------------------ error
 
 /** How a failure should be presented, as data rather than prose. */
@@ -325,12 +450,19 @@ export interface CreateSpec {
   fonts?: FontProfile;
   /** Whether to claim tracking protection. */
   tracking_protection?: boolean;
+  /** Whether the engine humanises programmatic cursor movement. */
+  humanize?: boolean;
   /** Notes the user wrote. */
   notes?: string;
   /** A proxy to launch through. */
   proxy?: CreateProxy;
   /** Extra engine arguments, verbatim. */
   extra_args?: string[];
+  /**
+   * Browser extensions that load with the profile, as paths to `.xpi` files
+   * or unpacked addon directories. Absent when the profile carries none.
+   */
+  addons?: string[];
 }
 
 /**

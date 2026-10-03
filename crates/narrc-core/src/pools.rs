@@ -42,10 +42,6 @@ pub const WINDOWS_BUILDS: &[(&str, &str)] = &[
     ("10.0.17763", "17763"),
 ];
 
-/// A Windows machine name prefix. Windows uses the form `DESKTOP-XXXXXXX` for
-/// OEM images and a user-chosen name after that; both are common.
-pub const WINDOWS_DEVICE_PREFIXES: &[&str] = &["DESKTOP", "PC", "WIN", "NARCI"];
-
 // --------------------------------------------------------------------- macOS
 
 /// macOS versions a Mac can report, newest first. Apple Silicon needs 11+.
@@ -1424,7 +1420,33 @@ pub const ACCEPT_ENCODING: &str = "gzip, deflate, br, zstd";
 
 /// The `navigator.doNotTrack` value Firefox emits when tracking protection is
 /// on: the literal string `"1"`, not the boolean.
+///
+/// The engine's property list declares `navigator.doNotTrack`, but the installed
+/// build does not apply it — a page reads `"unspecified"` whatever the config
+/// says (measured; see `engine::UNAPPLIED_PROPERTIES`). The value is still
+/// written, because it is the correct one if the engine starts honouring the
+/// property, and the launch plan warns that it is not being delivered.
 pub const DO_NOT_TRACK: &str = "1";
+
+/// The `navigator.buildID` a page reads from this engine, measured with
+/// `cargo run -p narrc-core --example probe -- host`.
+///
+/// `navigator.buildID` is the Firefox **build date** — a 14-digit
+/// `YYYYMMDDhhmmss` stamp, the same for every user of a build — not a machine
+/// name. The engine's property list declares the property, but the installed
+/// build does not apply it: a claimed value is ignored and the engine answers
+/// with this constant, verified by claiming both a machine-name-shaped value
+/// and a well-formed 14-digit one.
+///
+/// So the config carries the value the page will read, which keeps the profile
+/// self-consistent. That is the only honest choice available: the alternative is
+/// claiming a date the browser never reports.
+///
+/// It is also a **shared tell this crate cannot fix**, and the README says so:
+/// `20181001000000` is October 2018 while the user agent claims Firefox 156, so
+/// `navigator.buildID` contradicts `navigator.userAgent` for every profile. No
+/// pref or property reaches a compile-time constant the engine refuses to patch.
+pub const FIREFOX_BUILD_ID: &str = "20181001000000";
 
 /// `navigator.globalPrivacyControl` is only ever `true` on Firefox; a `false`
 /// value would describe a browser that does not exist, so it is set only when

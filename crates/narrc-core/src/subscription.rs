@@ -15,12 +15,13 @@
 //! list is read live from the core, and this module never parses a share link,
 //! never speaks a protocol, and never touches the network.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::proxy_store::slug_with;
+use crate::seal;
 
 /// The on-disk format version of the subscription file.
 const SUBSCRIPTION_FORMAT: u32 = 1;
@@ -72,28 +73,26 @@ impl SubscriptionStore {
     /// normal state before the user adds a subscription.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
-        let subscriptions = if path.exists() {
-            let bytes = std::fs::read(&path).map_err(|source| {
-                Error::environment(format!("could not read {}: {source}", path.display()))
-            })?;
-            let file: SubscriptionFile = serde_json::from_slice(&bytes).map_err(|source| {
-                Error::identity(format!(
-                    "{} is not a readable subscription list: {source}",
-                    path.display()
-                ))
-            })?;
-            if file.format > SUBSCRIPTION_FORMAT {
-                return Err(Error::identity(format!(
-                    "{} was written by a newer version of NarciPHBrowser (format {}, this build \
-                     understands {}); upgrade rather than letting it be rewritten",
-                    path.display(),
-                    file.format,
-                    SUBSCRIPTION_FORMAT
-                )));
+        let subscriptions = match seal::read_store(&path)? {
+            Some(bytes) => {
+                let file: SubscriptionFile = serde_json::from_slice(&bytes).map_err(|source| {
+                    Error::identity(format!(
+                        "{} is not a readable subscription list: {source}",
+                        path.display()
+                    ))
+                })?;
+                if file.format > SUBSCRIPTION_FORMAT {
+                    return Err(Error::identity(format!(
+                        "{} was written by a newer version of NarciPHBrowser (format {}, this build \
+                         understands {}); upgrade rather than letting it be rewritten",
+                        path.display(),
+                        file.format,
+                        SUBSCRIPTION_FORMAT
+                    )));
+                }
+                file.subscriptions
             }
-            file.subscriptions
-        } else {
-            Vec::new()
+            None => Vec::new(),
         };
         Ok(Self { path, subscriptions })
     }
@@ -184,8 +183,8 @@ impl SubscriptionStore {
 
     /// Writes the list, replacing any previous version of it.
     ///
-    /// Written to a sibling temp file and renamed, for the same reason a
-    /// profile is: a crash halfway through a write must not leave a list that
+    /// Written sealed — a subscription URL is a bearer credential — and
+    /// atomically: a crash halfway through a write must not leave a list that
     /// parses as truncated JSON.
     fn save(&self) -> Result<()> {
         if let Some(parent) = self.path.parent() {
@@ -200,17 +199,7 @@ impl SubscriptionStore {
             subscriptions: self.subscriptions.clone(),
         };
         let json = serde_json::to_string_pretty(&file)?;
-        let temp = temp_path(&self.path);
-        std::fs::write(&temp, json.as_bytes()).map_err(|source| {
-            Error::environment(format!("could not write {}: {source}", temp.display()))
-        })?;
-        std::fs::rename(&temp, &self.path).map_err(|source| {
-            Error::environment(format!(
-                "could not replace {}: {source}",
-                self.path.display()
-            ))
-        })?;
-        Ok(())
+        seal::write_store(&self.path, json.as_bytes())
     }
 }
 
@@ -236,16 +225,6 @@ fn checked(name: &str, url: &str) -> Result<(String, String)> {
         return Err(Error::identity("that subscription URL is unreasonably long"));
     }
     Ok((name.to_owned(), url.to_owned()))
-}
-
-/// The temp file a save writes before it renames.
-fn temp_path(path: &Path) -> PathBuf {
-    let mut name = path
-        .file_name()
-        .map(|name| name.to_os_string())
-        .unwrap_or_else(|| "subscriptions.json".into());
-    name.push(".tmp");
-    path.with_file_name(name)
 }
 
 #[cfg(test)]

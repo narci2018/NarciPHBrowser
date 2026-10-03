@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { LuPencil, LuPlay, LuTrash2 } from "react-icons/lu";
-import type { Inspection, Report } from "@narc/sdk";
+import { LuLoaderCircle, LuPencil, LuPlay, LuRefreshCw, LuShieldCheck, LuTrash2 } from "react-icons/lu";
+import type { Inspection, Report, Verdict, VerifyReport } from "@narc/sdk";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -312,6 +312,206 @@ function CoherenceTab({ report }: { report: Report }) {
   );
 }
 
+interface VerifyTabProps {
+  verification: VerifyReport | null;
+  verifying: boolean;
+  onVerify: (keepAgreements: boolean) => void;
+}
+
+/** Whether a verdict counts as the browser agreeing with the identity. */
+const isAgreement = (verdict: Verdict) =>
+  verdict === "match" || verdict === "equivalent" || verdict === "refused";
+
+const VERDICT_LABEL: Record<Verdict, string> = {
+  match: "match",
+  equivalent: "equivalent",
+  mismatch: "mismatch",
+  unread: "unread",
+  unclaimed: "unclaimed",
+  refused: "refused",
+};
+
+const VERDICT_CLASS: Record<Verdict, string> = {
+  match: "border-success/30 bg-success/10 text-success-text",
+  equivalent: "border-success/30 bg-success/10 text-success-text",
+  refused: "border-success/30 bg-success/10 text-success-text",
+  mismatch: "border-destructive/30 bg-destructive/10 text-destructive-text",
+  unread: "border-warning/30 bg-warning/10 text-warning-text",
+  unclaimed: "border-warning/30 bg-warning/10 text-warning-text",
+};
+
+/**
+ * The read-back: what a page can actually see, against what the profile claims.
+ *
+ * Every other tab reasons about the identity the engine is handed. This one
+ * launches the profile's engine at a bundled probe page and diffs the two, so
+ * it is the only place a value is *measured* rather than asserted — and the
+ * only place that opens a browser, which is why it waits for a click.
+ */
+function VerifyTab({ verification, verifying, onVerify }: VerifyTabProps) {
+  const [keepAgreements, setKeepAgreements] = useState(false);
+
+  if (verifying) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-12 text-center">
+        <LuLoaderCircle className="size-6 animate-spin text-muted-foreground" />
+        <div>
+          <p className="text-sm font-medium text-foreground">Reading the profile back…</p>
+          <p className="mt-1 max-w-md text-xs text-muted-foreground">
+            A browser is starting with this profile's identity, loading a bundled test page and
+            closing itself. A cold start takes a few seconds; nothing is written to the profile.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!verification) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <p className="text-sm font-medium text-foreground">
+            Verify this profile against a running browser
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            The Fingerprint tab shows what the engine is <em>handed</em>. This launches a real
+            browser with that identity, loads a bundled probe page and reads back what a page can
+            actually see — navigator, screen, WebGL limits, extensions, headers — then reports
+            every value that did not come back as claimed.
+          </p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          The browser opens a window for a few seconds and closes itself. It uses a throwaway
+          profile directory, so nothing here is added to the profile's own data.
+        </p>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={keepAgreements}
+            onChange={(event) => {
+              setKeepAgreements(event.target.checked);
+            }}
+            className="size-3.5 accent-current"
+          />
+          List every compared value, not just the differences
+        </label>
+        <div>
+          <Button size="sm" onClick={() => onVerify(keepAgreements)}>
+            <LuShieldCheck className="size-3.5" />
+            Run verification
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const mismatches = verification.differences.filter(
+    (difference) => !isAgreement(difference.verdict),
+  );
+  const seconds = (verification.elapsed_ms / 1000).toFixed(1);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium text-foreground">
+            {verification.agreed} of {verification.checked} compared values agreed
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {seconds}s · {verification.program}
+          </p>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => onVerify(keepAgreements)}>
+          <LuRefreshCw className="size-3.5" />
+          Run again
+        </Button>
+      </div>
+
+      {verification.unmasked_renderer && (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+          <p className="text-[11px] text-muted-foreground">Renderer a page reads</p>
+          <code className="text-xs break-all text-foreground">
+            {verification.unmasked_renderer}
+          </code>
+        </div>
+      )}
+
+      {mismatches.length === 0 ? (
+        <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2">
+          <p className="text-xs text-success-text">
+            Everything the page could read came back as the profile claims it.
+          </p>
+        </div>
+      ) : (
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-foreground">
+            Differences ({mismatches.length})
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {mismatches.map((difference, index) => (
+              <li
+                key={`${difference.property}-${index}`}
+                className="flex flex-col gap-1 rounded-md border border-border px-3 py-2"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={cn("text-[10px]", VERDICT_CLASS[difference.verdict])}
+                  >
+                    {VERDICT_LABEL[difference.verdict]}
+                  </Badge>
+                  <code className="text-xs text-foreground">{difference.property}</code>
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground">
+                  <span>claimed: {formatValue(difference.expected)}</span>
+                  <span>read: {formatValue(difference.observed)}</span>
+                </div>
+                {difference.note && (
+                  <p className="text-[11px] text-muted-foreground">{difference.note}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {keepAgreements && verification.differences.length > mismatches.length && (
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-foreground">
+            Agreed ({verification.differences.length - mismatches.length})
+          </p>
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="w-[220px]">Property</TableHead>
+                <TableHead>Read back</TableHead>
+                <TableHead className="w-[110px]">Verdict</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {verification.differences
+                .filter((difference) => isAgreement(difference.verdict))
+                .map((difference, index) => (
+                  <TableRow key={`${difference.property}-${index}`} className="hover:bg-transparent">
+                    <TableCell className="align-top font-mono text-xs break-all whitespace-normal">
+                      {difference.property}
+                    </TableCell>
+                    <TableCell className="align-top font-mono text-xs break-all whitespace-normal text-muted-foreground">
+                      {formatValue(difference.observed)}
+                    </TableCell>
+                    <TableCell className="align-top text-[11px] text-muted-foreground">
+                      {VERDICT_LABEL[difference.verdict]}
+                    </TableCell>
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ProfileInfoDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -319,6 +519,9 @@ interface ProfileInfoDialogProps {
   report: Report | null;
   loading: boolean;
   launching: boolean;
+  verification: VerifyReport | null;
+  verifying: boolean;
+  onVerify: (keepAgreements: boolean) => void;
   onLaunch: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -333,6 +536,9 @@ export function ProfileInfoDialog({
   report,
   loading,
   launching,
+  verification,
+  verifying,
+  onVerify,
   onLaunch,
   onEdit,
   onDelete,
@@ -458,6 +664,14 @@ export function ProfileInfoDialog({
                   <span className="ml-1 text-muted-foreground">{report.violations.length}</span>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="verify" className="py-1 text-xs">
+                Verify
+                {verification && (
+                  <span className="ml-1 text-muted-foreground">
+                    {verification.agreed}/{verification.checked}
+                  </span>
+                )}
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -486,6 +700,13 @@ export function ProfileInfoDialog({
                 </TabsContent>
                 <TabsContent value="coherence" className="mt-0">
                   <CoherenceTab report={report} />
+                </TabsContent>
+                <TabsContent value="verify" className="mt-0">
+                  <VerifyTab
+                    verification={verification}
+                    verifying={verifying}
+                    onVerify={onVerify}
+                  />
                 </TabsContent>
               </>
             )}

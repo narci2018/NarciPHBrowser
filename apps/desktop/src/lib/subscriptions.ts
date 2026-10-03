@@ -21,10 +21,21 @@ export interface SubscriptionNode {
 export interface NodeResult {
   delay?: number | null;
   speed?: number | null;
+  /** The exit an echo service saw through the node, when one was measured. */
+  exit?: NodeExit | null;
   delayError?: string | null;
   speedError?: string | null;
+  exitError?: string | null;
   testingDelay?: boolean;
   testingSpeed?: boolean;
+  testingExit?: boolean;
+}
+
+/** The exit an echo service reported for a node. */
+export interface NodeExit {
+  ip: string;
+  country?: string | null;
+  city?: string | null;
 }
 
 /** A URL with its path and query hidden, so a token never sits on screen. */
@@ -95,4 +106,12 @@ export async function testNodeSpeed(id: string, node: string): Promise<number> {
     payload: { subscription_id: id, node },
   });
   return result.mbps;
+}
+
+/** Reports which country a node's traffic really exits from. */
+export async function testNodeExit(id: string, node: string): Promise<NodeExit> {
+  const result = await invoke<NodeExit>("test_node_exit", {
+    payload: { subscription_id: id, node },
+  });
+  return result;
 }

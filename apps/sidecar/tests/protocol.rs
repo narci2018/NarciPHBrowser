@@ -697,6 +697,7 @@ fn a_summary_is_a_flat_row_and_not_a_nested_identity() {
             "override_count",
             "coherent",
             "proxied",
+            "addon_count",
             "summary",
         ];
         expected.sort();

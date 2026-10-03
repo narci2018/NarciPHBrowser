@@ -8,8 +8,8 @@
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "echo \"no tests yet\" && exit 0",
-    "lint": "echo \"no lint yet\" && exit 0"
+    "test": "node --experimental-strip-types --test src/wire.test.mjs",
+    "lint": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

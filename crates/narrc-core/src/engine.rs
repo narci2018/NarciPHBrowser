@@ -16,11 +16,12 @@
 //! `MAX_ARG_STRLEN` of 128 KiB —?but a block that large cannot be passed
 //! through most launchers, and macOS `posix_spawn` gets a smaller effective
 //! budget in practice. So the payload is **chunked** across numbered variables
-//! (`CAMOU_CONFIG_1`, `CAMOU_CONFIG_2`, —? and rejoined by the reader. A
-//! profile with a full Windows font list and a long WebGL renderer is around
-//! 8 KB, which fits in one chunk; the chunking exists so that the *pathological*
-//! cases —?an extended font list, many locales, a custom canvas payload —?still
-//! launch instead of failing with an error that gives no clue as to why.
+//! (`CAMOU_CONFIG_1`, `CAMOU_CONFIG_2`, …) and rejoined by the reader. A profile
+//! with a full Windows font list, a long WebGL renderer and its recorded WebGL
+//! context is around 10 KB, which is two chunks; the chunking is what keeps the
+//! *pathological* cases — an extended font list, many locales, a custom canvas
+//! payload — launching instead of failing with an error that gives no clue as
+//! to why.
 //!
 //! Ordering is sorted before chunking so that a given identity always produces
 //! the same chunk boundaries. Without that, adding one key would shuffle every
@@ -33,6 +34,7 @@ use serde::Serialize;
 
 use crate::error::{Error, Result};
 use crate::identity::Identity;
+use crate::schema::keys;
 
 /// A launchable description of a browser process.
 ///
@@ -156,6 +158,35 @@ pub fn rejoin_chunks(chunks: &[&str]) -> String {
     chunks.concat()
 }
 
+/// The directory the launcher installs the engine into, per platform.
+///
+/// Windows keeps the install beside the user profile (`%USERPROFILE%\camoufox`),
+/// where the engine's own layout expects to sit; everywhere else the XDG cache
+/// convention holds (`~/.cache/camoufox`). The installer and the default
+/// engine path must agree on this, or a plan built without the launcher's
+/// binary override would point at a location nothing installs into.
+pub fn engine_install_dir() -> std::path::PathBuf {
+    if let Ok(explicit) = std::env::var("NARCI_CAMOUFOX_DIR") {
+        return explicit.into();
+    }
+    let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .unwrap_or_default();
+    if cfg!(windows) {
+        std::path::PathBuf::from(home).join("camoufox")
+    } else {
+        std::path::PathBuf::from(home).join(".cache").join("camoufox")
+    }
+}
+
+/// The engine binary's file name, per platform.
+pub fn engine_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "camoufox.exe"
+    } else {
+        "camoufox"
+    }
+}
+
 /// Where the engine binary is expected to live.
 ///
 /// A path, not a bundled resource. The engine is a ~200 MB Firefox build and
@@ -166,17 +197,10 @@ pub fn default_engine_path() -> String {
     if let Ok(explicit) = std::env::var("NARCI_CAMOUFOX_PATH") {
         return explicit;
     }
-    let home = std::env::var(if cfg!(windows) {
-        "LOCALAPPDATA"
-    } else {
-        "HOME"
-    })
-    .unwrap_or_default();
-    if cfg!(windows) {
-        format!("{home}\\camoufox\\camoufox.exe")
-    } else {
-        format!("{home}/.cache/camoufox/camoufox")
-    }
+    engine_install_dir()
+        .join(engine_binary_name())
+        .to_string_lossy()
+        .to_string()
 }
 
 /// Everything the launcher needs beyond the identity itself.
@@ -246,6 +270,96 @@ pub fn base_args(config: &EngineConfig) -> Vec<String> {
     args
 }
 
+/// Warns when a spoofed WebGL renderer has no recorded limit table to match.
+///
+/// The engine's `MaskConfig::MParamGL` returns the *host's* value for any
+/// parameter the config does not name, and an absent or empty extension list
+/// falls through to the host's too (see `resources/UPSTREAM.md` for the two
+/// source sites). So an identity that spoofs the renderer but not the table
+/// does not present a merely less-detailed GPU — it presents one whose limits
+/// contradict the name printed beside them, which is a stronger tell than
+/// either value would be alone.
+///
+/// This is a warning and not a coherence violation on purpose. A hand edit
+/// that sets only the renderer is a legal configuration, and the coherence
+/// layer's violations make a profile *unlaunchable* — which would turn a
+/// coverage gap in the corpus into a refusal to run roughly half the pool.
+fn webgl_coverage_warnings(identity: &Identity) -> Vec<String> {
+    let Some(renderer) = identity.get_str(keys::WEBGL_RENDERER) else {
+        return Vec::new();
+    };
+    let mut missing = Vec::new();
+    if !identity.is_set(keys::WEBGL_PARAMETERS) {
+        missing.push("the limit table (webGl:parameters)");
+    }
+    if !identity.is_set(keys::WEBGL_EXTENSIONS) {
+        missing.push("the extension list (webGl:supportedExtensions)");
+    }
+    if missing.is_empty() {
+        return Vec::new();
+    }
+    // The precision refusal is the one part of the gap the generator *can*
+    // close, so say which of the two situations this is: a refusal carries no
+    // information about the machine, but it is not a substitute for a table.
+    let mitigation = if identity.get_bool(keys::WEBGL_SHADER_PRECISION_BLOCK) == Some(true) {
+        " (the shader-precision query is refused rather than answered, but that does not supply \
+         the missing values)"
+    } else {
+        ""
+    };
+    vec![format!(
+        "WebGL renderer {renderer:?} has no recorded {}: the engine answers those from the host, \
+         so the spoofed renderer contradicts its own limits{mitigation}",
+        missing.join(" and ")
+    )]
+}
+
+/// Properties the engine's own property list declares but the installed build
+/// does not apply, with the value a page reads instead.
+///
+/// Measured, not read off a changelog: `cargo run -p narrc-core --example probe
+/// -- host` launches the engine with an empty identity, and a claimed value is
+/// compared against what the page read back. Both entries were confirmed by
+/// claiming a distinctive value and seeing the engine's own answer return.
+///
+/// They are not equally bad, which is why this is a list of pairs rather than a
+/// set of keys:
+///
+/// * `navigator.doNotTrack` reports `"unspecified"`. A profile with tracking
+///   protection on therefore *presents* it as off — a silent divergence between
+///   what the profile claims and what a site sees. Its sibling
+///   `navigator.globalPrivacyControl` **is** applied, so the engine's tracking
+///   -protection support is half-wired rather than absent.
+/// * `navigator.buildID` reports the engine's fixed constant. The generator
+///   already writes that same value (see `pools::FIREFOX_BUILD_ID`), so this
+///   only warns if something set a different one.
+pub const UNAPPLIED_PROPERTIES: &[(&str, &str)] = &[
+    ("navigator.doNotTrack", "unspecified"),
+    ("navigator.buildID", crate::pools::FIREFOX_BUILD_ID),
+];
+
+/// Warns when an identity claims a property the engine will not deliver.
+///
+/// A warning rather than a coherence violation, for the same reason as
+/// [`webgl_coverage_warnings`]: the profile is still launchable and still
+/// mostly correct, and a violation would make the first such profile
+/// unlaunchable. The user is told what a site will see instead.
+fn unapplied_property_warnings(identity: &Identity) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for (property, presented) in UNAPPLIED_PROPERTIES {
+        let Some(claimed) = identity.get_str(property) else {
+            continue;
+        };
+        if claimed != *presented {
+            warnings.push(format!(
+                "the installed engine does not apply {property}: this profile claims {claimed:?} \
+                 but a page reads {presented:?}"
+            ));
+        }
+    }
+    warnings
+}
+
 /// Turns an identity into a launch plan.
 ///
 /// The returned plan is *not* executed. Executing it is the sidecar's job, and
@@ -264,6 +378,18 @@ pub fn build_plan(identity: &Identity, config: &EngineConfig) -> Result<LaunchPl
             config.program
         ));
     }
+
+    // An addon path that is not there is skipped by the engine without a
+    // word — the profile the user sees would silently run without the
+    // extension they believe it carries.
+    for addon in identity.get_str_array(crate::schema::keys::ADDONS).unwrap_or_default() {
+        if !std::path::Path::new(&addon).exists() {
+            warnings.push(format!("addon {addon:?} does not exist; the engine would skip it"));
+        }
+    }
+
+    warnings.extend(webgl_coverage_warnings(identity));
+    warnings.extend(unapplied_property_warnings(identity));
 
     let payload = identity.to_config_json();
     let config_vars = chunked_vars(CONFIG_PREFIX, &payload);
@@ -289,11 +415,18 @@ pub fn build_plan(identity: &Identity, config: &EngineConfig) -> Result<LaunchPl
     env.extend(config_vars);
     env.extend(prefs_vars);
     // A per-profile fontconfig, so two profiles with different font lists do
-    // not share one font cache and contradict each other.
-    env.insert(
-        FONTCONFIG_PATH_VAR.to_owned(),
-        config.profile_dir.join("fonts.conf").display().to_string(),
-    );
+    // not share one font cache and contradict each other. Pointed at only
+    // when the file is there: a fontconfig variable naming a file that does
+    // not exist is read as "no font configuration" by anything that honours
+    // it, which is the host-font fallback the variable exists to prevent.
+    // (Nothing in this crate writes fonts.conf yet — see resources/UPSTREAM.md.)
+    let fonts_conf = config.profile_dir.join("fonts.conf");
+    if fonts_conf.is_file() {
+        env.insert(
+            FONTCONFIG_PATH_VAR.to_owned(),
+            fonts_conf.display().to_string(),
+        );
+    }
     env.extend(config.extra_env.iter().map(|(k, v)| (k.clone(), v.clone())));
 
     Ok(LaunchPlan {
@@ -348,17 +481,33 @@ mod tests {
         EngineConfig::new(dir)
     }
 
+    /// A typical payload fits in the environment budget with room to spare.
+    ///
+    /// The chunking is no longer only pathological-case insurance: a recorded
+    /// WebGL context is a real parameter table, not a handful of constants, so
+    /// a typical identity now spans two chunks. What has to hold is that the
+    /// total stays well inside the platform ceiling and that the chunks
+    /// reassemble losslessly.
     #[test]
-    fn a_typical_payload_fits_in_one_chunk() {
+    fn a_typical_payload_fits_in_the_environment_budget() {
         for os in crate::os::TargetOs::ALL {
             let identity = generator::generate(1, &GeneratorOptions::new(os)).identity;
             let payload = identity.to_config_json();
-            let chunks = chunked_vars(CONFIG_PREFIX, &payload);
+            let prefs = identity.to_prefs_json();
+
+            let mut env = chunked_vars(CONFIG_PREFIX, &payload);
+            env.extend(chunked_vars(PREFS_PREFIX, &prefs));
+            let total: usize = env.values().map(String::len).sum();
+
+            assert!(
+                total <= ENV_BLOCK_LIMIT / 2,
+                "{os} produced a {total} byte payload, over half the {ENV_BLOCK_LIMIT} byte budget"
+            );
+            // However many chunks it took, the reader gets the identity back.
             assert_eq!(
-                chunks.len(),
-                1,
-                "{os} produced a {} byte payload, which should fit in one chunk",
-                payload.len()
+                identity_from_env(&env).expect("the chunks reassemble").to_config_json(),
+                payload,
+                "{os} did not survive the round trip through the environment"
             );
         }
     }
@@ -472,27 +621,158 @@ mod tests {
     }
 
     #[test]
-    fn the_fontconfig_path_is_per_profile() {
+    fn the_fontconfig_path_appears_only_when_the_file_exists() {
         let identity = Identity::new();
-        let a = build_plan(&identity, &config("C:/profiles/a")).unwrap();
-        let b = build_plan(&identity, &config("C:/profiles/b")).unwrap();
-        let path_a = &a.env[FONTCONFIG_PATH_VAR];
-        let path_b = &b.env[FONTCONFIG_PATH_VAR];
-        assert_ne!(
-            path_a, path_b,
-            "two profiles sharing one fontconfig path would share a font list"
-        );
-        assert!(path_a.ends_with("fonts.conf"));
+        let base = std::env::temp_dir().join(format!("narci-fonts-{}", std::process::id()));
+        let dir_a = base.join("a");
+        let dir_b = base.join("b");
+        std::fs::create_dir_all(&dir_a).unwrap();
+        std::fs::create_dir_all(&dir_b).unwrap();
+        std::fs::write(dir_a.join("fonts.conf"), "<fontconfig/>").unwrap();
+
+        // Without the file, the variable is absent: pointing it at a file that
+        // does not exist reads as "no font configuration" and invites the
+        // host-font fallback it exists to prevent.
+        let absent = build_plan(&identity, &config(dir_b.to_string_lossy().as_ref())).unwrap();
+        assert!(!absent.env.contains_key(FONTCONFIG_PATH_VAR));
+
+        let present = build_plan(&identity, &config(dir_a.to_string_lossy().as_ref())).unwrap();
+        let path = present.env[FONTCONFIG_PATH_VAR].as_str();
+        assert!(path.ends_with("fonts.conf"));
+        assert!(path.contains("a"));
+
+        std::fs::remove_dir_all(&base).ok();
     }
 
     #[test]
     fn a_missing_engine_is_a_warning_not_an_error() {
-        let plan = build_plan(&Identity::new(), &config("C:/profiles/x")).unwrap();
+        // An explicit missing path, so the test does not depend on whether the
+        // machine running it happens to have the engine installed.
+        let mut missing = config("C:/profiles/x");
+        missing.program = "C:/definitely/not/an/engine.exe".to_owned();
+        let plan = build_plan(&Identity::new(), &missing).unwrap();
         assert!(
             plan.warnings
                 .iter()
                 .any(|w| w.contains("engine binary not found")),
             "expected a warning, got {:?}",
+            plan.warnings
+        );
+    }
+
+    #[test]
+    fn a_missing_addon_path_is_a_warning_not_an_error() {
+        let mut identity = Identity::new();
+        identity.set_str_array(
+            crate::schema::keys::ADDONS,
+            ["C:/definitely/not/there.xpi"],
+        );
+        let plan = build_plan(&identity, &config("C:/profiles/x")).unwrap();
+        assert!(
+            plan.warnings
+                .iter()
+                .any(|w| w.contains("does not exist") && w.contains("not/there.xpi")),
+            "expected a missing-addon warning, got {:?}",
+            plan.warnings
+        );
+    }
+
+    /// A spoofed renderer with no limit table is flagged, because the engine
+    /// would answer every WebGL parameter from the host and contradict it.
+    #[test]
+    fn a_renderer_without_a_limit_table_is_flagged() {
+        let mut identity = Identity::new();
+        identity.set_str(crate::schema::keys::WEBGL_RENDERER, "Apple M2, or similar");
+        let plan = build_plan(&identity, &config("C:/profiles/x")).unwrap();
+        assert!(
+            plan.warnings
+                .iter()
+                .any(|w| w.contains("Apple M2") && w.contains("contradicts its own limits")),
+            "expected a coverage warning, got {:?}",
+            plan.warnings
+        );
+
+        // The generator's own refusal for an uncovered GPU is named as the
+        // mitigation it is, not as a fix. The renderer comes from the hardware
+        // draw in the real pipeline, so it is set by hand here.
+        let mut uncovered = Identity::new();
+        uncovered.set_str(crate::schema::keys::WEBGL_RENDERER, "Apple M2, or similar");
+        crate::generator::webgl::write_webgl(
+            &mut uncovered,
+            "Apple M2, or similar",
+            crate::os::TargetOs::Macos,
+            1,
+        );
+        let plan = build_plan(&uncovered, &config("C:/profiles/x")).unwrap();
+        assert!(
+            plan.warnings
+                .iter()
+                .any(|w| w.contains("shader-precision query is refused")),
+            "expected the refusal to be described, got {:?}",
+            plan.warnings
+        );
+    }
+
+    /// A fully spoofed context says nothing, so the warning stays quiet on the
+    /// coverage the corpus does have.
+    #[test]
+    fn a_spoofed_context_raises_no_coverage_warning() {
+        let identity = generator::generate(0xabc, &GeneratorOptions::new(crate::os::TargetOs::Windows))
+            .identity;
+        assert!(identity.is_set(crate::schema::keys::WEBGL_RENDERER));
+        assert!(identity.is_set(crate::schema::keys::WEBGL_PARAMETERS));
+        let plan = build_plan(&identity, &config("C:/profiles/x")).unwrap();
+        assert!(
+            !plan.warnings.iter().any(|w| w.contains("contradicts its own limits")),
+            "a recorded GPU must not be flagged, got {:?}",
+            plan.warnings
+        );
+    }
+
+    #[test]
+    fn a_property_the_engine_ignores_is_flagged() {
+        let mut identity = Identity::new();
+        identity.set_str(crate::schema::keys::DO_NOT_TRACK, "1");
+        let plan = build_plan(&identity, &config("C:/profiles/x")).unwrap();
+        assert!(
+            plan.warnings.iter().any(|warning| warning.contains("navigator.doNotTrack")
+                && warning.contains("unspecified")),
+            "a tracking-protection profile must be told its DNT claim is not delivered, got {:?}",
+            plan.warnings
+        );
+    }
+
+    #[test]
+    fn a_property_the_engine_delivers_is_not_flagged() {
+        // `"unspecified"` is what a page reads either way, so claiming it is
+        // not a divergence.
+        let mut identity = Identity::new();
+        identity.set_str(crate::schema::keys::DO_NOT_TRACK, "unspecified");
+        identity.set_str(crate::schema::keys::BUILD_ID, crate::pools::FIREFOX_BUILD_ID);
+        let plan = build_plan(&identity, &config("C:/profiles/x")).unwrap();
+        assert!(
+            !plan
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("does not apply")),
+            "got {:?}",
+            plan.warnings
+        );
+    }
+
+    /// A generated profile is warned about DNT (tracking protection is on by
+    /// default) but not about its buildID, which it writes to the engine's own
+    /// value.
+    #[test]
+    fn a_generated_profile_is_not_flagged_over_its_build_id() {
+        let identity = generator::generate(7, &GeneratorOptions::default()).identity;
+        let plan = build_plan(&identity, &config("C:/profiles/x")).unwrap();
+        assert!(
+            !plan
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("navigator.buildID")),
+            "got {:?}",
             plan.warnings
         );
     }

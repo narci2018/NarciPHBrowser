@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NarciPHBrowser fingerprint probe</title>
+<style>
+  body { font: 13px/1.5 ui-monospace, monospace; margin: 2rem; color: #222; }
+  p { max-width: 46rem; }
+</style>
+</head>
+<body>
+<p id="status">Reading the fingerprint this browser exposes&hellip;</p>
+<script>
+// The read-back probe. It asks the browser for exactly the values the identity
+// claims to have spoofed, and posts them to the verifier that served this page.
+//
+// Two deliberate choices:
+//
+//   * the parameter ids come from the caller as `?params=`, not from a list
+//     compiled in here. The verifier derives them from the corpus, so the probe
+//     can never drift from what the engine was asked to spoof;
+//   * both canvases keep their default 300x150 size. The corpus recorded
+//     VIEWPORT (2978) and SCISSOR_BOX (3088) from a default-sized canvas, and
+//     those two are state rather than limits — resizing would make them differ
+//     for a reason that says nothing about the fingerprint.
+(function () {
+  "use strict";
+
+  const ids = (new URLSearchParams(location.search).get("params") || "")
+    .split(",")
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  // A typed array or a plain array both become a JSON array; anything else
+  // passes through, because getParameter returns numbers, booleans and strings
+  // too.
+  function plain(value) {
+    if (value === null || value === undefined) return null;
+    if (ArrayBuffer.isView(value)) return Array.prototype.slice.call(value);
+    if (Array.isArray(value)) return value.map(plain);
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value : String(value);
+    }
+    if (typeof value === "object") {
+      const out = {};
+      for (const key of Object.keys(value)) out[key] = plain(value[key]);
+      return out;
+    }
+    return value;
+  }
+
+  function readContext(gl) {
+    const context = {
+      parameters: {},
+      extensions: [],
+      precision: {},
+      contextAttributes: null,
+      unmaskedVendor: null,
+      unmaskedRenderer: null,
+      errors: [],
+    };
+
+    for (const id of ids) {
+      try {
+        context.parameters[String(id)] = plain(gl.getParameter(id));
+      } catch (error) {
+        context.errors.push(id + ": " + String(error));
+      }
+    }
+
+    try {
+      context.extensions = (gl.getSupportedExtensions() || []).slice().sort();
+    } catch (error) {
+      context.errors.push("extensions: " + String(error));
+    }
+
+    try {
+      context.contextAttributes = plain(gl.getContextAttributes());
+    } catch (error) {
+      context.errors.push("contextAttributes: " + String(error));
+    }
+
+    // The six shader/precision pairs the corpus records, spelled as the
+    // "<shaderType>,<precisionType>" keys the engine's config uses.
+    for (const shader of [35633, 35632]) {
+      for (const precision of [36338, 36337, 36336, 36341, 36340, 36339]) {
+        let format = null;
+        try {
+          format = gl.getShaderPrecisionFormat(shader, precision);
+        } catch (error) {
+          context.errors.push(shader + "," + precision + ": " + String(error));
+        }
+        context.precision[shader + "," + precision] = format
+          ? {
+              rangeMin: format.rangeMin,
+              rangeMax: format.rangeMax,
+              precision: format.precision,
+            }
+          : null;
+      }
+    }
+
+    try {
+      const info = gl.getExtension("WEBGL_debug_renderer_info");
+      if (info) {
+        context.unmaskedVendor = gl.getParameter(info.UNMASKED_VENDOR_WEBGL);
+        context.unmaskedRenderer = gl.getParameter(info.UNMASKED_RENDERER_WEBGL);
+      }
+    } catch (error) {
+      context.errors.push("debug_renderer_info: " + String(error));
+    }
+
+    return context;
+  }
+
+  function readContextOf(kind) {
+    try {
+      const canvas = document.createElement("canvas");
+      const gl = canvas.getContext(kind, { failIfMajorPerformanceCaveat: false });
+      if (!gl) return { absent: true };
+      return readContext(gl);
+    } catch (error) {
+      return { absent: true, error: String(error) };
+    }
+  }
+
+  function readIntl() {
+    try {
+      return {
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+        locale: Intl.DateTimeFormat().resolvedOptions().locale || null,
+      };
+    } catch (error) {
+      return { timeZone: null, locale: null };
+    }
+  }
+
+  function readScreen() {
+    const s = window.screen;
+    return {
+      width: s.width,
+      height: s.height,
+      availWidth: s.availWidth,
+      availHeight: s.availHeight,
+      availTop: typeof s.availTop === "number" ? s.availTop : null,
+      availLeft: typeof s.availLeft === "number" ? s.availLeft : null,
+      colorDepth: s.colorDepth,
+      pixelDepth: s.pixelDepth,
+      devicePixelRatio: window.devicePixelRatio,
+      orientation: s.orientation ? s.orientation.type : null,
+    };
+  }
+
+  function readWindow() {
+    return {
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      outerWidth: window.outerWidth,
+      outerHeight: window.outerHeight,
+      screenX: window.screenX,
+      screenY: window.screenY,
+    };
+  }
+
+  const report = {
+    probe: "narc-fingerprint-probe/1",
+    parameterIds: ids.length,
+    navigator: {
+      userAgent: navigator.userAgent,
+      appVersion: navigator.appVersion,
+      platform: navigator.platform,
+      oscpu: navigator.oscpu === undefined ? null : navigator.oscpu,
+      language: navigator.language,
+      languages: (navigator.languages || []).slice(),
+      hardwareConcurrency: navigator.hardwareConcurrency,
+      maxTouchPoints: navigator.maxTouchPoints,
+      buildID: navigator.buildID === undefined ? null : navigator.buildID,
+      doNotTrack: navigator.doNotTrack === undefined ? null : navigator.doNotTrack,
+      globalPrivacyControl:
+        navigator.globalPrivacyControl === undefined ? null : navigator.globalPrivacyControl,
+    },
+    screen: readScreen(),
+    window: readWindow(),
+    intl: readIntl(),
+    webgl1: readContextOf("webgl"),
+    webgl2: readContextOf("webgl2"),
+  };
+
+  // A named function so the page can be re-read by hand from the console
+  // (open the page, call `window.narcProbe()`); useful when a value looks
+  // wrong and the raw object is wanted.
+  window.narcProbe = function () {
+    return report;
+  };
+
+  function done(message) {
+    const status = document.getElementById("status");
+    status.textContent = message;
+    // The probe's own user.js sets dom.allow_scripts_to_close_windows, so this
+    // closes the browser and the verifier's wait ends without a kill.
+    setTimeout(function () {
+      window.close();
+    }, 250);
+  }
+
+  fetch("/report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(report),
+  })
+    .then(function (response) {
+      done(
+        response.ok
+          ? "Reported. This window will close."
+          : "The verifier refused the report (HTTP " + response.status + ").",
+      );
+    })
+    .catch(function (error) {
+      done("Could not reach the verifier: " + String(error));
+    });
+})();
+</script>
+</body>
+</html>

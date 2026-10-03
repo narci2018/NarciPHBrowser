@@ -590,3 +590,53 @@ fn the_taskbar_matches_the_claimed_os() {
     assert_eq!(coherence::taskbar_for(TargetOs::Macos), 25);
     assert_eq!(coherence::taskbar_for(TargetOs::Linux), 27);
 }
+
+#[test]
+fn a_webgl_parameter_override_without_a_renderer_is_a_violation() {
+    let mut identity = macos();
+    identity.remove(keys::WEBGL_RENDERER);
+    identity.set_object(
+        keys::WEBGL_PARAMETERS,
+        [("MAX_TEXTURE_SIZE", serde_json::json!(16384))],
+    );
+    let violations = coherence::validate(&identity, TargetOs::Macos);
+    assert!(
+        violations.iter().any(|v| v.rule == "webgl-context-override"),
+        "{violations:?}"
+    );
+
+    // Naming the renderer the parameters belong to resolves it.
+    identity.set_str(keys::WEBGL_RENDERER, "Apple M2");
+    assert!(coherence::validate(&identity, TargetOs::Macos).is_empty());
+}
+
+#[test]
+fn a_renderer_alone_needs_no_parameter_family() {
+    // The coherence layer only hard-blocks the inverse direction (parameters
+    // with no renderer to own them). A renderer with no parameters is *legal*
+    // — the engine falls back to the host for every limit — so it is reported
+    // as a launch warning in `engine.rs` instead of a violation here.
+    let identity = macos();
+    assert!(coherence::validate(&identity, TargetOs::Macos).is_empty());
+}
+
+#[test]
+fn dropping_a_gpu_pair_drops_its_parameter_family_with_it() {
+    let mut identity = macos();
+    identity.set_str(keys::WEBGL_RENDERER, "Intel(R) HD Graphics 400, or similar");
+    identity.set_u32(keys::HARDWARE_CONCURRENCY, 32);
+    identity.set_object(
+        keys::WEBGL_PARAMETERS,
+        [("MAX_TEXTURE_SIZE", serde_json::json!(16384))],
+    );
+    identity.set_str_array(keys::WEBGL_EXTENSIONS, ["OES_texture_float"]);
+
+    coherence::drop_incoherent_source_values(&mut identity, TargetOs::Macos);
+
+    assert!(!identity.is_set(keys::WEBGL_RENDERER));
+    assert!(!identity.is_set(keys::WEBGL_VENDOR));
+    assert!(!identity.is_set(keys::WEBGL_PARAMETERS));
+    assert!(!identity.is_set(keys::WEBGL_EXTENSIONS));
+    // And what remains is coherent: no orphaned overrides to report.
+    assert!(coherence::validate(&identity, TargetOs::Macos).is_empty());
+}

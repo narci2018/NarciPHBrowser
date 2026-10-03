@@ -42,7 +42,8 @@ use crate::error::{Error, Result};
 use crate::generator::{self, GeneratedIdentity, GeneratorOptions};
 use crate::identity::Identity;
 use crate::rng::fnv1a64_mixed;
-use crate::schema::PropertySchema;
+use crate::schema::{keys, PropertySchema};
+use crate::seal;
 
 /// The version of the on-disk profile format.
 ///
@@ -200,6 +201,12 @@ pub struct Profile {
     /// Extra engine arguments, verbatim.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra_args: Vec<String>,
+    /// Browser extensions to load, as paths to `.xpi` files or unpacked addon
+    /// directories. The engine reads them from the identity's `addons`
+    /// property; a path that does not exist becomes a launch warning, not an
+    /// error, because an addon not yet downloaded must not strand the profile.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub addons: Vec<String>,
 }
 
 impl Profile {
@@ -220,6 +227,7 @@ impl Profile {
             overrides: Identity::new(),
             proxy: None,
             extra_args: Vec::new(),
+            addons: Vec::new(),
         };
         // Draw once now so an incoherent combination of options is caught at
         // creation rather than at launch, three clicks later.
@@ -232,11 +240,20 @@ impl Profile {
         generator::generate(self.seed, &self.options)
     }
 
+    /// Writes the profile's addon list into an identity, when there is one.
+    fn write_addons(&self, identity: &mut Identity) {
+        if self.addons.is_empty() {
+            return;
+        }
+        identity.set_str_array(keys::ADDONS, self.addons.iter().map(String::as_str));
+    }
+
     /// The identity a launch would use: the drawn one with the user's edits on
     /// top.
     pub fn effective_identity(&self) -> Identity {
         let mut identity = self.drawn().identity;
         identity.merge(&self.overrides);
+        self.write_addons(&mut identity);
         identity
     }
 
@@ -280,6 +297,7 @@ impl Profile {
         let drawn = self.drawn();
         let mut identity = drawn.identity.clone();
         identity.merge(&self.overrides);
+        self.write_addons(&mut identity);
 
         // A pinned country overrides whatever the seed drew: the proxy's exit
         // IP is the one externally checkable fact, so it wins.
@@ -533,6 +551,15 @@ impl ProfileStore {
         self.dir(id).join("browser")
     }
 
+    /// Where the automation mount point is written for this store.
+    ///
+    /// The script is identical for every profile, so it lives once per store
+    /// rather than per profile: one file, rewritten only when the vendored
+    /// bytes change.
+    pub fn automation_dir(&self) -> PathBuf {
+        self.root.join("automation")
+    }
+
     /// An id that is free in this store, from the name and seed.
     pub fn free_id(&self, name: &str, seed: u64) -> String {
         let base = Profile::slug(name, seed);
@@ -553,8 +580,9 @@ impl ProfileStore {
 
     /// Writes a profile, replacing any previous version of it.
     ///
-    /// Written to a sibling temp file and renamed, because a crash or a full
-    /// disk halfway through a write would otherwise leave a profile file that
+    /// Sealed at rest — an assigned proxy puts its credentialed URL inline in
+    /// the file — and written atomically, because a crash or a full disk
+    /// halfway through a write would otherwise leave a profile file that
     /// parses as truncated JSON — and a profile that will not load looks
     /// identical to a profile the user never had.
     pub fn save(&self, profile: &Profile) -> Result<()> {
@@ -564,28 +592,15 @@ impl ProfileStore {
         })?;
 
         let json = serde_json::to_string_pretty(profile)?;
-        let temp = dir.join("profile.json.tmp");
-        std::fs::write(&temp, json.as_bytes()).map_err(|source| {
-            Error::environment(format!("could not write {}: {source}", temp.display()))
-        })?;
-        std::fs::rename(&temp, self.file(&profile.id)).map_err(|source| {
-            Error::environment(format!(
-                "could not replace {}: {source}",
-                self.file(&profile.id).display()
-            ))
-        })?;
-        Ok(())
+        seal::write_store(&self.file(&profile.id), json.as_bytes())
     }
 
     /// Reads one profile, or `None` if there is none.
     pub fn load(&self, id: &str) -> Result<Option<Profile>> {
-        let path = self.file(id);
-        if !path.exists() {
+        let Some(bytes) = seal::read_store(&self.file(id))? else {
             return Ok(None);
-        }
-        let bytes = std::fs::read(&path).map_err(|source| {
-            Error::environment(format!("could not read {}: {source}", path.display()))
-        })?;
+        };
+        let path = self.file(id);
         let profile: Profile = serde_json::from_slice(&bytes).map_err(|source| {
             Error::identity(format!(
                 "{} is not a readable profile: {source}",
@@ -721,14 +736,37 @@ mod tests {
         let profile = sample("Work", 7);
         store.save(&profile).unwrap();
 
-        let mut value: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(store.file(&profile.id)).unwrap())
-                .unwrap();
+        let bytes = seal::read_store(&store.file(&profile.id))
+            .unwrap()
+            .expect("the saved profile is present");
+        let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         value["format"] = serde_json::json!(PROFILE_FORMAT + 1);
-        std::fs::write(store.file(&profile.id), value.to_string()).unwrap();
+        seal::write_store(&store.file(&profile.id), value.to_string().as_bytes()).unwrap();
 
         let error = store.load(&profile.id).unwrap_err();
         assert!(error.to_string().contains("newer version"), "{error}");
+    }
+
+    #[test]
+    fn addons_reach_the_launch_identity_and_survive_a_round_trip() {
+        let store = temp_store("addons");
+        let mut profile = sample("Work", 42);
+        assert!(
+            !profile.effective_identity().is_set(keys::ADDONS),
+            "an addon-less profile should not claim the property at all"
+        );
+
+        profile.addons.push("C:/addons/ublock.xpi".into());
+        store.save(&profile).unwrap();
+        let loaded = store.load(&profile.id).unwrap().unwrap();
+
+        // Both identity paths carry it: the effective one the UI previews and
+        // the resolved one coherence judges.
+        assert_eq!(
+            loaded.effective_identity().get_str_array(keys::ADDONS),
+            Some(vec!["C:/addons/ublock.xpi".to_owned()])
+        );
+        assert!(loaded.resolved().identity.is_set(keys::ADDONS));
     }
 
     #[test]
@@ -1006,14 +1044,15 @@ mod tests {
 
     #[test]
     fn a_failed_save_leaves_the_previous_profile_readable() {
-        // The reason for the temp-file-and-rename: a truncated write must not
-        // destroy a profile that was fine a moment ago.
+        // The reason for the temp-file-and-rename in a seal write: a truncated
+        // write must not destroy a profile that was fine a moment ago.
         let store = temp_store("atomic");
         let profile = sample("Work", 1);
         store.save(&profile).unwrap();
 
-        // A directory where the temp file wants to be makes the rename fail.
-        std::fs::create_dir_all(store.dir(&profile.id).join("profile.json.tmp")).unwrap();
+        // A directory where the temp file wants to be makes the write fail.
+        let temp = seal::temp_path(&store.file(&profile.id));
+        std::fs::create_dir_all(temp).unwrap();
         assert!(store.save(&profile).is_err());
         assert!(store.load(&profile.id).unwrap().is_some());
     }

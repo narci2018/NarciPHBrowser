@@ -24,3 +24,10 @@ __pycache__/
 *.db-wal
 *.db-shm
 logs/
+
+# the read-back verifier's JSON dumps and scratch configs, reproducible from
+# `cargo run -p narrc-core --example probe` and never a source file
+.probe/
+
+# sidecar binary copied here by the build scripts
+apps/desktop/src-tauri/binaries/

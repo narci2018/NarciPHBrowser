@@ -3,12 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FaDownload } from "react-icons/fa";
 import {
-  LuBot,
   LuCookie,
   LuCloud,
   LuKeyboard,
   LuPlug,
-  LuPuzzle,
   LuTrash2,
   LuUsers,
 } from "react-icons/lu";
@@ -24,6 +22,7 @@ import type {
   ProfileSummary,
   Report,
   SetOverrideResult,
+  VerifyReport,
 } from "@narc/sdk";
 import { AboutDialog } from "@/components/about-dialog";
 import { CreateProfileDialog } from "@/components/create-profile-dialog";
@@ -35,22 +34,21 @@ import { RailNav, type AppPage } from "@/components/rail-nav";
 import { Progress } from "@/components/ui/progress";
 import { WindowDragArea } from "@/components/window-drag-area";
 import { PlaceholderPage } from "@/pages/placeholder";
+import { AgentPage } from "@/pages/agent";
+import { ExtensionsPage } from "@/pages/extensions";
 import { NetworkPage } from "@/pages/network";
 import { ProfilesPage } from "@/pages/profiles";
 import { SettingsPage } from "@/pages/settings";
 
-type PlaceholderKey = Exclude<AppPage, "profiles" | "proxies" | "settings" | "about">;
+type PlaceholderKey = Exclude<
+  AppPage,
+  "profiles" | "proxies" | "settings" | "about" | "extensions" | "agent"
+>;
 
 const PLACEHOLDERS: Record<
   PlaceholderKey,
   { title: string; description: string; Icon: React.ComponentType<{ className?: string }> }
 > = {
-  extensions: {
-    title: "Extensions",
-    description:
-      "Install and pin browser extensions per profile, with compatibility recorded against the pinned engine build.",
-    Icon: LuPuzzle,
-  },
   groups: {
     title: "Groups",
     description:
@@ -62,12 +60,6 @@ const PLACEHOLDERS: Record<
     description:
       "Visit pages with the profile's own identity and accept consent banners automatically.",
     Icon: LuCookie,
-  },
-  agent: {
-    title: "Agent",
-    description:
-      "Drive a profile's browser with scripted sessions, scoped to the fingerprint it already presents.",
-    Icon: LuBot,
   },
   integrations: {
     title: "Integrations",
@@ -145,6 +137,12 @@ export function App() {
   const [deleteTarget, setDeleteTarget] = useState<ProfileSummary | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
+  const [verification, setVerification] = useState<VerifyReport | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  // The profile the dialog is showing, readable from a callback that has been
+  // awaiting a browser start for several seconds.
+  const infoProfileIdRef = useRef<string | null>(null);
 
   const refreshProfiles = useCallback(async () => {
     try {
@@ -202,7 +200,7 @@ export function App() {
       if (!disposed) showDownload(event.payload);
     });
 
-    invoke<string>("start_sidecar")
+    invoke<string>("app_info")
       .then((message) => {
         if (disposed) return;
         setVersionLine(message);
@@ -250,6 +248,13 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    // A verification belongs to the profile it was run against, so opening
+    // another profile drops the last report rather than showing it under a
+    // different name.
+    infoProfileIdRef.current = infoProfileId;
+    setVerification(null);
+    setVerifying(false);
+
     if (!infoProfileId) {
       setInspection(null);
       setReport(null);
@@ -333,13 +338,24 @@ export function App() {
       const launched = await invoke<Launched>("launch_profile", { id });
       const pid = typeof launched.pid === "number" ? ` (pid ${launched.pid})` : "";
       toast.success(`Browser launched${pid}`);
-      if (launched.geo_gate && launched.geo_gate.verdict === "mismatch") {
+      if (launched.geo_gate && launched.geo_gate.verdict === "unknown") {
         toast.warning(
-          `Proxy exit is ${launched.geo_gate.observed}, profile claims ${launched.geo_gate.expected}`,
+          `Proxy exit country is not verified (profile claims ${launched.geo_gate.expected}) — run a proxy check before relying on it`,
+        );
+      } else if (launched.geo_gate && launched.geo_gate.verdict === "mismatch") {
+        toast.warning(
+          `Geo-gate warning: proxy exits in ${launched.geo_gate.observed}, but profile claims ${launched.geo_gate.expected}. Proceed with caution!`,
         );
       }
       if (launched.discarded.length > 0) {
         toast.info(`${launched.discarded.length} conflicting value(s) were discarded`);
+      }
+      // Plan warnings do not block the launch, but they name things the user
+      // would otherwise only find out by testing the browser themselves — a
+      // missing engine, an addon the engine will skip, a WebGL renderer whose
+      // limits will come from the host and contradict it.
+      for (const warning of launched.plan.warnings) {
+        toast.warning(warning, { duration: 12000 });
       }
     } catch (error) {
       toast.error(String(error));
@@ -347,6 +363,46 @@ export function App() {
       setLaunchingId(null);
     }
   }, []);
+
+  const handleVerify = useCallback(
+    async (keepAgreements: boolean) => {
+      const id = infoProfileId;
+      if (!id) return;
+      setVerifying(true);
+      setVerification(null);
+      try {
+        const result = await invoke<VerifyReport>("verify_profile", {
+          id,
+          keepAgreements,
+        });
+        // The user may have opened another profile while the browser was
+        // starting. The report belongs to the profile it was run against, and
+        // showing it under a different name would be a lie about that profile.
+        if (infoProfileIdRef.current !== id) return;
+        setVerification(result);
+        const mismatches = result.differences.filter(
+          (difference) =>
+            difference.verdict !== "match" &&
+            difference.verdict !== "equivalent" &&
+            difference.verdict !== "refused",
+        );
+        if (mismatches.length === 0) {
+          toast.success(`Verified: ${result.agreed} of ${result.checked} values agreed`);
+        } else {
+          toast.warning(
+            `Verification found ${mismatches.length} difference${
+              mismatches.length === 1 ? "" : "s"
+            } — see the Verify tab`,
+          );
+        }
+      } catch (error) {
+        toast.error(String(error));
+      } finally {
+        setVerifying(false);
+      }
+    },
+    [infoProfileId],
+  );
 
   const handleOverrideChange = useCallback(
     async (property: string, value: unknown) => {
@@ -483,6 +539,15 @@ export function App() {
                 void refreshProfiles();
               }}
             />
+          ) : page === "extensions" ? (
+            <ExtensionsPage
+              profiles={profiles}
+              onProfilesChanged={() => {
+                void refreshProfiles();
+              }}
+            />
+          ) : page === "agent" ? (
+            <AgentPage profiles={profiles} />
           ) : page === "settings" ? (
             <SettingsPage versionLine={versionLine} download={download} />
           ) : placeholder ? (
@@ -516,6 +581,11 @@ export function App() {
         report={report}
         loading={infoLoading}
         launching={launchingId === infoProfileId}
+        verification={verification}
+        verifying={verifying}
+        onVerify={(keepAgreements) => {
+          void handleVerify(keepAgreements);
+        }}
         onLaunch={() => {
           if (infoProfileId) void handleLaunch(infoProfileId);
         }}

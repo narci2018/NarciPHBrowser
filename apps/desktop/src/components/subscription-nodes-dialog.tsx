@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   LuActivity,
   LuDownload,
+  LuGlobe,
   LuLoaderCircle,
   LuRefreshCw,
   LuSearch,
@@ -33,6 +34,7 @@ import {
   refreshSubscription,
   runPool,
   testNodeDelay,
+  testNodeExit,
   testNodeSpeed,
   type NodeResult,
   type SubscriptionNode,
@@ -125,6 +127,20 @@ export function SubscriptionNodesDialog({
         patch(node, { speed, testingSpeed: false });
       } catch (speedError) {
         patch(node, { testingSpeed: false, speedError: String(speedError) });
+      }
+    },
+    [id, patch],
+  );
+
+  const measureExit = useCallback(
+    async (node: string) => {
+      if (!id) return;
+      patch(node, { testingExit: true, exitError: null });
+      try {
+        const exit = await testNodeExit(id, node);
+        patch(node, { exit, testingExit: false });
+      } catch (exitError) {
+        patch(node, { testingExit: false, exitError: String(exitError) });
       }
     },
     [id, patch],
@@ -260,6 +276,7 @@ export function SubscriptionNodesDialog({
                 <TableHead className="w-[120px]">Protocol</TableHead>
                 <TableHead className="w-[110px]">Latency</TableHead>
                 <TableHead className="w-[120px]">Speed</TableHead>
+                <TableHead className="w-[90px]">Exit</TableHead>
                 <TableHead className="w-[96px] pr-3 text-right">Test</TableHead>
               </TableRow>
             </TableHeader>
@@ -267,20 +284,20 @@ export function SubscriptionNodesDialog({
               {loading ? (
                 Array.from({ length: 6 }, (_, index) => (
                   <TableRow key={`skeleton-${index}`} className="border-0!">
-                    <TableCell colSpan={5} className="py-2 pl-3">
+                    <TableCell colSpan={6} className="py-2 pl-3">
                       <Skeleton className="h-3" style={{ width: `${40 + ((index * 13) % 40)}%` }} />
                     </TableCell>
                   </TableRow>
                 ))
               ) : error ? (
                 <TableRow className="border-0! hover:bg-transparent">
-                  <TableCell colSpan={5} className="py-10 text-center text-sm text-destructive">
+                  <TableCell colSpan={6} className="py-10 text-center text-sm text-destructive">
                     {error}
                   </TableCell>
                 </TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow className="border-0! hover:bg-transparent">
-                  <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
                     {nodes.length === 0
                       ? "No nodes yet — press Update to fetch them from the provider."
                       : "No nodes match the filter."}
@@ -330,6 +347,24 @@ export function SubscriptionNodesDialog({
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
+                      <TableCell className="text-xs">
+                        {result.testingExit ? (
+                          <LuLoaderCircle className="size-3.5 animate-spin text-muted-foreground" />
+                        ) : result.exitError ? (
+                          <span className="text-destructive" title={result.exitError}>
+                            failed
+                          </span>
+                        ) : result.exit ? (
+                          <span
+                            className="tabular-nums text-foreground"
+                            title={result.exit.ip}
+                          >
+                            {result.exit.country ?? "unknown"}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell className="pr-3">
                         <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
                           <button
@@ -349,6 +384,15 @@ export function SubscriptionNodesDialog({
                             className="grid size-6 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             <LuDownload className="size-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Check exit country for ${node.name}`}
+                            disabled={result.testingExit || busy}
+                            onClick={() => void measureExit(node.name)}
+                            className="grid size-6 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <LuGlobe className="size-3.5" />
                           </button>
                           <button
                             type="button"

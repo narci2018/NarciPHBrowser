@@ -7,12 +7,13 @@ mod mihomo;
 mod state;
 
 use commands::{
-    assign_node, assign_proxy, check_proxy, clear_override, core_status, create_profile,
-    create_proxy, create_subscription, delete_profile, delete_proxy, delete_subscription,
-    ensure_engine, inspect_profile, launch_profile, list_assignments, list_proxies, list_profiles,
-    list_subscription_nodes, list_subscriptions, refresh_subscription, screen_presets, set_override,
-    start_sidecar, test_node_delay, test_node_speed, unassign_node, update_profile, update_proxy,
-    update_subscription, validate_profile,
+    add_addon, app_info, assign_node, assign_proxy, check_proxy, clear_override, core_status,
+    create_profile, create_proxy, create_subscription, delete_profile, delete_proxy,
+    delete_subscription, ensure_engine, inspect_profile, launch_profile, list_assignments,
+    list_automation, list_proxies, list_profiles, list_subscription_nodes, list_subscriptions,
+    refresh_subscription, remove_addon, screen_presets, set_override, start_automation,
+    stop_automation, test_node_delay, test_node_exit, test_node_speed, unassign_node,
+    update_profile, update_proxy, update_subscription, validate_profile, verify_profile,
 };
 use state::AppState;
 
@@ -24,10 +25,9 @@ fn main() {
     std::mem::forget(job::JobObject::assign_current_process());
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
-            start_sidecar,
+            app_info,
             ensure_engine,
             list_profiles,
             screen_presets,
@@ -37,8 +37,14 @@ fn main() {
             validate_profile,
             delete_profile,
             launch_profile,
+            verify_profile,
+            start_automation,
+            stop_automation,
+            list_automation,
             set_override,
             clear_override,
+            add_addon,
+            remove_addon,
             list_proxies,
             create_proxy,
             update_proxy,
@@ -53,6 +59,7 @@ fn main() {
             list_subscription_nodes,
             refresh_subscription,
             test_node_delay,
+            test_node_exit,
             test_node_speed,
             assign_node,
             unassign_node,

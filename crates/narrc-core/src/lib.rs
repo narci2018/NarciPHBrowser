@@ -49,6 +49,7 @@
 //!   and duplicates detected without diffing a hundred fields by hand.
 
 pub mod assignment;
+pub mod automation;
 pub mod coherence;
 pub mod engine;
 pub mod error;
@@ -60,7 +61,9 @@ pub mod profile;
 pub mod proxy_store;
 pub mod rng;
 pub mod schema;
+pub mod seal;
 pub mod subscription;
+pub mod verify;
 
 pub use assignment::{Assignment, AssignmentStore};
 pub use error::{Error, Result};
@@ -72,6 +75,7 @@ pub use proxy_store::{ProxyCheck, ProxyStore, StoredProxy};
 pub use rng::Rng;
 pub use schema::PropertySchema;
 pub use subscription::{StoredSubscription, SubscriptionStore};
+pub use verify::{Report as VerificationReport, VerifyError};
 
 /// The crate version, for the about:pages and the log line.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

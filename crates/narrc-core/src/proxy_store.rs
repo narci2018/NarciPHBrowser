@@ -18,12 +18,13 @@
 //! an HTTP client; this module only stores the receipts ([`ProxyCheck`]).
 //! Assignment rewrites profiles and belongs beside the profile store.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::profile::ProxyConfig;
+use crate::seal;
 
 /// The on-disk format version of the proxy file.
 const PROXY_FORMAT: u32 = 1;
@@ -134,28 +135,26 @@ impl ProxyStore {
     /// yet is the normal state before the user adds a proxy.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
-        let proxies = if path.exists() {
-            let bytes = std::fs::read(&path).map_err(|source| {
-                Error::environment(format!("could not read {}: {source}", path.display()))
-            })?;
-            let file: ProxyFile = serde_json::from_slice(&bytes).map_err(|source| {
-                Error::identity(format!(
-                    "{} is not a readable proxy list: {source}",
-                    path.display()
-                ))
-            })?;
-            if file.format > PROXY_FORMAT {
-                return Err(Error::identity(format!(
-                    "{} was written by a newer version of NarciPHBrowser (format {}, this build \
-                     understands {}); upgrade rather than letting it be rewritten",
-                    path.display(),
-                    file.format,
-                    PROXY_FORMAT
-                )));
+        let proxies = match seal::read_store(&path)? {
+            Some(bytes) => {
+                let file: ProxyFile = serde_json::from_slice(&bytes).map_err(|source| {
+                    Error::identity(format!(
+                        "{} is not a readable proxy list: {source}",
+                        path.display()
+                    ))
+                })?;
+                if file.format > PROXY_FORMAT {
+                    return Err(Error::identity(format!(
+                        "{} was written by a newer version of NarciPHBrowser (format {}, this build \
+                         understands {}); upgrade rather than letting it be rewritten",
+                        path.display(),
+                        file.format,
+                        PROXY_FORMAT
+                    )));
+                }
+                file.proxies
             }
-            file.proxies
-        } else {
-            Vec::new()
+            None => Vec::new(),
         };
         Ok(Self { path, proxies })
     }
@@ -289,9 +288,9 @@ impl ProxyStore {
 
     /// Writes the list, replacing any previous version of it.
     ///
-    /// Written to a sibling temp file and renamed, for the same reason a
-    /// profile is: a crash halfway through a write must not leave a list that
-    /// parses as truncated JSON.
+    /// Sealed at rest — the URLs carry credentials — and written atomically
+    /// (a sibling temp file and a rename) so a crash halfway through a write
+    /// must not leave a list that parses as truncated JSON.
     fn save(&self) -> Result<()> {
         if let Some(parent) = self.path.parent() {
             if !parent.as_os_str().is_empty() {
@@ -305,28 +304,8 @@ impl ProxyStore {
             proxies: self.proxies.clone(),
         };
         let json = serde_json::to_string_pretty(&file)?;
-        let temp = temp_path(&self.path);
-        std::fs::write(&temp, json.as_bytes()).map_err(|source| {
-            Error::environment(format!("could not write {}: {source}", temp.display()))
-        })?;
-        std::fs::rename(&temp, &self.path).map_err(|source| {
-            Error::environment(format!(
-                "could not replace {}: {source}",
-                self.path.display()
-            ))
-        })?;
-        Ok(())
+        seal::write_store(&self.path, json.as_bytes())
     }
-}
-
-/// The temp file a save writes before it renames.
-fn temp_path(path: &Path) -> PathBuf {
-    let mut name = path
-        .file_name()
-        .map(|name| name.to_os_string())
-        .unwrap_or_else(|| "proxies.json".into());
-    name.push(".tmp");
-    path.with_file_name(name)
 }
 
 /// A filesystem-safe id from a name.
@@ -360,6 +339,7 @@ pub(crate) fn slug_with(name: &str, fallback: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     /// A path no other test will touch, removed on drop.
     struct TempFile(PathBuf);
@@ -510,12 +490,24 @@ mod tests {
     }
 
     #[test]
-    fn the_file_carries_its_format() {
+    fn the_file_carries_its_format_and_never_the_credential() {
         let file = TempFile::new("format");
         let mut store = ProxyStore::open(file.path()).expect("opens");
-        store.create("Seam", "http://a:80", None).expect("creates");
+        store
+            .create("Seam", "http://user:seam-pass@host:80", None)
+            .expect("creates");
+
         let text = std::fs::read_to_string(file.path()).expect("readable");
-        let parsed: serde_json::Value = serde_json::from_str(&text).expect("json");
+        #[cfg(windows)]
+        assert!(
+            !text.contains("seam-pass"),
+            "a store save leaked its credential to the disk: {text}"
+        );
+
+        let bytes = seal::read_store(file.path())
+            .expect("readable")
+            .expect("present");
+        let parsed: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
         assert_eq!(parsed["format"], 1);
         assert!(parsed["proxies"].is_array());
     }

@@ -27,15 +27,14 @@
 pub mod geo;
 pub mod hardware;
 pub mod media;
+pub mod webgl;
 
 use serde::{Deserialize, Serialize};
 
 use crate::coherence::{self, constants::BROWSER_CHROME_HEIGHT};
 use crate::identity::Identity;
 use crate::os::TargetOs;
-use crate::pools::{
-    self, GECKO_TRAILER, LINUX_DISTROS, MACOS_VERSIONS, WINDOWS_BUILDS, WINDOWS_DEVICE_PREFIXES,
-};
+use crate::pools::{self, GECKO_TRAILER, LINUX_DISTROS, MACOS_VERSIONS, WINDOWS_BUILDS};
 use crate::rng::Rng;
 use crate::schema::keys;
 use geo::{draw_host_ipv4, draw_host_ipv6};
@@ -66,6 +65,15 @@ pub struct GeneratorOptions {
     pub fonts: FontProfile,
     /// Whether to claim `doNotTrack` and `globalPrivacyControl`.
     pub tracking_protection: bool,
+    /// Whether the engine animates programmatic cursor moves along a
+    /// human-like path.
+    ///
+    /// Off by default: a human moving their own mouse has no programmatic
+    /// cursor to humanise, and the property is only observable to automation
+    /// driving the browser. It is a claim about how the browser behaves, so
+    /// like every other claim it is written once and stored with the profile.
+    #[serde(default)]
+    pub humanize: bool,
     /// A locale tag to pin, or `None` to draw one.
     pub locale: Option<String>,
     /// A country to pin, which the proxy's exit IP usually determines.
@@ -81,6 +89,7 @@ impl GeneratorOptions {
             dpr: None,
             fonts: FontProfile::Stock,
             tracking_protection: true,
+            humanize: false,
             locale: None,
             country: None,
         }
@@ -285,28 +294,6 @@ pub fn build_user_agent(seed: u64, os: TargetOs) -> String {
     }
 }
 
-/// A Windows machine name, for the field behind `navigator.buildID`'s sibling
-/// host identifiers.
-pub fn draw_device_name(seed: u64, os: TargetOs) -> String {
-    let mut rng = Rng::stream(seed, "device-name");
-    match os {
-        TargetOs::Windows => {
-            let prefix = rng.pick(WINDOWS_DEVICE_PREFIXES);
-            let suffix: String = (0..7)
-                .map(|_| {
-                    let value = rng.next_u32() % 36;
-                    char::from_digit(value, 36)
-                        .unwrap_or('0')
-                        .to_ascii_uppercase()
-                })
-                .collect();
-            format!("{prefix}-{suffix}")
-        }
-        // macOS and Linux report no machine name in any API a page can reach.
-        _ => String::new(),
-    }
-}
-
 /// Draws a complete, coherent identity.
 ///
 /// `seed` is the identity's name in the only sense that matters: the same seed
@@ -342,6 +329,10 @@ pub fn generate(seed: u64, options: &GeneratorOptions) -> GeneratedIdentity {
     let mut identity = Identity::new();
     write_display(&mut identity, &geometry, dpr, gpu.apple_silicon);
     write_hardware(&mut identity, &gpu, os, seed);
+    // The WebGL contexts are drawn from the recorded corpus, conditioned on
+    // the GPU the hardware draw just picked — the same conditioning upstream
+    // applies, so a profile's limits describe the machine it claims to be.
+    webgl::write_webgl(&mut identity, &gpu.renderer, os, seed);
     write_place(&mut identity, &geo, seed);
     write_peripherals(&mut identity, &peripherals, &audio);
     let user_agent = write_navigator(&mut identity, seed, os);
@@ -489,10 +480,12 @@ fn write_hardware(identity: &mut Identity, gpu: &GpuChoice, os: TargetOs, seed: 
     };
     identity.set_u32(keys::MAX_TOUCH_POINTS, touch);
 
-    let device_name = draw_device_name(seed, os);
-    if !device_name.is_empty() {
-        identity.set_str(keys::BUILD_ID, &device_name);
-    }
+    // `navigator.buildID` is the Firefox *build date*, not a machine name, and
+    // the engine answers it itself with a fixed value — see
+    // `pools::FIREFOX_BUILD_ID`. The config carries that same value so the
+    // profile is consistent with what a page reads; the engine ignores a
+    // claimed value either way.
+    identity.set_str(keys::BUILD_ID, pools::FIREFOX_BUILD_ID);
 }
 
 fn write_place(identity: &mut Identity, geo: &GeoProfile, seed: u64) {
@@ -561,6 +554,10 @@ fn write_preferences(identity: &mut Identity, _os: TargetOs, options: &Generator
     // run with a visible cursor is inconsistent, and a headed run with none is
     // not observable to a page at all.
     identity.set_bool(keys::SHOW_CURSOR, true);
+
+    if options.humanize {
+        identity.set_bool(keys::HUMANIZE, true);
+    }
 }
 
 #[cfg(test)]
@@ -798,6 +795,7 @@ mod tests {
             dpr: None,
             fonts: FontProfile::Stock,
             tracking_protection: true,
+            humanize: false,
             locale: Some("de-DE".into()),
             country: None,
         };
@@ -816,6 +814,7 @@ mod tests {
             dpr: None,
             fonts: FontProfile::Stock,
             tracking_protection: true,
+            humanize: false,
             locale: Some("xx-YY".into()),
             country: None,
         };
@@ -901,6 +900,32 @@ mod tests {
     }
 
     #[test]
+    fn humanize_is_opt_in_and_survives_a_redraw() {
+        // Off by default: a human moving their own mouse has nothing to
+        // humanise, so the identity does not carry the claim.
+        let off = generate(1, &GeneratorOptions::new(TargetOs::Windows));
+        assert!(!off.identity.is_set(keys::HUMANIZE));
+
+        let options = GeneratorOptions {
+            humanize: true,
+            ..GeneratorOptions::new(TargetOs::Windows)
+        };
+        let on = generate(1, &options);
+        assert_eq!(on.identity.get_bool(keys::HUMANIZE), Some(true));
+
+        // And the option round-trips through the stored JSON, so a profile
+        // created before the field existed keeps loading.
+        let json = serde_json::to_string(&options).unwrap();
+        let restored: GeneratorOptions = serde_json::from_str(&json).unwrap();
+        assert!(restored.humanize);
+        let old = serde_json::from_str::<GeneratorOptions>(
+            r#"{"os":"windows","fonts":"stock","tracking_protection":true}"#,
+        )
+        .unwrap();
+        assert!(!old.humanize);
+    }
+
+    #[test]
     fn the_geolocation_accuracy_is_desktop_scale() {
         for seed in 0..50 {
             let identity = &generate(seed, &GeneratorOptions::default()).identity;
@@ -910,22 +935,18 @@ mod tests {
         }
     }
 
+    /// The buildID the config carries is the one a page will actually read:
+    /// the engine answers `navigator.buildID` itself, so a value drawn per
+    /// profile would be a claim the browser never honours.
     #[test]
-    fn only_windows_names_a_machine() {
-        assert!(!draw_device_name(1, TargetOs::Windows).is_empty());
-        assert!(draw_device_name(1, TargetOs::Macos).is_empty());
-        assert!(draw_device_name(1, TargetOs::Linux).is_empty());
-    }
-
-    #[test]
-    fn windows_machine_names_have_the_oem_shape() {
-        for seed in 0..50 {
-            let name = draw_device_name(seed, TargetOs::Windows);
-            assert!(name.contains('-'), "{name}");
-            let (_, suffix) = name.split_once('-').unwrap();
-            assert_eq!(suffix.len(), 7, "{name}");
-            assert!(suffix.chars().all(|c| c.is_ascii_alphanumeric()), "{name}");
+    fn the_build_id_matches_what_the_engine_reports() {
+        for os in TargetOs::ALL {
+            let identity = &generate(7, &GeneratorOptions::new(os)).identity;
+            assert_eq!(identity.get_str(keys::BUILD_ID), Some(pools::FIREFOX_BUILD_ID));
         }
+        // A real Firefox buildID is 14 digits; the engine's constant is one.
+        assert_eq!(pools::FIREFOX_BUILD_ID.len(), 14);
+        assert!(pools::FIREFOX_BUILD_ID.chars().all(|c| c.is_ascii_digit()));
     }
 
     #[test]

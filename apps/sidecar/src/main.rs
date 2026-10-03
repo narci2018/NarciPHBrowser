@@ -43,6 +43,7 @@
 
 use std::io::{self, BufRead, Write};
 
+mod agent;
 mod protocol;
 mod store_path;
 
@@ -133,11 +134,25 @@ fn dispatch(request: Request) -> Response {
         Command::Plan(params) => {
             protocol::plan(&params.id, params.engine.as_deref(), params.headless)
         }
+        Command::Verify(params) => {
+            protocol::verify(&params.id, params.engine.as_deref(), params.keep_agreements)
+        }
         Command::Launch(params) => protocol::launch(
             &params.id,
             params.engine.as_deref(),
             params.exit_country.as_deref(),
         ),
+        Command::AgentStart(params) => agent::start(
+            &params.id,
+            params.engine.as_deref(),
+            params.exit_country.as_deref(),
+            &params.driver_path,
+            params.node_path.as_deref(),
+            params.port,
+            params.headless,
+        ),
+        Command::AgentStop(params) => agent::stop(&params.id),
+        Command::AgentList(_) => agent::list(),
     } {
         Ok(result) => Response {
             id,

@@ -29,6 +29,11 @@ impl JobObject {
             use std::ffi::c_void;
             type Handle = *mut c_void;
             const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
+            // The job exists to reap proxy cores, not to own the browsers.
+            // Allowing breakaway — and having the browser spawn ask for it —
+            // keeps a detached browser alive after this process goes away,
+            // which is the whole point of launching it detached.
+            const JOB_OBJECT_LIMIT_BREAKAWAY_OK: u32 = 0x0400;
             const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
 
             #[repr(C)]
@@ -83,7 +88,8 @@ impl JobObject {
                         basic_limit_information: BasicLimitInformation {
                             per_process_user_time_limit: 0,
                             per_job_user_time_limit: 0,
-                            limit_flags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                            limit_flags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                                | JOB_OBJECT_LIMIT_BREAKAWAY_OK,
                             minimum_working_set_size: 0,
                             maximum_working_set_size: 0,
                             active_process_limit: 0,

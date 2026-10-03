@@ -33,6 +33,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 
 import type {
+  AgentSession,
+  AgentStartSpec,
+  AgentStarted,
   ClearOverrideResult,
   CreateResult,
   CreateSpec,
@@ -46,6 +49,7 @@ import type {
   SetOverrideResult,
   SidecarError,
   UpdateSpec,
+  VerifyReport,
   Version,
 } from "./types.js";
 
@@ -53,6 +57,34 @@ import type {
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: SidecarClientError) => void;
+}
+
+/**
+ * Builds one request line: the whole of the client's half of the wire format.
+ *
+ * Extracted from the client so the wire shape is testable without spawning a
+ * sidecar; `src/wire.test.mjs` pins it byte for byte.
+ */
+export function buildRequest(id: number, command: string, params: unknown): string {
+  return JSON.stringify({ id, command, params }) + "\n";
+}
+
+/**
+ * Splits sidecar output into complete reply lines.
+ *
+ * The protocol is line-delimited, but the transport is a pipe: a chunk can end
+ * halfway through a reply, and a reply can span any number of chunks. Returns
+ * the lines completed by this chunk (blank lines dropped — the protocol never
+ * emits one, and a trailing newline would otherwise look like a reply) and the
+ * partial tail to prepend to the next chunk.
+ */
+export function splitLines(
+  buffer: string,
+  chunk: string,
+): { lines: string[]; rest: string } {
+  const lines = (buffer + chunk).split("\n");
+  const rest = lines.pop() ?? "";
+  return { lines: lines.filter((line) => line.trim()), rest };
 }
 
 /**
@@ -138,22 +170,16 @@ export class SidecarClient {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.stdin.write(JSON.stringify({ id, command, params }) + "\n");
+      this.stdin.write(buildRequest(id, command, params));
     });
   }
 
   /** Handles a chunk of output from the sidecar. */
   private handleData(data: Buffer): void {
-    this.buffer += data.toString();
-    const lines = this.buffer.split("\n");
-    // The last element is either an empty string (after a trailing newline)
-    // or a partial line that has not been completed yet. Either way it is
-    // not a complete reply and must wait for more data.
-    this.buffer = lines.pop() ?? "";
+    const { lines, rest } = splitLines(this.buffer, data.toString());
+    this.buffer = rest;
     for (const line of lines) {
-      if (line.trim()) {
-        this.handleLine(line);
-      }
+      this.handleLine(line);
     }
   }
 
@@ -278,9 +304,41 @@ export class SidecarClient {
     return (await this.send("plan", { id, engine, headless })) as LaunchPlan;
   }
 
+  /**
+   * Launches the profile's engine at a probe page and reports what it exposed.
+   *
+   * The only call that measures rather than asserts, and the only one that
+   * starts a browser: it takes seconds and opens a window, so a UI must ask
+   * before calling it. The profile's identity is diffed against what a page
+   * could actually read; `keepAgreements` also lists the values that matched,
+   * which is over a hundred for a covered GPU.
+   */
+  async verify(id: string, engine?: string, keepAgreements?: boolean): Promise<VerifyReport> {
+    return (await this.send("verify", {
+      id,
+      engine,
+      keep_agreements: keepAgreements,
+    })) as VerifyReport;
+  }
+
   /** A profile launched. */
   async launch(id: string, engine?: string, exitCountry?: string): Promise<Launched> {
     return (await this.send("launch", { id, engine, exit_country: exitCountry })) as Launched;
+  }
+
+  /** Starts a profile's automation session and returns the connect endpoint. */
+  async agentStart(spec: AgentStartSpec): Promise<AgentStarted> {
+    return (await this.send("agent-start", spec)) as AgentStarted;
+  }
+
+  /** Stops a profile's automation session. */
+  async agentStop(id: string): Promise<{ stopped: boolean }> {
+    return (await this.send("agent-stop", { id })) as { stopped: boolean };
+  }
+
+  /** Every running automation session, for reconnecting after a reload. */
+  async agentList(): Promise<{ sessions: AgentSession[] }> {
+    return (await this.send("agent-list", {})) as { sessions: AgentSession[] };
   }
 
   /**

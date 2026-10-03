@@ -14,6 +14,9 @@
 
 export { SidecarClient, SidecarClientError } from "./client.js";
 export type {
+  AgentSession,
+  AgentStartSpec,
+  AgentStarted,
   ClearOverrideResult,
   CreateProxy,
   CreateResult,
@@ -37,6 +40,9 @@ export type {
   SidecarError,
   TargetOs,
   UpdateSpec,
+  Verdict,
+  VerifyDifference,
+  VerifyReport,
   Version,
   Violation,
 } from "./types.js";

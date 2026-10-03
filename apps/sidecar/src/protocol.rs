@@ -84,8 +84,16 @@ pub enum Command {
     Delete(IdParams),
     /// The launch plan, without launching.
     Plan(PlanParams),
+    /// A profile's identity read back out of a running browser.
+    Verify(VerifyParams),
     /// A profile launched.
     Launch(LaunchParams),
+    /// A profile driven over Playwright's automation endpoint.
+    AgentStart(AgentStartParams),
+    /// A running automation session, stopped.
+    AgentStop(IdParams),
+    /// Every running automation session.
+    AgentList(EmptyParams),
 }
 
 /// For the commands that take no arguments.
@@ -132,6 +140,23 @@ pub struct PlanParams {
     pub headless: bool,
 }
 
+/// A read-back verification request.
+#[derive(Debug, Clone, Deserialize)]
+pub struct VerifyParams {
+    /// The profile's id.
+    pub id: String,
+    /// An explicit engine binary, or `None` for the default.
+    #[serde(default)]
+    pub engine: Option<String>,
+    /// Whether the report lists the properties that agreed as well as the ones
+    /// that did not.
+    ///
+    /// Off by default: a covered GPU agrees on well over a hundred values, and
+    /// the answer a caller wants is the handful that disagree.
+    #[serde(default)]
+    pub keep_agreements: bool,
+}
+
 /// A launch request.
 #[derive(Debug, Clone, Deserialize)]
 pub struct LaunchParams {
@@ -143,6 +168,36 @@ pub struct LaunchParams {
     /// The proxy's observed exit country, for the geo gate.
     #[serde(default)]
     pub exit_country: Option<String>,
+}
+
+/// What an automation session needs beyond a launch.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentStartParams {
+    /// The profile's id.
+    pub id: String,
+    /// An explicit engine binary, or `None` for the default.
+    #[serde(default)]
+    pub engine: Option<String>,
+    /// The proxy's observed exit country, for the geo gate.
+    #[serde(default)]
+    pub exit_country: Option<String>,
+    /// The `playwright-core` package root the automation script will require.
+    ///
+    /// The Node package ships it at `node_modules/playwright-core`; Python
+    /// Playwright bundles it at `site-packages/playwright/driver/package`.
+    pub driver_path: String,
+    /// An explicit Node runtime. `None` runs `node` from `PATH`; Python
+    /// Playwright's bundled runtime is `site-packages/playwright/driver/node`.
+    #[serde(default)]
+    pub node_path: Option<String>,
+    /// A WebSocket port to ask for, or `None` for Playwright's choice.
+    #[serde(default)]
+    pub port: Option<u16>,
+    /// Whether the automated browser opens a window. Off by default: the
+    /// common automation case is unattended, and a headless launch is the
+    /// cheaper one.
+    #[serde(default)]
+    pub headless: bool,
 }
 
 /// A reply. Exactly one of `result` and `error` is present.
@@ -332,6 +387,13 @@ pub struct CreateSpec {
     /// Whether to claim tracking protection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tracking_protection: Option<bool>,
+    /// Whether the engine humanises programmatic cursor movement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub humanize: Option<bool>,
+    /// Browser extensions to load, as paths to `.xpi` files or unpacked addon
+    /// directories.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addons: Option<Vec<String>>,
     /// Notes the user wrote.
     #[serde(default)]
     pub notes: Option<String>,
@@ -404,6 +466,8 @@ pub struct ProfileSummary {
     pub coherent: bool,
     /// Whether a proxy is configured.
     pub proxied: bool,
+    /// How many browser extensions will load with this profile.
+    pub addon_count: usize,
     /// A one-line summary, for the row.
     pub summary: String,
 }
@@ -427,6 +491,7 @@ impl ProfileSummary {
             // coherent; one whose violation survives repair is not.
             coherent: resolved.violations.is_empty(),
             proxied: profile.proxy.is_some(),
+            addon_count: profile.addons.len(),
             summary,
         }
     }
@@ -526,7 +591,7 @@ pub struct Launched {
 // ------------------------------------------------------------------- helpers
 
 /// The store, or the error saying why there is not one.
-fn store() -> Result<ProfileStore, SidecarError> {
+pub(crate) fn store() -> Result<ProfileStore, SidecarError> {
     let path = store_path::default_store()?;
     ProfileStore::open(path).map_err(SidecarError::from)
 }
@@ -535,7 +600,7 @@ fn store() -> Result<ProfileStore, SidecarError> {
 ///
 /// The message repeats the id because the UI has a list on screen and needs to
 /// point at the right row; "not found" alone sends the user looking.
-fn load_profile(store: &ProfileStore, id: &str) -> Result<Profile, SidecarError> {
+pub(crate) fn load_profile(store: &ProfileStore, id: &str) -> Result<Profile, SidecarError> {
     store.load(id)?.ok_or_else(|| {
         SidecarError::new(
             ErrorKind::NotFound,
@@ -649,6 +714,8 @@ struct SpecOptions<'a> {
     fonts: Option<narrc_core::FontProfile>,
     /// Whether to claim tracking protection.
     tracking_protection: Option<bool>,
+    /// Whether the engine humanises programmatic cursor movement.
+    humanize: Option<bool>,
 }
 
 fn checked_options(request: SpecOptions<'_>) -> Result<GeneratorOptions, SidecarError> {
@@ -674,6 +741,9 @@ fn checked_options(request: SpecOptions<'_>) -> Result<GeneratorOptions, Sidecar
     }
     if let Some(tracking) = request.tracking_protection {
         options.tracking_protection = tracking;
+    }
+    if let Some(humanize) = request.humanize {
+        options.humanize = humanize;
     }
 
     // A scale pins only with a panel that divides into a plausible CSS size
@@ -711,6 +781,7 @@ pub fn create(spec: &CreateSpec) -> Result<Value, SidecarError> {
         dpr: spec.dpr,
         fonts: spec.fonts,
         tracking_protection: spec.tracking_protection,
+        humanize: spec.humanize,
     })?;
 
     let id = store.free_id(&name, seed);
@@ -718,6 +789,7 @@ pub fn create(spec: &CreateSpec) -> Result<Value, SidecarError> {
     profile.notes = spec.notes.clone().unwrap_or_default();
     profile.proxy = proxy;
     profile.extra_args = spec.extra_args.clone();
+    profile.addons = spec.addons.clone().unwrap_or_default();
 
     let report = report_of(&profile);
     store.save(&profile)?;
@@ -748,6 +820,7 @@ pub fn update(id: &str, spec: &CreateSpec) -> Result<Value, SidecarError> {
         dpr: spec.dpr,
         fonts: spec.fonts,
         tracking_protection: spec.tracking_protection,
+        humanize: spec.humanize,
     })?;
 
     profile.name = name;
@@ -755,6 +828,7 @@ pub fn update(id: &str, spec: &CreateSpec) -> Result<Value, SidecarError> {
     profile.notes = spec.notes.clone().unwrap_or_default();
     profile.proxy = proxy;
     profile.extra_args = spec.extra_args.clone();
+    profile.addons = spec.addons.clone().unwrap_or_default();
 
     let report = report_of(&profile);
     store.save(&profile)?;
@@ -885,6 +959,75 @@ pub fn plan(id: &str, engine: Option<&str>, headless: bool) -> Result<Value, Sid
     to_value(&plan)
 }
 
+/// Launches the profile's engine at a probe page and reports what it exposed.
+///
+/// This is the one command that *measures* rather than reasons: everything else
+/// here describes the identity the engine was handed, and this asks a page what
+/// it can actually read. It therefore starts a real browser, which is why it is
+/// a command of its own rather than part of [`validate`] — a validation that
+/// took ten seconds and opened a window would not be run.
+///
+/// The probe is given a throwaway profile directory rather than the profile's
+/// own, for the two reasons [`narrc_core::verify::ProbeProfile`] exists: a
+/// profile whose browser is already open has a locked directory, and the probe
+/// needs a preference the profile must not be left carrying.
+///
+/// The launch is not headless. A page reads a different rendering path without
+/// a window, so a difference found there would be a difference the user would
+/// never see — and the values this exists to check are exactly the ones a
+/// rendering path decides.
+pub fn verify(
+    id: &str,
+    engine: Option<&str>,
+    keep_agreements: bool,
+) -> Result<Value, SidecarError> {
+    let store = store()?;
+    let profile = load_profile(&store, id)?;
+
+    // The identity the plan will carry, resolved the same way `launch_plan`
+    // resolves it, so the probe's own preferences describe the same machine the
+    // plan configures. A violation surfaces from `launch_plan` below rather
+    // than being repaired here: verifying a profile that cannot launch would
+    // report on a machine nobody can run.
+    let identity = profile.resolved().identity;
+    let probe = narrc_core::verify::ProbeProfile::new(&identity).map_err(|error| {
+        SidecarError::new(
+            ErrorKind::Io,
+            format!("could not prepare the probe profile: {error}"),
+        )
+    })?;
+
+    let plan = profile
+        .launch_plan(probe.path(), engine, false)
+        .map_err(SidecarError::from)?;
+
+    let report = narrc_core::verify::run(
+        &plan,
+        narrc_core::verify::DEFAULT_PROBE_TIMEOUT,
+        keep_agreements,
+    )
+    .map_err(|error| {
+        // A missing engine or a browser that never reported is the environment,
+        // not the request: the same call can succeed once the engine is
+        // installed or the machine is less loaded. A plan that could not be read
+        // back is the request.
+        let kind = if matches!(
+            error,
+            narrc_core::verify::VerifyError::NoEngine { .. }
+                | narrc_core::verify::VerifyError::Timeout { .. }
+                | narrc_core::verify::VerifyError::Listen(_)
+                | narrc_core::verify::VerifyError::Spawn { .. }
+        ) {
+            ErrorKind::Io
+        } else {
+            ErrorKind::Invalid
+        };
+        SidecarError::new(kind, error.to_string())
+    })?;
+
+    to_value(&report)
+}
+
 pub fn launch(
     id: &str,
     engine: Option<&str>,
@@ -966,30 +1109,53 @@ pub fn spawn_with_program(
         // reasonably call a crash.
         use std::os::windows::process::CommandExt;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
-        command.creation_flags(DETACHED_PROCESS);
+        // Breakaway asks to leave the launcher's kill-on-close job object, so a
+        // browser outlives the app that started it — the point of a detached
+        // spawn. The flag fails the whole spawn when no job in the chain allows
+        // breakaway (some shells and CI runners wrap everything they start), so
+        // a refusal falls back to a plain detached spawn rather than losing the
+        // launch.
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+        const ERROR_ACCESS_DENIED: i32 = 5;
+        command.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB);
+        let spawned = match command.spawn() {
+            Ok(child) => Ok(child),
+            Err(error) if error.raw_os_error() == Some(ERROR_ACCESS_DENIED) => {
+                command.creation_flags(DETACHED_PROCESS);
+                command.spawn()
+            }
+            Err(error) => Err(error),
+        };
+        return spawned.and_then(handle_reexec_successor);
     }
-    let child = command.spawn()?;
     #[cfg(not(windows))]
     {
-        return Ok(Some(child.id()));
+        let child = command.spawn()?;
+        Ok(Some(child.id()))
     }
-    #[cfg(windows)]
-    {
-        let mut child = child;
-        let pid = child.id();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
-        loop {
-            if let Some(successor) = first_child_of(pid) {
-                return Ok(Some(successor));
-            }
-            if child.try_wait()?.is_some() {
-                return Ok(Some(pid));
-            }
-            if std::time::Instant::now() >= deadline {
-                return Ok(Some(pid));
-            }
-            std::thread::sleep(std::time::Duration::from_millis(25));
+}
+
+/// On Windows, follows the engine's re-exec to the process that survives.
+///
+/// The engine re-execs itself: the pid handed back by `spawn` dies within a
+/// few hundred milliseconds and the browser that survives is its child. A
+/// toast pointing at the dead launcher would be worse than no pid, so the
+/// successor is followed before the pid is reported.
+#[cfg(windows)]
+fn handle_reexec_successor(mut child: std::process::Child) -> Result<Option<u32>, std::io::Error> {
+    let pid = child.id();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
+    loop {
+        if let Some(successor) = first_child_of(pid) {
+            return Ok(Some(successor));
         }
+        if child.try_wait()?.is_some() {
+            return Ok(Some(pid));
+        }
+        if std::time::Instant::now() >= deadline {
+            return Ok(Some(pid));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
     }
 }
 
@@ -1135,6 +1301,7 @@ mod tests {
         assert_eq!(
             keys,
             vec![
+                "addon_count",
                 "coherent",
                 "country",
                 "digest",
@@ -1324,6 +1491,8 @@ mod tests {
             dpr: None,
             fonts: None,
             tracking_protection: None,
+            humanize: None,
+            addons: None,
             notes: None,
             proxy: Some(CreateProxy {
                 url: "proxy.example:3128".into(),
@@ -1348,6 +1517,8 @@ mod tests {
             dpr: None,
             fonts: None,
             tracking_protection: None,
+            humanize: None,
+            addons: None,
             notes: None,
             proxy: None,
             extra_args: Vec::new(),
@@ -1370,6 +1541,8 @@ mod tests {
                 dpr: None,
                 fonts: None,
                 tracking_protection: None,
+            humanize: None,
+            addons: None,
                 notes: None,
                 proxy: None,
                 extra_args: Vec::new(),
@@ -1388,6 +1561,7 @@ mod tests {
             dpr,
             fonts: None,
             tracking_protection: None,
+            humanize: None,
         }
     }
 
@@ -1487,5 +1661,43 @@ mod tests {
         for key in ["program", "args", "env", "headless", "warnings"] {
             assert!(keys.contains(&key), "{key} missing from {keys:?}");
         }
+    }
+
+    #[test]
+    fn a_verify_request_parses_with_and_without_its_optional_fields() {
+        let request: Request =
+            serde_json::from_str(r#"{"id":1,"command":"verify","params":{"id":"acct"}}"#).unwrap();
+        match request.command {
+            Command::Verify(params) => {
+                assert_eq!(params.id, "acct");
+                assert_eq!(params.engine, None);
+                // Off by default: a covered GPU agrees on well over a hundred
+                // values, and a UI that had to opt *out* of listing them would
+                // be paying for them on every run.
+                assert!(!params.keep_agreements);
+            }
+            other => panic!("expected a verify request, got {other:?}"),
+        }
+
+        let request: Request = serde_json::from_str(
+            r#"{"id":2,"command":"verify","params":{"id":"acct","engine":"C:/camoufox.exe","keep_agreements":true}}"#,
+        )
+        .unwrap();
+        match request.command {
+            Command::Verify(params) => {
+                assert_eq!(params.engine.as_deref(), Some("C:/camoufox.exe"));
+                assert!(params.keep_agreements);
+            }
+            other => panic!("expected a verify request, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verifying_a_profile_that_does_not_exist_never_reaches_a_browser() {
+        // The lookup runs before anything is launched, so a typo costs a
+        // `not-found` rather than a browser start and a two-minute timeout.
+        let error = verify("no-such-profile", None, false).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::NotFound);
+        assert!(error.message.contains("no-such-profile"), "{}", error.message);
     }
 }

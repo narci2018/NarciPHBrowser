@@ -6,6 +6,7 @@
 //! application uses the library directly, in-process, rather than spawning
 //! a child process — the sidecar binary is for standalone use and testing.
 
+pub mod agent;
 pub mod protocol;
 pub mod store_path;
 

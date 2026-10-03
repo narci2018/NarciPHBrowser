@@ -32,6 +32,40 @@ fn engine_version() -> Result<String, String> {
         .ok_or_else(|| format!("unexpected engine target {}", narrc_core::ENGINE_TARGET))
 }
 
+/// The release-asset tokens naming this platform: the OS word upstream puts in
+/// the file name (`win` / `mac` / `lin`) and the architecture (`x86_64` /
+/// `arm64`). A build for one platform never downloads another's archive.
+fn engine_asset_tokens() -> (&'static str, &'static str) {
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
+    let os = if cfg!(target_os = "macos") {
+        "mac"
+    } else if cfg!(target_os = "linux") {
+        "lin"
+    } else {
+        "win"
+    };
+    (os, arch)
+}
+
+/// Picks this platform's archive out of a release's asset list.
+///
+/// Upstream names them `camoufox-<version>-<os>.<arch>.zip`, so the match is
+/// on the `-{os}.{arch}.zip` tail rather than on a substring that could meet
+/// an unrelated asset. Pure, so the fixture tests can pin it against the real
+/// names a release carries.
+fn pick_engine_asset(assets: &[serde_json::Value], os: &str, arch: &str) -> Option<String> {
+    let tail = format!("-{os}.{arch}.zip");
+    assets
+        .iter()
+        .filter_map(|asset| asset["name"].as_str())
+        .find(|name| name.starts_with("camoufox-") && name.ends_with(&tail))
+        .map(str::to_owned)
+}
+
 /// The version an installed engine reports, read from its `application.ini`.
 fn installed_version(install_dir: &Path) -> Option<String> {
     let ini = std::fs::read_to_string(install_dir.join("application.ini")).ok()?;
@@ -47,9 +81,8 @@ fn installed_version(install_dir: &Path) -> Option<String> {
 /// `%USERPROFILE%\camoufox\`. Emits progress events so the UI can show a
 /// download dialog.
 pub fn ensure_camoufox(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let home = dirs_next::home_dir().ok_or_else(|| "could not determine home directory".to_string())?;
-    let install_dir = home.join("camoufox");
-    let binary = install_dir.join("camoufox.exe");
+    let install_dir = narrc_core::engine::engine_install_dir();
+    let binary = install_dir.join(narrc_core::engine::engine_binary_name());
     let version = engine_version()?;
 
     // An installed engine carrying the pinned version is the fast path. One
@@ -124,17 +157,16 @@ pub fn ensure_camoufox(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         })?;
     let assets = release["assets"].as_array().ok_or("no assets in release")?;
 
-    // Find the Windows x86_64 zip. Its advertised size is what the resumed
+    // Find this platform's zip. Its advertised size is what the resumed
     // transfer is measured against: Content-Length of a ranged response only
     // covers the remaining bytes.
+    let (asset_os, asset_arch) = engine_asset_tokens();
+    let asset_name =
+        pick_engine_asset(assets, &asset_os, &asset_arch).ok_or("no asset for this platform")?;
     let asset = assets
         .iter()
-        .find(|asset| {
-            asset["name"].as_str().is_some_and(|name| {
-                name.contains("win") && name.contains("x86_64") && name.ends_with(".zip")
-            })
-        })
-        .ok_or("no Windows x86_64 asset found")?;
+        .find(|asset| asset["name"].as_str() == Some(asset_name.as_str()))
+        .ok_or("the chosen asset vanished from the release")?;
     let download_url = asset["browser_download_url"]
         .as_str()
         .ok_or("asset has no download url")?
@@ -150,7 +182,8 @@ pub fn ensure_camoufox(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     // the bytes stream into a part file and every failed transfer resumes with
     // a Range request instead of restarting. Restarting from zero on a link
     // this long never finishes.
-    let part_path = home.join(format!("camoufox-{version}.zip.part"));
+    std::fs::create_dir_all(&install_dir).map_err(|e| e.to_string())?;
+    let part_path = install_dir.join(format!("camoufox-{version}.zip.part"));
     let mut last_error = String::new();
     let mut attempt = 0u32;
     loop {
@@ -290,18 +323,24 @@ pub fn ensure_camoufox(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let _ = std::fs::remove_file(&part_path);
 
     // Verify the binary exists after extraction.
+    let binary_name = narrc_core::engine::engine_binary_name();
     if !binary.exists() {
-        // The zip may contain a top-level directory; scan for the exe.
+        // The zip may contain a top-level directory; scan for the binary.
         let found = walkdir::WalkDir::new(&install_dir)
             .into_iter()
             .filter_map(|e| e.ok())
-            .find(|e| e.file_name() == "camoufox.exe");
+            .find(|e| e.file_name() == binary_name);
         if let Some(entry) = found {
+            #[cfg(unix)]
+            mark_executable(entry.path());
             apply_chrome_skin(&install_dir)?;
             return Ok(entry.path().to_path_buf());
         }
-        return Err("camoufox.exe not found in extracted archive".to_string());
+        return Err(format!("{binary_name} not found in extracted archive"));
     }
+
+    #[cfg(unix)]
+    mark_executable(&binary);
 
     app.emit("download-progress", DownloadProgress {
         phase: "Ready!".to_string(),
@@ -310,6 +349,20 @@ pub fn ensure_camoufox(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
     apply_chrome_skin(&install_dir)?;
     Ok(binary)
+}
+
+/// Makes an extracted engine runnable. Archives carry no executable bit, and
+/// a Firefox that cannot be executed fails at spawn with an error that says
+/// nothing about permissions.
+#[cfg(unix)]
+fn mark_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    if let Ok(metadata) = std::fs::metadata(path) {
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(permissions.mode() | 0o755);
+        let _ = std::fs::set_permissions(path, permissions);
+    }
 }
 
 /// Progress event emitted during Camoufox download.
@@ -362,7 +415,7 @@ fn open_proxy_store(state: &tauri::State<'_, AppState>) -> Result<narrc_core::Pr
 /// avoids the complexity of managing a child process and means the UI can
 /// reach the engine without a pipe.
 #[tauri::command]
-pub async fn start_sidecar(_state: tauri::State<'_, AppState>) -> Result<String, String> {
+pub async fn app_info(_state: tauri::State<'_, AppState>) -> Result<String, String> {
     Ok(format!(
         "sidecar {} (core {}, engine {})",
         env!("CARGO_PKG_VERSION"),
@@ -542,6 +595,66 @@ pub async fn clear_override(
     Ok(serde_json::json!({ "report": report }))
 }
 
+/// Adds a browser extension to a profile.
+///
+/// `path` is an `.xpi` file or an unpacked addon directory. Existence is not
+/// required here — the addon may still be downloading — and is checked at
+/// launch, where a missing path becomes a warning the UI can show.
+#[tauri::command]
+pub async fn add_addon(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    let path = path.trim().to_owned();
+    if path.is_empty() {
+        return Err("an addon needs a path".to_string());
+    }
+    let store = open_store(&state)?;
+    let mut profile = store
+        .load(&id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("no profile with the id {id:?}"))?;
+    if profile
+        .addons
+        .iter()
+        .any(|existing| existing.eq_ignore_ascii_case(&path))
+    {
+        return Err(format!("{path:?} is already loaded by this profile"));
+    }
+    profile.addons.push(path);
+    store.save(&profile).map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "addons": profile.addons,
+        "report": protocol::report_of(&profile),
+    }))
+}
+
+/// Removes a browser extension from a profile, by the path it was added with.
+#[tauri::command]
+pub async fn remove_addon(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    let path = path.trim();
+    let store = open_store(&state)?;
+    let mut profile = store
+        .load(&id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("no profile with the id {id:?}"))?;
+    let before = profile.addons.len();
+    profile.addons.retain(|existing| !existing.eq_ignore_ascii_case(path));
+    if profile.addons.len() == before {
+        return Err(format!("no addon {path:?} on this profile"));
+    }
+    store.save(&profile).map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "addons": profile.addons,
+        "report": protocol::report_of(&profile),
+    }))
+}
+
 /// Launches a profile's browser.
 #[tauri::command]
 pub async fn launch_profile(
@@ -572,6 +685,23 @@ pub async fn launch_profile(
         });
     }
 
+    // The geo gate checks whether the proxy exit country matches what the profile claims.
+    // Rather than refusing launch, it evaluates the gate and returns the verdict so the UI
+    // can display a visible warning, giving full control to the user.
+    let geo_gate = match profile.proxy.as_ref() {
+        Some(proxy) => {
+            let observed = open_proxy_store(&state)?
+                .list()
+                .iter()
+                .find(|stored| stored.url == proxy.url)
+                .and_then(|stored| stored.last_check.clone())
+                .filter(|check| check.ok)
+                .and_then(|check| check.country);
+            Some(profile.check_geo_gate(observed.as_deref()))
+        }
+        None => None,
+    };
+
     // Ensure Camoufox is installed.
     let camoufox_path = ensure_camoufox(&app)?;
 
@@ -582,8 +712,15 @@ pub async fn launch_profile(
 
     // Use the ensured binary path, overriding any configured path.
     let prog = camoufox_path.to_string_lossy().to_string();
-    let pid = protocol::spawn_with_program(&plan, &prog)
-        .map_err(|error| format!("could not start browser: {error}"))?;
+    let pid = protocol::spawn_with_program(&plan, &prog);
+    if pid.is_err() {
+        // The core instance was started for this launch and its browser will
+        // never exist; leaving it running would be a process serving nobody.
+        if assignment.is_some() {
+            let _ = mihomo(&state)?.stop_profile(&id);
+        }
+    }
+    let pid = pid.map_err(|error| format!("could not start browser: {error}"))?;
 
     // The browser is detached, so its exit is learned by polling its pid. When
     // it goes, the profile's core instance goes with it — a core left running
@@ -594,7 +731,12 @@ pub async fn launch_profile(
             let profile_id = id.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 let state = app2.state::<AppState>();
-                while crate::mihomo::process_alive(pid) {
+                // Pinned to this incarnation of the pid: after the browser
+                // exits, the OS may hand the pid to an unrelated process, and
+                // a bare aliveness poll would then wait on the stranger while
+                // the profile's core keeps running.
+                let started = crate::mihomo::process_started_at(pid);
+                while crate::mihomo::process_alive_with(pid, started) {
                     std::thread::sleep(std::time::Duration::from_millis(500));
                 }
                 let manager = state.mihomo.lock();
@@ -609,7 +751,220 @@ pub async fn launch_profile(
         "pid": pid,
         "discarded": discarded,
         "headless": plan.headless,
+        "geo_gate": geo_gate,
     }))
+}
+
+/// Verifies a profile by reading its identity back out of a running browser.
+///
+/// Every other check in this file reasons about the identity the engine *was
+/// handed*. This one asks the browser what a page can actually read, and diffs
+/// the two — the only way to turn "the engine should apply this" into "the
+/// engine did". It launches a real browser, so it is a command of its own and
+/// the UI must ask before calling it.
+///
+/// The launch is not headless: a page reads a different rendering path without
+/// a window, and the values this exists to check are the ones a rendering path
+/// decides. The browser is given a throwaway profile directory — the profile's
+/// own may be locked by a browser already running, and the probe needs a
+/// preference the profile must not be left carrying.
+#[tauri::command]
+pub async fn verify_profile(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    id: String,
+    keep_agreements: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let profile = store
+        .load(&id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("no profile with the id {id:?}"))?;
+
+    let camoufox_path = ensure_camoufox(&app)?;
+    let keep_agreements = keep_agreements.unwrap_or(false);
+
+    // Off the main thread: a cold browser start plus the page's own work is
+    // seconds, and the UI must keep answering while it runs.
+    tauri::async_runtime::spawn_blocking(move || {
+        let identity = profile.resolved().identity;
+        let probe = narrc_core::verify::ProbeProfile::new(&identity)
+            .map_err(|error| format!("could not prepare the probe profile: {error}"))?;
+        let mut plan = profile
+            .launch_plan(probe.path(), None, false)
+            .map_err(|error| error.to_string())?;
+        // The ensured binary, not whatever path the config carries: the same
+        // substitution an interactive launch makes, so the browser measured is
+        // the browser a launch would produce.
+        plan.program = camoufox_path.to_string_lossy().to_string();
+
+        let report = narrc_core::verify::run(
+            &plan,
+            narrc_core::verify::DEFAULT_PROBE_TIMEOUT,
+            keep_agreements,
+        )
+        .map_err(|error| error.to_string())?;
+        serde_json::to_value(&report).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("the verification task failed: {error}"))?
+}
+
+/// Starts a profile's automation session.
+///
+/// The plan is the interactive launch's plan — same identity, same engine,
+/// same profile directory — but instead of spawning the engine directly, the
+/// plan is handed to the vendored automation script, which starts a Playwright
+/// server and reports a WebSocket endpoint. Any Playwright client in any
+/// language connects to that endpoint and drives the browser, and the browser
+/// presents this profile's identity for the whole session.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn start_automation(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    id: String,
+    driver_path: String,
+    node_path: Option<String>,
+    port: Option<u16>,
+    headless: bool,
+) -> Result<serde_json::Value, String> {
+    if driver_path.trim().is_empty() {
+        return Err("a Playwright driver path is required".to_string());
+    }
+    {
+        let agents = state.agents.lock().map_err(|error| error.to_string())?;
+        if agents.contains_key(&id) {
+            return Err(format!("an automation session for {id:?} is already running"));
+        }
+    }
+
+    let store = open_store(&state)?;
+    let mut profile = store
+        .load(&id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("no profile with the id {id:?}"))?;
+
+    // The proxy assignment and the geo gate are the interactive launch's:
+    // automation is the easiest place to trip the gate, not an exemption from
+    // it.
+    let assignment = open_assignment_store(&state)?.get(&id).cloned();
+    if let Some(assignment) = &assignment {
+        let sub = open_subscription_store(&state)?
+            .get(&assignment.subscription_id)
+            .ok_or_else(|| format!("the subscription {:?} is gone", assignment.subscription_id))?
+            .clone();
+        let port = mihomo(&state)?.ensure_profile(&app, &id, &sub, &assignment.node)?;
+        profile.proxy = Some(narrc_core::ProxyConfig {
+            url: format!("socks5://127.0.0.1:{port}"),
+            exit_country: None,
+        });
+    }
+    let geo_gate = match profile.proxy.as_ref() {
+        Some(proxy) => {
+            let observed = open_proxy_store(&state)?
+                .list()
+                .iter()
+                .find(|stored| stored.url == proxy.url)
+                .and_then(|stored| stored.last_check.clone())
+                .filter(|check| check.ok)
+                .and_then(|check| check.country);
+            Some(profile.check_geo_gate(observed.as_deref()))
+        }
+        None => None,
+    };
+    if let Some(gate) = &geo_gate {
+        if !gate.allows_launch() {
+            if assignment.is_some() {
+                let _ = mihomo(&state)?.stop_profile(&id);
+            }
+            return Err(format!("the geo gate refused this launch: {gate:?}"));
+        }
+    }
+
+    let camoufox_path = ensure_camoufox(&app)?;
+    let dir = store.browser_dir(&id);
+    let (mut plan, _discarded) = profile
+        .launch_plan_after_discarding_conflicts(&dir, None, headless)
+        .map_err(|error| error.to_string())?;
+    plan.program = camoufox_path.to_string_lossy().to_string();
+
+    let script = narrc_core::automation::write_automation_script(&store.automation_dir())
+        .map_err(|error| format!("could not write the automation script: {error}"))?;
+
+    // Waiting for the endpoint can take a while on a cold Node start, and the
+    // main thread must keep answering the UI meanwhile.
+    let spawned = tauri::async_runtime::spawn_blocking(move || {
+        narrc_core::automation::spawn_agent(
+            &plan,
+            node_path.as_deref().unwrap_or("node"),
+            driver_path.trim(),
+            &script,
+            port,
+            narrc_core::automation::DEFAULT_ENDPOINT_TIMEOUT,
+        )
+    })
+    .await
+    .map_err(|error| format!("the automation task failed: {error}"))?;
+
+    let session = match spawned {
+        Ok(session) => session,
+        Err(error) => {
+            // The core instance was started for this session and its browser
+            // will never exist.
+            if assignment.is_some() {
+                let _ = mihomo(&state)?.stop_profile(&id);
+            }
+            return Err(error.to_string());
+        }
+    };
+
+    let reply = serde_json::json!({
+        "wsEndpoint": session.ws_endpoint,
+        "pid": session.pid(),
+        "geo_gate": geo_gate,
+    });
+    state
+        .agents
+        .lock()
+        .map_err(|error| error.to_string())?
+        .insert(id, session);
+    Ok(reply)
+}
+
+/// Stops a profile's automation session.
+#[tauri::command]
+pub async fn stop_automation(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let session = state
+        .agents
+        .lock()
+        .map_err(|error| error.to_string())?
+        .remove(&id)
+        .ok_or_else(|| format!("no automation session for {id:?}"))?;
+    // The graceful close runs off the main thread; the session's Drop also
+    // enforces a kill deadline if the owner goes away mid-stop.
+    tauri::async_runtime::spawn_blocking(move || session.stop());
+    Ok(serde_json::json!({ "stopped": true }))
+}
+
+/// Lists the running automation sessions.
+#[tauri::command]
+pub async fn list_automation(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let agents = state.agents.lock().map_err(|error| error.to_string())?;
+    let sessions: Vec<serde_json::Value> = agents
+        .iter()
+        .map(|(id, session)| {
+            serde_json::json!({
+                "id": id,
+                "wsEndpoint": session.ws_endpoint,
+                "pid": session.pid(),
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({ "sessions": sessions }))
 }
 
 // ---------------------------------------------------------------- proxies
@@ -810,24 +1165,9 @@ pub async fn assign_proxy(
 }
 
 /// What an echo service reported about the exit.
-struct Echo {
-    ip: String,
-    country: Option<String>,
-    city: Option<String>,
-}
-
-/// Echo services asked, in order, for the IP they saw.
 ///
-/// Several because any one of them rate-limits, blocks a datacentre range or
-/// is down; the check passes when any answers. Every request goes *through*
-/// the proxy, so these see the exit address and nothing about this machine.
-const ECHO_ENDPOINTS: &[&str] = &[
-    "https://ipinfo.io/json",
-    "https://ifconfig.co/json",
-    "https://api.ipify.org?format=json",
-    "https://checkip.amazonaws.com",
-    "https://icanhazip.com",
-];
+/// Defined beside the proxy core: the node exit check reads the same shapes.
+use crate::mihomo::Echo;
 
 /// The payload a check arrives as.
 #[derive(serde::Deserialize)]
@@ -888,7 +1228,7 @@ async fn run_check(url: &str) -> Result<Echo, String> {
         .map_err(|error| error.to_string())?;
 
     let mut last = "no echo service answered".to_string();
-    for endpoint in ECHO_ENDPOINTS {
+    for endpoint in crate::mihomo::ECHO_ENDPOINTS {
         match fetch_echo(&client, endpoint).await {
             Ok(echo) => return Ok(echo),
             Err(error) => last = error,
@@ -909,40 +1249,7 @@ async fn fetch_echo(client: &reqwest::Client, endpoint: &str) -> Result<Echo, St
         return Err(format!("{endpoint} returned status {status}"));
     }
     let body = response.text().await.map_err(|error| error.to_string())?;
-    let body = body.trim();
-
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(body) {
-        let ip = value
-            .get("ip")
-            .and_then(|ip| ip.as_str())
-            .filter(|ip| !ip.is_empty())
-            .ok_or_else(|| format!("{endpoint} reported no IP"))?;
-        return Ok(Echo {
-            ip: ip.to_owned(),
-            country: text_field(&value, "country"),
-            city: text_field(&value, "city"),
-        });
-    }
-
-    // The plain-text endpoints answer with the IP and nothing else.
-    if body.parse::<std::net::IpAddr>().is_ok() {
-        return Ok(Echo {
-            ip: body.to_owned(),
-            country: None,
-            city: None,
-        });
-    }
-    Err(format!("{endpoint} replied with something that is not an IP"))
-}
-
-/// A non-empty string field of an echo response.
-fn text_field(value: &serde_json::Value, key: &str) -> Option<String> {
-    value
-        .get(key)
-        .and_then(|field| field.as_str())
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_owned)
+    crate::mihomo::parse_echo(endpoint, &body)
 }
 
 // --------------------------------------------------------- subscriptions
@@ -1021,7 +1328,7 @@ pub async fn core_status(app: tauri::AppHandle) -> Result<serde_json::Value, Str
         let state = app2.state::<AppState>();
         let running = mihomo(state.inner())?.network_is_running();
         let installed = dirs_next::home_dir()
-            .map(|home| home.join("mihomo").join("mihomo.exe").exists())
+            .map(|_| crate::mihomo::core_binary_path().exists())
             .unwrap_or(false);
         Ok(serde_json::json!({ "installed": installed, "running": running }))
     })
@@ -1159,6 +1466,9 @@ pub async fn delete_subscription(
     assignments
         .remove_by_subscription(&id)
         .map_err(|error| error.to_string())?;
+    // The routed cores are stopped by now, so nothing holds the fetched
+    // provider file open and its cached copy — credentials included — can go.
+    crate::mihomo::purge_provider_cache(&id);
     let subs = open_subscription_store(&state)?.list().to_vec();
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -1300,10 +1610,48 @@ pub async fn test_node_speed(
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app2.state::<AppState>();
+        // Held for the whole test: the download repoints the shared SPEEDTEST
+        // group, and a second test starting mid-download would repoint it back
+        // and both would measure the wrong node.
+        let _speed_guard = state.speed_lock.lock();
         let (api, secret, speed) = network_handle(&app2, state.inner(), &subs)?;
         let client = crate::mihomo::blocking_client(20);
         let mbps = crate::mihomo::node_speed(&client, api, &secret, speed, &node)?;
         Ok(serde_json::json!({ "mbps": mbps }))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Reports which country a node's traffic really exits from.
+///
+/// The same shared group the speed test repoints, so the same lock applies —
+/// an exit check and a speed test running at once would each send the group
+/// somewhere else and both would answer for the wrong node.
+#[tauri::command]
+pub async fn test_node_exit(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let spec: NodeRef =
+        serde_json::from_value(payload).map_err(|error| format!("invalid node: {error}"))?;
+    let subs = open_subscription_store(&state)?.list().to_vec();
+    let node = spec.node.clone();
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app2.state::<AppState>();
+        let _speed_guard = state.speed_lock.lock();
+        let (api, secret, speed) = network_handle(&app2, state.inner(), &subs)?;
+        let client = crate::mihomo::blocking_client(20);
+        let started = std::time::Instant::now();
+        let echo = crate::mihomo::node_exit(&client, api, &secret, speed, &node)?;
+        Ok(serde_json::json!({
+            "ip": echo.ip,
+            "country": echo.country,
+            "city": echo.city,
+            "latency_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        }))
     })
     .await
     .map_err(|error| error.to_string())?
@@ -1376,4 +1724,66 @@ pub async fn list_assignments(
 ) -> Result<serde_json::Value, String> {
     let assignments = open_assignment_store(&state)?;
     Ok(serde_json::json!({ "assignments": assignments.list() }))
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the platform asset selection, pinned against the asset names
+    //! a real release carries (camoufox-152.0.4-beta.30, verified 2026-10-03
+    //! against the GitHub release; six assets, one per platform/arch pair).
+
+    use super::*;
+
+    /// The complete asset list of camoufox-152.0.4-beta.30, verbatim.
+    fn release_assets() -> Vec<serde_json::Value> {
+        [
+            "camoufox-152.0.4-beta.30-win.x86_64.zip",
+            "camoufox-152.0.4-beta.30-win.i686.zip",
+            "camoufox-152.0.4-beta.30-mac.x86_64.zip",
+            "camoufox-152.0.4-beta.30-mac.arm64.zip",
+            "camoufox-152.0.4-beta.30-lin.x86_64.zip",
+            "camoufox-152.0.4-beta.30-lin.arm64.zip",
+        ]
+        .iter()
+        .map(|name| serde_json::json!({ "name": name }))
+        .collect()
+    }
+
+    #[test]
+    fn the_windows_asset_is_picked_by_its_exact_tail() {
+        let picked = pick_engine_asset(&release_assets(), "win", "x86_64").unwrap();
+        assert_eq!(picked, "camoufox-152.0.4-beta.30-win.x86_64.zip");
+        // The i686 build shares the "win" word; the arch token is what
+        // separates them, which is why the match is on the full tail.
+    }
+
+    #[test]
+    fn the_mac_and_linux_assets_are_picked_per_arch() {
+        let mac = pick_engine_asset(&release_assets(), "mac", "x86_64").unwrap();
+        assert_eq!(mac, "camoufox-152.0.4-beta.30-mac.x86_64.zip");
+
+        let mac_arm = pick_engine_asset(&release_assets(), "mac", "arm64").unwrap();
+        assert_eq!(mac_arm, "camoufox-152.0.4-beta.30-mac.arm64.zip");
+
+        let linux = pick_engine_asset(&release_assets(), "lin", "x86_64").unwrap();
+        assert_eq!(linux, "camoufox-152.0.4-beta.30-lin.x86_64.zip");
+    }
+
+    #[test]
+    fn a_platform_the_release_does_not_carry_is_reported_rather_than_guessed() {
+        // No linux i686 asset exists upstream; a substring match could pick
+        // the x86_64 one and hand a build that will not run to the launcher.
+        assert_eq!(pick_engine_asset(&release_assets(), "lin", "i686"), None);
+        assert_eq!(pick_engine_asset(&release_assets(), "win", "arm64"), None);
+    }
+
+    #[test]
+    fn the_asset_tokens_name_the_runtime_platform() {
+        let (os, arch) = engine_asset_tokens();
+        assert!(
+            ["win", "mac", "lin"].contains(&os),
+            "unknown os token {os}"
+        );
+        assert!(["x86_64", "arm64"].contains(&arch), "unknown arch {arch}");
+    }
 }

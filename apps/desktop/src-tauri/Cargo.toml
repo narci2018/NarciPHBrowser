@@ -13,7 +13,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-shell = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 narrc-core = { workspace = true }
@@ -23,6 +22,8 @@ zip = "0.6"
 walkdir = "2.4"
 dirs-next = "2.0"
 getrandom = "0.2"
+sha2 = "0.10"
+flate2 = "1"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
