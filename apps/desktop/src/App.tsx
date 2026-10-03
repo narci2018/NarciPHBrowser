@@ -27,6 +27,10 @@ import type {
 import { AboutDialog } from "@/components/about-dialog";
 import { CreateProfileDialog } from "@/components/create-profile-dialog";
 import { DeleteConfirmationDialog } from "@/components/delete-confirmation-dialog";
+import {
+  ProfileExportDialog,
+  type ExportTarget,
+} from "@/components/profile-export-dialog";
 import { Logo } from "@/components/icons/logo";
 import HomeHeader from "@/components/home-header";
 import { ProfileInfoDialog } from "@/components/profile-info-dialog";
@@ -136,6 +140,7 @@ export function App() {
   const [infoLoading, setInfoLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProfileSummary | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [exportTarget, setExportTarget] = useState<ExportTarget | null>(null);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const [verification, setVerification] = useState<VerifyReport | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -445,6 +450,28 @@ export function App() {
     [infoProfileId, refreshProfiles],
   );
 
+  // The export dialog reads the proxy straight off the inspection the info
+  // dialog is showing, so its login warning describes the real proxy.
+  const handleExportRequest = useCallback(() => {
+    if (!inspection || !infoProfileId) return;
+    setExportTarget({
+      id: infoProfileId,
+      name: inspection.profile.name,
+      proxyUrl: inspection.profile.proxy?.url ?? null,
+    });
+  }, [inspection, infoProfileId]);
+
+  const handleImportProfile = useCallback(async () => {
+    try {
+      const result = await invoke<{ cancelled?: boolean; name?: string }>("import_profile", {});
+      if (result.cancelled) return;
+      await refreshProfiles();
+      toast.success(`Imported ${result.name}`);
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }, [refreshProfiles]);
+
   const filteredProfiles = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return profiles;
@@ -504,6 +531,9 @@ export function App() {
           onCreateProfileDialogOpen={() => {
             setEditingProfile(null);
             setCreateOpen(true);
+          }}
+          onImportProfiles={() => {
+            void handleImportProfile();
           }}
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}
@@ -599,11 +629,24 @@ export function App() {
           const profile = profiles.find((candidate) => candidate.id === infoProfileId);
           if (profile) setDeleteTarget(profile);
         }}
+        onExport={() => {
+          handleExportRequest();
+        }}
         onOverrideChange={(property, value) => {
           void handleOverrideChange(property, value);
         }}
         onOverrideRemove={(property) => {
           void handleOverrideRemove(property);
+        }}
+      />
+
+      <ProfileExportDialog
+        target={exportTarget}
+        onOpenChange={(open) => {
+          if (!open) setExportTarget(null);
+        }}
+        onExported={() => {
+          void refreshProfiles();
         }}
       />
 

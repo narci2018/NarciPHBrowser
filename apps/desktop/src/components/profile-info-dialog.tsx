@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LuLoaderCircle, LuPencil, LuPlay, LuRefreshCw, LuShieldCheck, LuTrash2 } from "react-icons/lu";
+import { LuDownload, LuLoaderCircle, LuPencil, LuPlay, LuRefreshCw, LuShieldCheck, LuTrash2 } from "react-icons/lu";
 import type { Inspection, Report, Verdict, VerifyReport } from "@narc/sdk";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -526,6 +526,7 @@ interface ProfileInfoDialogProps {
   onLaunch: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onExport: () => void;
   onOverrideChange: (property: string, value: unknown) => void;
   onOverrideRemove: (property: string) => void;
 }
@@ -543,6 +544,7 @@ export function ProfileInfoDialog({
   onLaunch,
   onEdit,
   onDelete,
+  onExport,
   onOverrideChange,
   onOverrideRemove,
 }: ProfileInfoDialogProps) {
@@ -619,6 +621,15 @@ export function ProfileInfoDialog({
                   aria-label="Edit profile"
                 >
                   <LuPencil className="size-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={onExport}
+                  aria-label="Export profile"
+                >
+                  <LuDownload className="size-3.5" />
                 </Button>
                 <Button
                   size="sm"

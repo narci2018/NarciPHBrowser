@@ -162,7 +162,7 @@ pub fn ensure_camoufox(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     // covers the remaining bytes.
     let (asset_os, asset_arch) = engine_asset_tokens();
     let asset_name =
-        pick_engine_asset(assets, &asset_os, &asset_arch).ok_or("no asset for this platform")?;
+        pick_engine_asset(assets, asset_os, asset_arch).ok_or("no asset for this platform")?;
     let asset = assets
         .iter()
         .find(|asset| asset["name"].as_str() == Some(asset_name.as_str()))
@@ -611,6 +611,72 @@ pub async fn property_schema() -> Result<serde_json::Value, String> {
         // as ordinary identity fields. Quoted from the core crate so the wire
         // response and the reachability test cannot drift apart.
         "never_drawn": narrc_core::schema::NEVER_DRAWN,
+    }))
+}
+
+/// Writes one profile to a file the user picks, as a portable export.
+///
+/// Sync rather than `async` on purpose: the native save dialog blocks, and a
+/// sync command runs on the command thread pool, so the UI stays responsive
+/// while it waits for the user. The export carries the proxy login only when
+/// the caller asks for it — a shared file should not hand out an account.
+#[tauri::command]
+pub fn export_profile(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    include_proxy_login: bool,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let profile = store
+        .load(&id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("no profile with the id {id:?}"))?;
+
+    let export = narrc_core::ProfileExport::new(profile.clone());
+    let export = if include_proxy_login {
+        export
+    } else {
+        export.without_credentials()
+    };
+
+    let Some(path) = rfd::FileDialog::new()
+        .set_file_name(format!("{}.narci.json", profile.id))
+        .add_filter("NarciPHBrowser profile export", &["json"])
+        .save_file()
+    else {
+        // The user closed the dialog; that is a decision, not an error.
+        return Ok(serde_json::json!({ "cancelled": true }));
+    };
+
+    std::fs::write(&path, export.to_json().map_err(|error| error.to_string())?)
+        .map_err(|error| format!("could not write {}: {error}", path.display()))?;
+    Ok(serde_json::json!({ "path": path.display().to_string() }))
+}
+
+/// Reads a profile from a file the user picks and adds it to the store.
+///
+/// Same rationale as [`export_profile`] for being sync. An import never
+/// overwrites: the store resolves an id collision by moving aside, exactly as
+/// a second create of the same name does.
+#[tauri::command]
+pub fn import_profile(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let Some(path) = rfd::FileDialog::new()
+        .add_filter("NarciPHBrowser profile export", &["json"])
+        .pick_file()
+    else {
+        return Ok(serde_json::json!({ "cancelled": true }));
+    };
+
+    let bytes = std::fs::read(&path)
+        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    let export = narrc_core::ProfileExport::from_json(&bytes).map_err(|error| error.to_string())?;
+
+    let store = open_store(&state)?;
+    let profile = store.import(&export).map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "id": profile.id,
+        "name": profile.name,
+        "path": path.display().to_string(),
     }))
 }
 

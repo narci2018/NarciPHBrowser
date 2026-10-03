@@ -1152,7 +1152,7 @@ pub fn spawn_with_program(
             }
             Err(error) => Err(error),
         };
-        return spawned.and_then(handle_reexec_successor);
+        spawned.and_then(handle_reexec_successor)
     }
     #[cfg(not(windows))]
     {

@@ -681,6 +681,120 @@ impl ProfileStore {
         })?;
         Ok(true)
     }
+
+    /// Imports an exported profile, assigning an id that is free in this store.
+    ///
+    /// The id is a filesystem detail, not part of the machine's identity, so it
+    /// is resolved here rather than trusted from the file: when the profile's
+    /// own id is taken — importing the same export twice, or into the store it
+    /// was exported from — the name keeps the profile recognisable and the id
+    /// takes a suffix, exactly as a second create of the same name would.
+    pub fn import(&self, export: &ProfileExport) -> Result<Profile> {
+        let mut profile = export.profile.clone();
+        profile.id = self.free_id(&profile.name, profile.seed);
+        self.save(&profile)?;
+        Ok(profile)
+    }
+}
+
+/// The version of the export file format.
+pub const EXPORT_FORMAT: u32 = 1;
+
+/// A profile packaged to travel between stores — a backup, or a machine move.
+///
+/// The file carries the profile in the store's own shape, not a summary, so an
+/// import round-trips hand edits, addons and the proxy assignment exactly. What
+/// it deliberately does **not** carry is the browser data directory: that is
+/// the one part of a profile that is neither portable nor small, and a moved
+/// profile starts with fresh browser data under its new store.
+///
+/// Proxy credentials are the caller's decision, made here explicitly: a proxy
+/// URL can carry `user:pass`, and [`ProfileExport::without_credentials`]
+/// rewrites it to the same proxy minus its login. A file shared or committed
+/// should not hand out an account, so a UI exports with credentials only when
+/// the user asks for them — and says so in the dialog, not silently.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileExport {
+    /// What file this is, so a reader refuses the wrong file politely.
+    pub kind: String,
+    /// The export format version.
+    pub version: u32,
+    /// Unix seconds at which the file was written.
+    pub exported_at: u64,
+    /// The profile itself, in the store's own shape.
+    pub profile: Profile,
+}
+
+impl ProfileExport {
+    /// What an export file calls itself.
+    pub const KIND: &str = "narciphbrowser-profile";
+
+    /// Packages one profile, as it stands.
+    pub fn new(profile: Profile) -> Self {
+        Self {
+            kind: Self::KIND.to_owned(),
+            version: EXPORT_FORMAT,
+            exported_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|since| since.as_secs())
+                .unwrap_or(0),
+            profile,
+        }
+    }
+
+    /// The same export with any proxy login removed.
+    ///
+    /// A proxy that does not parse stays as it is: an unreadable URL cannot be
+    /// known to carry credentials, and the launch path refuses it loudly
+    /// regardless. This rewrite exists for the readable ones.
+    pub fn without_credentials(mut self) -> Self {
+        let Some(proxy) = self.profile.proxy.take() else {
+            return self;
+        };
+        let carries_login = proxy
+            .parts()
+            .is_ok_and(|parts| parts.credentials.is_some());
+        if carries_login {
+            let parts = proxy.parts().expect("checked just above");
+            self.profile.proxy = Some(ProxyConfig {
+                url: format!("{}://{}:{}", parts.scheme, parts.host, parts.port),
+                exit_country: proxy.exit_country,
+            });
+        } else {
+            self.profile.proxy = Some(proxy);
+        }
+        self
+    }
+
+    /// The export as pretty JSON, for a file a user can read and keep.
+    pub fn to_json(&self) -> Result<String> {
+        serde_json::to_string_pretty(self)
+            .map_err(|error| Error::identity(format!("could not serialize the export: {error}")))
+    }
+
+    /// Parses an export file, refusing files that are not this format.
+    pub fn from_json(bytes: &[u8]) -> Result<Self> {
+        let export: Self = serde_json::from_slice(bytes).map_err(|error| {
+            Error::identity(format!("that file is not a NarciPHBrowser profile export: {error}"))
+        })?;
+        if export.kind != Self::KIND {
+            return Err(Error::identity(format!(
+                "that file is a {:?} export, not a {:?} one",
+                export.kind,
+                Self::KIND
+            )));
+        }
+        // Older exports still import; a newer one means this build is the
+        // out-of-date reader, the same rule the store applies to its own files.
+        if export.version > EXPORT_FORMAT {
+            return Err(Error::identity(format!(
+                "that export was written by a newer version of NarciPHBrowser (format {}, this \
+                 build understands {}); upgrade before importing",
+                export.version, EXPORT_FORMAT
+            )));
+        }
+        Ok(export)
+    }
 }
 
 #[cfg(test)]
@@ -745,6 +859,86 @@ mod tests {
 
         let error = store.load(&profile.id).unwrap_err();
         assert!(error.to_string().contains("newer version"), "{error}");
+    }
+
+    #[test]
+    fn an_export_round_trips_through_its_file() {
+        let mut profile = sample("Work", 7);
+        profile.notes = "travelling".into();
+        profile.proxy = Some(ProxyConfig::new("http://user:pass@10.0.0.1:8080"));
+        profile
+            .overrides
+            .set_str(crate::schema::keys::USER_AGENT, "hand-typed");
+
+        let json = ProfileExport::new(profile.clone()).to_json().unwrap();
+        let restored = ProfileExport::from_json(json.as_bytes()).unwrap();
+
+        assert_eq!(restored.profile, profile);
+        assert_eq!(restored.version, EXPORT_FORMAT);
+    }
+
+    #[test]
+    fn an_export_refuses_files_that_are_not_its_own() {
+        let mut value = serde_json::to_value(ProfileExport::new(sample("Work", 7))).unwrap();
+        value["kind"] = serde_json::json!("some-other-app");
+        let error = ProfileExport::from_json(value.to_string().as_bytes()).unwrap_err();
+        assert!(error.to_string().contains("some-other-app"), "{error}");
+
+        value["kind"] = serde_json::json!(ProfileExport::KIND);
+        value["version"] = serde_json::json!(EXPORT_FORMAT + 1);
+        let error = ProfileExport::from_json(value.to_string().as_bytes()).unwrap_err();
+        assert!(error.to_string().contains("newer version"), "{error}");
+    }
+
+    #[test]
+    fn an_export_can_leave_the_proxy_login_behind() {
+        let mut profile = sample("Work", 7);
+        profile.proxy = Some(ProxyConfig::new("http://user:pass@10.0.0.1:8080"));
+
+        let exported = ProfileExport::new(profile).without_credentials();
+        let proxy = exported.profile.proxy.expect("the proxy stayed");
+        assert_eq!(proxy.url, "http://10.0.0.1:8080");
+        // The parts the page-visible launch path reads are unchanged, so a
+        // scrubbed export still configures the same proxy, just anonymously.
+        let parts = proxy.parts().unwrap();
+        assert_eq!(parts.host, "10.0.0.1");
+        assert_eq!(parts.port, 8080);
+        assert!(parts.credentials.is_none());
+    }
+
+    #[test]
+    fn a_proxy_without_a_login_survives_the_scrub_untouched() {
+        let mut profile = sample("Work", 7);
+        profile.proxy = Some(ProxyConfig::new("socks5://10.0.0.1:1080").with_exit_country("DE"));
+
+        let exported = ProfileExport::new(profile).without_credentials();
+        let proxy = exported.profile.proxy.expect("the proxy stayed");
+        assert_eq!(proxy.url, "socks5://10.0.0.1:1080");
+        assert_eq!(proxy.exit_country.as_deref(), Some("DE"));
+    }
+
+    #[test]
+    fn an_import_keeps_its_id_when_it_is_free_and_moves_aside_when_not() {
+        let store = temp_store("import");
+        let profile = sample("Work", 7);
+
+        // The id an import *wants* is the one the name and seed imply.
+        let expected = store.free_id(&profile.name, profile.seed);
+
+        let first = store
+            .import(&ProfileExport::new(profile.clone()))
+            .unwrap();
+        assert_eq!(first.id, expected);
+
+        // The same export again: the id is taken, so the import lands beside
+        // it rather than overwriting the profile that is already there.
+        let second = store.import(&ProfileExport::new(profile)).unwrap();
+        assert_ne!(second.id, first.id);
+        assert_ne!(
+            store.load(&first.id).unwrap().expect("the first survived").id,
+            second.id
+        );
+        assert!(store.load(&second.id).unwrap().is_some());
     }
 
     #[test]

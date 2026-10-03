@@ -1,7 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
 import { GoPlus } from "react-icons/go";
-import { LuCircleHelp, LuSearch, LuX } from "react-icons/lu";
+import { LuCircleHelp, LuDownload, LuSearch, LuX } from "react-icons/lu";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -73,6 +73,7 @@ const SearchSyntaxHelp = () => (
 
 interface Props {
   onCreateProfileDialogOpen: (open: boolean) => void;
+  onImportProfiles: () => void;
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
   totalProfiles: number;
@@ -81,6 +82,7 @@ interface Props {
 
 const HomeHeader = ({
   onCreateProfileDialogOpen,
+  onImportProfiles,
   searchQuery,
   onSearchQueryChange,
   totalProfiles,
@@ -224,6 +226,25 @@ const HomeHeader = ({
       )}
 
       {showProfileToolbar && <SearchSyntaxHelp />}
+
+      {showProfileToolbar && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="shrink-0">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onImportProfiles}
+                className="flex h-7 items-center gap-1.5 px-2.5 text-xs"
+              >
+                <LuDownload className="size-3.5" />
+                Import
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Import profiles from an export file</TooltipContent>
+        </Tooltip>
+      )}
 
       {showProfileToolbar && (
         <Tooltip>

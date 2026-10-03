@@ -24,6 +24,7 @@ dirs-next = "2.0"
 getrandom = "0.2"
 sha2 = "0.10"
 flate2 = "1"
+rfd = "0.15"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

@@ -323,7 +323,7 @@ pub fn ensure_core(app: &tauri::AppHandle) -> Result<CorePaths, String> {
     )
     .map_err(|error| error.to_string())?;
 
-    if core_archive_kind(&asset_name) == "zip" {
+    if core_archive_kind(asset_name) == "zip" {
         extract_binary(&archive_path, &binary)?;
     } else {
         gunzip_to(&archive_path, &binary)?;
