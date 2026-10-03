@@ -137,6 +137,7 @@ fn dispatch(request: Request) -> Response {
         Command::Verify(params) => {
             protocol::verify(&params.id, params.engine.as_deref(), params.keep_agreements)
         }
+        Command::Schema(_) => protocol::schema(),
         Command::Launch(params) => protocol::launch(
             &params.id,
             params.engine.as_deref(),

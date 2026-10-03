@@ -86,6 +86,8 @@ pub enum Command {
     Plan(PlanParams),
     /// A profile's identity read back out of a running browser.
     Verify(VerifyParams),
+    /// The engine's property schema, for editors that set fields.
+    Schema(EmptyParams),
     /// A profile launched.
     Launch(LaunchParams),
     /// A profile driven over Playwright's automation endpoint.
@@ -950,6 +952,30 @@ pub fn clear_override(id: &str, property: &str) -> Result<Value, SidecarError> {
     }))
 }
 
+/// The engine's property schema: every property name with its declared type.
+///
+/// An editor needs the type of each field to render the right input and to
+/// refuse a value the engine would drop before it is sent. The schema is
+/// vendored into the binary, so this is a lookup rather than a file read, and
+/// it cannot disagree with what [`set_override`] validates against — they load
+/// the same bytes.
+pub fn schema() -> Result<Value, SidecarError> {
+    let schema = narrc_core::PropertySchema::load().map_err(|error| {
+        SidecarError::new(
+            ErrorKind::Io,
+            format!("the engine schema is unavailable: {error}"),
+        )
+    })?;
+    Ok(json!({
+        "properties": schema.map(),
+        // The properties the generator deliberately never draws: behaviour
+        // switches a full-field editor should mark as engine opt-ins rather
+        // than present as ordinary identity fields. Kept in the core crate so
+        // the wire response and the reachability test quote one list.
+        "never_drawn": narrc_core::schema::NEVER_DRAWN,
+    }))
+}
+
 pub fn plan(id: &str, engine: Option<&str>, headless: bool) -> Result<Value, SidecarError> {
     let store = store()?;
     let profile = load_profile(&store, id)?;
@@ -1678,7 +1704,6 @@ mod tests {
             }
             other => panic!("expected a verify request, got {other:?}"),
         }
-
         let request: Request = serde_json::from_str(
             r#"{"id":2,"command":"verify","params":{"id":"acct","engine":"C:/camoufox.exe","keep_agreements":true}}"#,
         )
@@ -1689,6 +1714,47 @@ mod tests {
                 assert!(params.keep_agreements);
             }
             other => panic!("expected a verify request, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_schema_names_every_property_with_its_type() {
+        let request: Request =
+            serde_json::from_str(r#"{"id":1,"command":"schema","params":{}}"#).unwrap();
+        assert!(matches!(request.command, Command::Schema(_)));
+
+        let value = schema().unwrap();
+        let properties = value
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("the schema carries a properties map");
+        assert!(properties.len() >= 79, "got {}", properties.len());
+        assert_eq!(
+            properties.get("navigator.userAgent").and_then(Value::as_str),
+            Some("str")
+        );
+        assert_eq!(
+            properties.get("screen.width").and_then(Value::as_str),
+            Some("uint")
+        );
+        // The behaviour switches ride along as a list, so a full-field editor
+        // can mark them as engine opt-ins without hard-coding names of its own.
+        let never_drawn = value
+            .get("never_drawn")
+            .and_then(Value::as_array)
+            .expect("the schema carries the never-drawn list");
+        for known in [
+            "addons",
+            "disableTheming",
+            "instantAnimations",
+            "allowMainWorld",
+            "humanize:minTime",
+        ] {
+            assert!(
+                never_drawn.iter().any(|name| name.as_str() == Some(known)),
+                "{known} missing from {never_drawn:?}"
+            );
+            assert!(properties.contains_key(known), "{known} not a property");
         }
     }
 

@@ -12,8 +12,9 @@ use commands::{
     delete_subscription, ensure_engine, inspect_profile, launch_profile, list_assignments,
     list_automation, list_proxies, list_profiles, list_subscription_nodes, list_subscriptions,
     refresh_subscription, remove_addon, screen_presets, set_override, start_automation,
-    stop_automation, test_node_delay, test_node_exit, test_node_speed, unassign_node,
-    update_profile, update_proxy, update_subscription, validate_profile, verify_profile,
+    property_schema, stop_automation, test_node_delay, test_node_exit, test_node_speed,
+    unassign_node, update_profile, update_proxy, update_subscription, validate_profile,
+    verify_profile,
 };
 use state::AppState;
 
@@ -43,6 +44,7 @@ fn main() {
             list_automation,
             set_override,
             clear_override,
+            property_schema,
             add_addon,
             remove_addon,
             list_proxies,

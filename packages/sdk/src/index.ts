@@ -34,6 +34,7 @@ export type {
   OverrideProblem,
   Profile,
   ProfileSummary,
+  PropertySchema,
   ProxyConfig,
   Report,
   SetOverrideResult,

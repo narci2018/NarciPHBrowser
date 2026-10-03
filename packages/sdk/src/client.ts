@@ -45,6 +45,7 @@ import type {
   ListResult,
   LaunchPlan,
   Profile,
+  PropertySchema,
   Report,
   SetOverrideResult,
   SidecarError,
@@ -292,6 +293,18 @@ export class SidecarClient {
   /** A profile minus a hand edit. */
   async clearOverride(id: string, property: string): Promise<ClearOverrideResult> {
     return (await this.send("clear-override", { id, property })) as ClearOverrideResult;
+  }
+
+  /**
+   * The engine's property schema: every property name with its declared type.
+   *
+   * The types are the ones `setOverride` coerces against, so a caller can
+   * render the right input and refuse a value the engine would drop before
+   * sending it. Vendored into the sidecar binary, so it cannot disagree with
+   * what the sidecar validates against.
+   */
+  async propertySchema(): Promise<PropertySchema> {
+    return (await this.send("schema", {})) as PropertySchema;
   }
 
   /** A profile removed, with its browser data. */

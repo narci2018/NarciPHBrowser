@@ -131,6 +131,26 @@ export interface ProfileSummary {
 
 // -------------------------------------------------------------- inspection
 
+/**
+ * The engine's property schema.
+ *
+ * The types are the ones `set-override` coerces against — `str`, `uint`,
+ * `int`, `double`, `bool`, `array`, `dict` — so a caller can render the right
+ * input and refuse a value the engine would drop before sending it.
+ */
+export interface PropertySchema {
+  /** Every property name with its declared type. */
+  properties: Record<string, string>;
+  /**
+   * Properties the generator deliberately never draws.
+   *
+   * Each is a behaviour switch or a caller-supplied path rather than part of a
+   * machine's identity, so an editor should present it as an engine opt-in —
+   * with the reasons a user should be asked — instead of as an ordinary field.
+   */
+  never_drawn: string[];
+}
+
 /** One property, before and after. */
 export interface DiffEntry {
   /** The property name. */

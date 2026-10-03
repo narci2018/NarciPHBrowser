@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { IdentityFieldsTab } from "@/components/identity-fields-tab";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -655,6 +656,9 @@ export function ProfileInfoDialog({
                   </span>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="fields" className="py-1 text-xs">
+                Fields
+              </TabsTrigger>
               <TabsTrigger value="proxy" className="py-1 text-xs">
                 Proxy
               </TabsTrigger>
@@ -690,6 +694,13 @@ export function ProfileInfoDialog({
                 </TabsContent>
                 <TabsContent value="overrides" className="mt-0">
                   <OverridesTab
+                    inspection={inspection}
+                    onOverrideChange={onOverrideChange}
+                    onOverrideRemove={onOverrideRemove}
+                  />
+                </TabsContent>
+                <TabsContent value="fields" className="mt-0">
+                  <IdentityFieldsTab
                     inspection={inspection}
                     onOverrideChange={onOverrideChange}
                     onOverrideRemove={onOverrideRemove}

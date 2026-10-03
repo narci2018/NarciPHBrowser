@@ -595,6 +595,25 @@ pub async fn clear_override(
     Ok(serde_json::json!({ "report": report }))
 }
 
+/// The engine's property schema: every property name with its declared type.
+///
+/// The field editor renders an input per property and needs the type to build
+/// the right one and to refuse a value the engine would drop before sending it.
+/// It loads the same vendored bytes that `set_override` validates against, so
+/// the two cannot drift apart.
+#[tauri::command]
+pub async fn property_schema() -> Result<serde_json::Value, String> {
+    let schema = narrc_core::PropertySchema::load().map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "properties": schema.map(),
+        // The properties the generator deliberately never draws: behaviour
+        // switches a field editor marks as engine opt-ins rather than presents
+        // as ordinary identity fields. Quoted from the core crate so the wire
+        // response and the reachability test cannot drift apart.
+        "never_drawn": narrc_core::schema::NEVER_DRAWN,
+    }))
+}
+
 /// Adds a browser extension to a profile.
 ///
 /// `path` is an `.xpi` file or an unpacked addon directory. Existence is not
