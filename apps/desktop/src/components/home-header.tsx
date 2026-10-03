@@ -1,7 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
 import { GoPlus } from "react-icons/go";
-import { LuCircleHelp, LuDownload, LuSearch, LuX } from "react-icons/lu";
+import { LuCircleHelp, LuDownload, LuSearch, LuTrash2, LuX } from "react-icons/lu";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -74,6 +74,7 @@ const SearchSyntaxHelp = () => (
 interface Props {
   onCreateProfileDialogOpen: (open: boolean) => void;
   onImportProfiles: () => void;
+  onOpenTrash: () => void;
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
   totalProfiles: number;
@@ -83,6 +84,7 @@ interface Props {
 const HomeHeader = ({
   onCreateProfileDialogOpen,
   onImportProfiles,
+  onOpenTrash,
   searchQuery,
   onSearchQueryChange,
   totalProfiles,
@@ -226,6 +228,25 @@ const HomeHeader = ({
       )}
 
       {showProfileToolbar && <SearchSyntaxHelp />}
+
+      {showProfileToolbar && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="shrink-0">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onOpenTrash}
+                aria-label="Open the trash"
+                className="flex h-7 w-7 items-center justify-center px-0 text-muted-foreground hover:text-foreground"
+              >
+                <LuTrash2 className="size-3.5" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Trash — deleted profiles</TooltipContent>
+        </Tooltip>
+      )}
 
       {showProfileToolbar && (
         <Tooltip>

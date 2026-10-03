@@ -40,6 +40,7 @@ export type {
   SetOverrideResult,
   SidecarError,
   TargetOs,
+  TrashedProfile,
   UpdateSpec,
   Verdict,
   VerifyDifference,

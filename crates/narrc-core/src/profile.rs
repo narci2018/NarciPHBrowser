@@ -597,10 +597,16 @@ impl ProfileStore {
 
     /// Reads one profile, or `None` if there is none.
     pub fn load(&self, id: &str) -> Result<Option<Profile>> {
-        let Some(bytes) = seal::read_store(&self.file(id))? else {
+        self.profile_in(&self.dir(id))
+    }
+
+    /// Parses the profile living in one directory, or `None` if there is no
+    /// profile file there.
+    fn profile_in(&self, dir: &Path) -> Result<Option<Profile>> {
+        let path = dir.join("profile.json");
+        let Some(bytes) = seal::read_store(&path)? else {
             return Ok(None);
         };
-        let path = self.file(id);
         let profile: Profile = serde_json::from_slice(&bytes).map_err(|source| {
             Error::identity(format!(
                 "{} is not a readable profile: {source}",
@@ -682,6 +688,145 @@ impl ProfileStore {
         Ok(true)
     }
 
+    /// Where trashed profiles wait to be restored or purged.
+    pub fn trash_dir(&self) -> PathBuf {
+        self.root.join("trash")
+    }
+
+    /// Moves a profile, and its browser data with it, into the store's trash.
+    ///
+    /// This is not the delete; nothing is removed yet. The reason the trash
+    /// exists is what deleting actually costs: a profile's browser data —
+    /// cookies, a logged-in session, months of history — lives beside it, and
+    /// removing the wrong profile by accident is the one mistake this store
+    /// cannot undo on its own.
+    ///
+    /// A profile with the same id can land in the trash twice — trash one,
+    /// recreate the same name, trash the new one — so the second entry takes a
+    /// timestamped name rather than overwriting the first.
+    pub fn trash(&self, id: &str) -> Result<bool> {
+        let dir = self.dir(id);
+        if !dir.exists() {
+            return Ok(false);
+        }
+        let trash = self.trash_dir();
+        std::fs::create_dir_all(&trash).map_err(|source| {
+            Error::environment(format!("could not create {}: {source}", trash.display()))
+        })?;
+        let mut destination = trash.join(id);
+        if destination.exists() {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|since| since.as_secs())
+                .unwrap_or(0);
+            destination = trash.join(format!("{id}-{stamp}"));
+        }
+        std::fs::rename(&dir, &destination).map_err(|source| {
+            Error::environment(format!(
+                "could not move {}: {source}",
+                dir.display()
+            ))
+        })?;
+        Ok(true)
+    }
+
+    /// Every trashed profile, oldest first.
+    ///
+    /// An entry whose profile no longer parses still shows up, marked as
+    /// unrestorable: the user has to be able to *see* data they cannot get
+    /// back, and purge is the way out of it.
+    pub fn list_trash(&self) -> Vec<TrashedProfile> {
+        let mut entries: Vec<TrashedProfile> = std::fs::read_dir(self.trash_dir())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let path = entry.path();
+                if !path.is_dir() {
+                    return None;
+                }
+                let id = entry.file_name().to_string_lossy().to_string();
+                let trashed_at = entry
+                    .metadata()
+                    .ok()
+                    .and_then(|meta| meta.modified().ok())
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|since| since.as_secs())
+                    .unwrap_or(0);
+                let profile = self.profile_in(&path).ok().flatten();
+                Some(TrashedProfile {
+                    id,
+                    name: profile
+                        .as_ref()
+                        .map(|profile| profile.name.clone())
+                        .unwrap_or_else(|| "unreadable".to_owned()),
+                    seed: profile.as_ref().map(|profile| profile.seed).unwrap_or(0),
+                    readable: profile.is_some(),
+                    trashed_at,
+                })
+            })
+            .collect();
+        entries.sort_by_key(|entry| entry.trashed_at);
+        entries
+    }
+
+    /// Puts a trashed profile back into the store, browser data included.
+    ///
+    /// The profile keeps its name; its id is the one the name implies unless
+    /// that id is taken — the same resolution an import goes through, because
+    /// a user who trashes "Work" and creates a new "Work" wants both to exist.
+    /// The proxy assignment does not come back with it: trashing a profile
+    /// already let go of the proxy, and quietly re-assigning one the user
+    /// gave away is not a decision the store makes on its own.
+    pub fn restore(&self, trashed_id: &str) -> Result<Option<Profile>> {
+        let source = self.trash_dir().join(trashed_id);
+        if !source.is_dir() {
+            return Ok(None);
+        }
+        let Some(mut profile) = self.profile_in(&source)? else {
+            return Err(Error::identity(format!(
+                "{} holds no readable profile; it cannot be restored",
+                source.display()
+            )));
+        };
+        profile.id = self.free_id(&profile.name, profile.seed);
+        self.save(&profile)?;
+        std::fs::remove_dir_all(&source).map_err(|error| {
+            Error::environment(format!(
+                "could not remove {}: {error}",
+                source.display()
+            ))
+        })?;
+        Ok(Some(profile))
+    }
+
+    /// Removes one trashed profile for good, browser data included.
+    pub fn purge(&self, trashed_id: &str) -> Result<bool> {
+        let source = self.trash_dir().join(trashed_id);
+        if !source.is_dir() {
+            return Ok(false);
+        }
+        std::fs::remove_dir_all(&source).map_err(|error| {
+            Error::environment(format!("could not remove {}: {error}", source.display()))
+        })?;
+        Ok(true)
+    }
+
+    /// Empties the trash, returning how many entries went.
+    pub fn purge_all(&self) -> Result<usize> {
+        let entries = self.list_trash();
+        let count = entries.len();
+        if count > 0 {
+            std::fs::remove_dir_all(self.trash_dir()).map_err(|source| {
+                Error::environment(format!(
+                    "could not remove {}: {source}",
+                    self.trash_dir().display()
+                ))
+            })?;
+        }
+        Ok(count)
+    }
+
     /// Imports an exported profile, assigning an id that is free in this store.
     ///
     /// The id is a filesystem detail, not part of the machine's identity, so it
@@ -699,6 +844,21 @@ impl ProfileStore {
 
 /// The version of the export file format.
 pub const EXPORT_FORMAT: u32 = 1;
+
+/// One profile waiting in the store's trash.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrashedProfile {
+    /// The directory name inside the trash — not necessarily a live id.
+    pub id: String,
+    /// The profile's own name, or a placeholder when it no longer parses.
+    pub name: String,
+    /// The seed it was drawn from, when readable.
+    pub seed: u64,
+    /// Whether the profile still parses, so a restore is possible.
+    pub readable: bool,
+    /// Unix seconds at which the profile was trashed.
+    pub trashed_at: u64,
+}
 
 /// A profile packaged to travel between stores — a backup, or a machine move.
 ///
@@ -939,6 +1099,88 @@ mod tests {
             second.id
         );
         assert!(store.load(&second.id).unwrap().is_some());
+    }
+
+    #[test]
+    fn a_trashed_profile_takes_its_data_back_out_of_the_store() {
+        let store = temp_store("trash");
+        let mut profile = sample("Work", 7);
+        profile
+            .overrides
+            .set_str(crate::schema::keys::USER_AGENT, "hand-typed");
+        store.save(&profile).unwrap();
+
+        assert!(store.trash(&profile.id).unwrap());
+        assert!(store.load(&profile.id).unwrap().is_none());
+        let trash = store.list_trash();
+        assert_eq!(trash.len(), 1, "got {trash:?}");
+        assert_eq!(trash[0].name, "Work");
+        assert!(trash[0].readable);
+
+        let restored = store.restore(&trash[0].id).unwrap().expect("restorable");
+        assert_eq!(restored.name, "Work");
+        let reloaded = store
+            .load(&restored.id)
+            .unwrap()
+            .expect("the profile is back");
+        assert_eq!(
+            reloaded.effective_identity().get_str(crate::schema::keys::USER_AGENT),
+            Some("hand-typed"),
+            "hand edits survive the trip"
+        );
+        assert!(store.list_trash().is_empty());
+    }
+
+    #[test]
+    fn trashing_the_same_id_twice_keeps_both_entries() {
+        let store = temp_store("trash-twice");
+        let first = Profile::new("work-x", "Work", 7, GeneratorOptions::new(TargetOs::Windows));
+        store.save(&first).unwrap();
+        store.trash(&first.id).unwrap();
+
+        let second = Profile::new("work-x", "Work", 7, GeneratorOptions::new(TargetOs::Windows));
+        store.save(&second).unwrap();
+        store.trash(&second.id).unwrap();
+
+        assert_eq!(store.list_trash().len(), 2, "both live in the trash");
+        assert!(store.load(&first.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_restore_moves_aside_when_its_id_is_taken() {
+        let store = temp_store("restore");
+        let profile = sample("Work", 7);
+        store.save(&profile).unwrap();
+        store.trash(&profile.id).unwrap();
+
+        // A new profile now occupies the id the trashed one wants back.
+        let replacement = Profile::new(
+            &profile.id,
+            "Work",
+            999,
+            GeneratorOptions::new(TargetOs::Windows),
+        );
+        store.save(&replacement).unwrap();
+
+        let trashed = &store.list_trash()[0];
+        let restored = store.restore(&trashed.id).unwrap().expect("restorable");
+        assert_ne!(restored.id, profile.id, "the id was taken");
+        assert!(store.load(&restored.id).unwrap().is_some());
+        assert_eq!(store.load(&profile.id).unwrap().expect("untouched").seed, 999);
+    }
+
+    #[test]
+    fn a_purged_profile_is_gone_for_good() {
+        let store = temp_store("purge");
+        let profile = sample("Work", 7);
+        store.save(&profile).unwrap();
+        store.trash(&profile.id).unwrap();
+        let trashed = store.list_trash();
+
+        assert!(store.purge(&trashed[0].id).unwrap());
+        assert!(store.list_trash().is_empty());
+        assert!(!store.trash_dir().join(&trashed[0].id).exists());
+        assert!(!store.purge(&trashed[0].id).unwrap(), "nothing left to purge");
     }
 
     #[test]

@@ -8,13 +8,14 @@ mod state;
 
 use commands::{
     add_addon, app_info, assign_node, assign_proxy, check_proxy, clear_override, core_status,
-    create_profile, create_proxy, create_subscription, delete_profile, delete_proxy,
-    delete_subscription, ensure_engine, inspect_profile, launch_profile, list_assignments,
-    list_automation, list_proxies, list_profiles, list_subscription_nodes, list_subscriptions,
-    refresh_subscription, remove_addon, screen_presets, set_override, start_automation,
-    export_profile, import_profile, property_schema, stop_automation, test_node_delay,
-    test_node_exit, test_node_speed, unassign_node, update_profile, update_proxy,
-    update_subscription, validate_profile, verify_profile,
+    create_profile, create_proxy, create_subscription, delete_proxy, delete_subscription,
+    ensure_engine, export_profile, import_profile, inspect_profile, launch_profile,
+    list_assignments, list_automation, list_proxies, list_profiles, list_subscription_nodes,
+    list_subscriptions, list_trash, property_schema, purge_all_trash, purge_trash,
+    refresh_subscription, remove_addon, restore_profile, screen_presets, set_override,
+    start_automation, stop_automation, test_node_delay, test_node_exit, test_node_speed,
+    trash_profile, unassign_node, update_profile, update_proxy, update_subscription,
+    validate_profile, verify_profile,
 };
 use state::AppState;
 
@@ -36,7 +37,11 @@ fn main() {
             update_profile,
             inspect_profile,
             validate_profile,
-            delete_profile,
+            trash_profile,
+            list_trash,
+            restore_profile,
+            purge_trash,
+            purge_all_trash,
             launch_profile,
             verify_profile,
             start_automation,

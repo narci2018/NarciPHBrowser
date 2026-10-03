@@ -27,10 +27,8 @@ import type {
 import { AboutDialog } from "@/components/about-dialog";
 import { CreateProfileDialog } from "@/components/create-profile-dialog";
 import { DeleteConfirmationDialog } from "@/components/delete-confirmation-dialog";
-import {
-  ProfileExportDialog,
-  type ExportTarget,
-} from "@/components/profile-export-dialog";
+import { ProfileExportDialog, type ExportTarget } from "@/components/profile-export-dialog";
+import { TrashDialog } from "@/components/trash-dialog";
 import { Logo } from "@/components/icons/logo";
 import HomeHeader from "@/components/home-header";
 import { ProfileInfoDialog } from "@/components/profile-info-dialog";
@@ -141,6 +139,7 @@ export function App() {
   const [deleteTarget, setDeleteTarget] = useState<ProfileSummary | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [exportTarget, setExportTarget] = useState<ExportTarget | null>(null);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const [verification, setVerification] = useState<VerifyReport | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -325,11 +324,13 @@ export function App() {
     if (!deleteTarget) return;
     setDeleteBusy(true);
     try {
-      await invoke("delete_profile", { id: deleteTarget.id });
+      await invoke("trash_profile", { id: deleteTarget.id });
       if (infoProfileId === deleteTarget.id) setInfoProfileId(null);
       await refreshProfiles();
       setDeleteTarget(null);
-      toast.success(`Deleted "${deleteTarget.name}"`);
+      toast.success(`Moved "${deleteTarget.name}" to the trash`, {
+        description: "Restore it from the trash while its browser data still exists.",
+      });
     } catch (error) {
       toast.error(String(error));
     } finally {
@@ -535,6 +536,9 @@ export function App() {
           onImportProfiles={() => {
             void handleImportProfile();
           }}
+          onOpenTrash={() => {
+            setTrashOpen(true);
+          }}
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}
           totalProfiles={profiles.length}
@@ -646,6 +650,14 @@ export function App() {
           if (!open) setExportTarget(null);
         }}
         onExported={() => {
+          void refreshProfiles();
+        }}
+      />
+
+      <TrashDialog
+        open={trashOpen}
+        onOpenChange={setTrashOpen}
+        onChanged={() => {
           void refreshProfiles();
         }}
       />

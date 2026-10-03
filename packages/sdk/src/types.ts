@@ -131,6 +131,20 @@ export interface ProfileSummary {
 
 // -------------------------------------------------------------- inspection
 
+/** One profile waiting in the store's trash. */
+export interface TrashedProfile {
+  /** The directory name inside the trash — not necessarily a live id. */
+  id: string;
+  /** The profile's own name, or a placeholder when it no longer parses. */
+  name: string;
+  /** The seed it was drawn from, when readable. */
+  seed: number;
+  /** Whether the profile still parses, so a restore is possible. */
+  readable: boolean;
+  /** Unix seconds at which the profile was trashed. */
+  trashed_at: number;
+}
+
 /**
  * The engine's property schema.
  *

@@ -510,23 +510,75 @@ pub async fn validate_profile(
     protocol::to_value(&report).map_err(|error| error.to_string())
 }
 
-/// Deletes a profile.
+/// Moves a profile to the store's trash, browser data included.
+///
+/// Not the delete: the profile waits in the trash until it is restored or
+/// purged, because deleting also removes the cookies, sessions and history a
+/// user cannot get back by re-creating the profile. The profile's core
+/// instance stops and its proxy assignment is dropped, so neither outlives a
+/// profile the store no longer lists — the assignment does not follow it out
+/// of the trash on restore, since quietly re-claiming a proxy the user gave
+/// away is not the store's call.
 #[tauri::command]
-pub async fn delete_profile(
+pub async fn trash_profile(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<serde_json::Value, String> {
     let store = open_store(&state)?;
-    let removed = store.delete(&id).map_err(|error| error.to_string())?;
-    if !removed {
+    let trashed = store.trash(&id).map_err(|error| error.to_string())?;
+    if !trashed {
         return Err(format!("no profile with the id {id:?}"));
     }
-    // Stop the profile's core instance and drop its assignment, so neither
-    // outlives the profile.
     mihomo(&state)?.stop_profile(&id)?;
     let mut assignments = open_assignment_store(&state)?;
     assignments.remove(&id).map_err(|error| error.to_string())?;
-    Ok(serde_json::json!({ "deleted": id }))
+    Ok(serde_json::json!({ "trashed": id }))
+}
+
+/// Every trashed profile, oldest first.
+#[tauri::command]
+pub async fn list_trash(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let entries = store.list_trash();
+    serde_json::to_value(&entries).map_err(|error| error.to_string())
+}
+
+/// Puts a trashed profile back into the store.
+#[tauri::command]
+pub async fn restore_profile(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let restored = store
+        .restore(&id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("nothing trashed under {id:?}"))?;
+    Ok(serde_json::json!({ "id": restored.id, "name": restored.name }))
+}
+
+/// Removes one trashed profile for good, browser data included.
+#[tauri::command]
+pub async fn purge_trash(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let purged = store.purge(&id).map_err(|error| error.to_string())?;
+    if !purged {
+        return Err(format!("nothing trashed under {id:?}"));
+    }
+    Ok(serde_json::json!({ "purged": id }))
+}
+
+/// Empties the trash.
+#[tauri::command]
+pub async fn purge_all_trash(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let purged = store.purge_all().map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({ "purged": purged }))
 }
 
 /// Sets an override on a profile.

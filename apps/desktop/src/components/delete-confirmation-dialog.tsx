@@ -31,17 +31,18 @@ export function DeleteConfirmationDialog({
         <DialogHeader>
           <DialogTitle>Delete profile</DialogTitle>
           <DialogDescription>
-            This permanently removes <span className="font-medium text-foreground">{profileName}</span>{" "}
-            from the store.
+            Moves <span className="font-medium text-foreground">{profileName}</span> to the
+            store's trash, and it can be restored from there.
           </DialogDescription>
         </DialogHeader>
 
-        <Alert variant="destructive">
+        <Alert>
           <LuTriangleAlert className="size-4" />
-          <AlertTitle>Browser data is destroyed with it</AlertTitle>
+          <AlertTitle>The proxy assignment is let go</AlertTitle>
           <AlertDescription>
-            Cookies, storage and the profile's history live inside the profile
-            directory. Deleting the profile deletes them.
+            The profile keeps its browser data in the trash — cookies, sessions, history all
+            come back on restore. Its proxy assignment does not; assign one again after
+            restoring.
           </AlertDescription>
         </Alert>
 
@@ -50,7 +51,7 @@ export function DeleteConfirmationDialog({
             Cancel
           </Button>
           <Button type="button" variant="destructive" size="sm" disabled={busy} onClick={onConfirm}>
-            {busy ? "Deleting…" : "Delete profile"}
+            {busy ? "Moving…" : "Move to trash"}
           </Button>
         </DialogFooter>
       </DialogContent>

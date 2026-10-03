@@ -70,7 +70,9 @@ pub use error::{Error, Result};
 pub use generator::{generate, FontProfile, GeneratedIdentity, GeneratorOptions};
 pub use identity::Identity;
 pub use os::TargetOs;
-pub use profile::{GeoGate, Profile, ProfileExport, ProfileStore, ProxyConfig};
+pub use profile::{
+    GeoGate, Profile, ProfileExport, ProfileStore, ProxyConfig, TrashedProfile,
+};
 pub use proxy_store::{ProxyCheck, ProxyStore, StoredProxy};
 pub use rng::Rng;
 pub use schema::PropertySchema;
