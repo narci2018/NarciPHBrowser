@@ -174,7 +174,7 @@ pub fn ensure_core(app: &tauri::AppHandle) -> Result<CorePaths, String> {
 
     std::fs::create_dir_all(&dir).map_err(|error| format!("could not create {}: {error}", dir.display()))?;
     let part_path = dir.join(format!("{asset_name}.part"));
-    let archive_path = dir.join(&asset_name);
+    let archive_path = dir.join(asset_name);
     // The advertised size is what the resumed transfer is measured against:
     // Content-Length of a ranged response only covers the remaining bytes.
     let total = asset["size"].as_u64().unwrap_or(0);

@@ -500,7 +500,10 @@ fn write_place(identity: &mut Identity, geo: &GeoProfile, seed: u64) {
                 .unwrap_or(geo.language.as_str()),
         )
         .set_str(keys::LOCALE_REGION, &geo.region)
-        .set_str(keys::LOCALE_ALL, &geo.language.replace('-', "_"))
+        // `locale:all` becomes `intl.accept_languages`, and `navigator.languages`
+        // is derived from that pref — so this is a list of hyphenated language
+        // tags, never one locale with its separator swapped for an underscore.
+        .set_str(keys::LOCALE_ALL, &pools::accept_languages(&geo.language))
         .set_str(
             keys::HEADER_ACCEPT_LANGUAGE,
             &pools::accept_language(&geo.language),
@@ -512,15 +515,35 @@ fn write_place(identity: &mut Identity, geo: &GeoProfile, seed: u64) {
         .set_f64(keys::GEO_ACCURACY, 32.0)
         .set_str(keys::WEBRTC_IPV4, &draw_host_ipv4(seed))
         .set_str(keys::WEBRTC_IPV6, &draw_host_ipv6(seed));
+
+    // Written only where the language's own default script would be wrong. The
+    // value reaches `intl.locale.requested` (via `Identity::to_prefs_json`),
+    // which is what selects the browser UI locale — so omitting it on a `zh-TW`
+    // profile asks the engine to localize a Taiwan machine as Simplified
+    // Chinese, and the page's `input.validationMessage` disagrees with the
+    // locale `Intl` is formatting in.
+    if let Some(script) = pools::locale_script(&geo.language) {
+        identity.set_str(keys::LOCALE_SCRIPT, script);
+    }
 }
 
 fn write_peripherals(identity: &mut Identity, peripherals: &Peripherals, audio: &AudioProfile) {
     identity
         .set_str_array(keys::FONTS, &peripherals.fonts)
         .set_str_array(keys::VOICES, &peripherals.voices)
+        // Pinned rather than left to a non-empty list to imply it. The engine
+        // stops the host's own voices (SAPI, speech-dispatcher, NSSpeech) from
+        // registering only while Camoufox owns the list, and an empty or
+        // unusable spoofed list would otherwise fall through to every native
+        // voice on the box — 14k espeak-ng entries under a Windows identity.
+        // This is the flag that makes an empty list mean "no voices".
+        .set_bool(keys::VOICES_BLOCK_IF_UNDEFINED, true)
         .set_str_array(keys::MEDIA_MIC_LABELS, &peripherals.microphones)
         .set_str_array(keys::MEDIA_SPEAKER_LABELS, &peripherals.speakers)
         .set_str_array(keys::MEDIA_WEBCAM_LABELS, &peripherals.webcams)
+        .set_str_array(keys::MEDIA_MIC_GROUPS, &peripherals.microphone_groups)
+        .set_str_array(keys::MEDIA_SPEAKER_GROUPS, &peripherals.speaker_groups)
+        .set_str_array(keys::MEDIA_WEBCAM_GROUPS, &peripherals.webcam_groups)
         .set_u32(
             keys::MEDIA_MICS,
             peripherals.microphones.len().max(1) as u32,
@@ -556,7 +579,13 @@ fn write_preferences(identity: &mut Identity, _os: TargetOs, options: &Generator
     identity.set_bool(keys::SHOW_CURSOR, true);
 
     if options.humanize {
-        identity.set_bool(keys::HUMANIZE, true);
+        identity
+            .set_bool(keys::HUMANIZE, true)
+            // The engine's own default for the upper bound, written out rather
+            // than inherited: `humanize:minTime` / `:maxTime` bound how long a
+            // humanized cursor move may take, and a bound that silently follows
+            // the engine is a timing change nobody decided on.
+            .set_f64(keys::HUMANIZE_MAX_TIME, pools::HUMANIZE_MAX_TIME);
     }
 }
 
@@ -757,6 +786,134 @@ mod tests {
                     generated.identity.get_f64(keys::DEVICE_PIXEL_RATIO),
                     Some(2.0)
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn the_locale_list_is_a_parseable_language_tag_list() {
+        // `locale:all` becomes `intl.accept_languages`, and `navigator.languages`
+        // is derived from that pref. A locale written with its separator swapped
+        // for an underscore does not parse as a language tag, so the list comes
+        // back empty — a shape no Firefox produces.
+        for os in TargetOs::ALL {
+            for seed in 0..200 {
+                let identity = generate(seed, &GeneratorOptions::new(os)).identity;
+                let list = identity
+                    .get_str(keys::LOCALE_ALL)
+                    .unwrap_or_else(|| panic!("{os} seed {seed} claims no locale list"));
+                assert!(!list.contains('_'), "{os} seed {seed}: {list:?}");
+                assert_eq!(
+                    list.split(", ").next(),
+                    identity.get_str(keys::LANGUAGE),
+                    "{os} seed {seed}: the list disagrees with navigator.language"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_traditional_chinese_identity_declares_the_script() {
+        // `zh` defaults to Simplified, so `zh-TW` without a script asks the
+        // engine to localize a Taiwan machine as Simplified Chinese — the
+        // browser UI locale comes from `intl.locale.requested`, which the script
+        // feeds.
+        let mut checked = 0;
+        for seed in 0..500 {
+            for os in TargetOs::ALL {
+                let generated = generate(seed, &GeneratorOptions::new(os));
+                let language = generated.identity.get_str(keys::LANGUAGE).unwrap();
+                let script = generated.identity.get_str(keys::LOCALE_SCRIPT);
+                match language {
+                    "zh-TW" | "zh-HK" => {
+                        assert_eq!(script, Some("Hant"), "{os} seed {seed} ({language})");
+                        checked += 1;
+                    }
+                    _ => assert_eq!(
+                        script, None,
+                        "{os} seed {seed}: {language} claims a script it does not need"
+                    ),
+                }
+            }
+        }
+        assert!(checked > 0, "no seed drew a Traditional Chinese locale");
+    }
+
+    #[test]
+    fn the_voice_list_is_pinned_to_fail_closed() {
+        // An empty or unusable spoofed list must mean "no voices", never "all of
+        // the host's" — otherwise the machine's own SAPI / speech-dispatcher
+        // voices register under a profile claiming another OS.
+        for os in TargetOs::ALL {
+            let identity = generate(7, &GeneratorOptions::new(os)).identity;
+            assert_eq!(
+                identity.get_bool(keys::VOICES_BLOCK_IF_UNDEFINED),
+                Some(true),
+                "{os} does not pin the voice list"
+            );
+        }
+    }
+
+    #[test]
+    fn humanize_states_its_own_timing_bound() {
+        // The bound is written out rather than inherited, so a timing change in
+        // the engine cannot silently change how a humanized profile moves.
+        let mut options = GeneratorOptions::new(TargetOs::Windows);
+        options.humanize = true;
+        let identity = generate(7, &options).identity;
+        assert_eq!(
+            identity.get_f64(keys::HUMANIZE_MAX_TIME),
+            Some(pools::HUMANIZE_MAX_TIME)
+        );
+
+        // And it is absent when humanization is off: the engine only reads the
+        // bound on that path, and a profile that never humanizes should not
+        // carry the property at all.
+        let off = generate(7, &GeneratorOptions::new(TargetOs::Windows)).identity;
+        assert!(!off.is_set(keys::HUMANIZE_MAX_TIME));
+    }
+
+    #[test]
+    fn every_drawn_device_group_reaches_the_identity() {
+        for os in TargetOs::ALL {
+            for seed in 0..100 {
+                let generated = generate(seed, &GeneratorOptions::new(os));
+                let identity = &generated.identity;
+                for (groups, labels, count) in [
+                    (keys::MEDIA_MIC_GROUPS, keys::MEDIA_MIC_LABELS, keys::MEDIA_MICS),
+                    (
+                        keys::MEDIA_SPEAKER_GROUPS,
+                        keys::MEDIA_SPEAKER_LABELS,
+                        keys::MEDIA_SPEAKERS,
+                    ),
+                    (
+                        keys::MEDIA_WEBCAM_GROUPS,
+                        keys::MEDIA_WEBCAM_LABELS,
+                        keys::MEDIA_WEBCAMS,
+                    ),
+                ] {
+                    let labels = identity.get_str_array(labels).unwrap_or_default();
+                    let drawn = identity.get_str_array(groups).unwrap_or_default();
+                    // The audio floors are 1, so a microphone or speaker list is
+                    // never empty; a machine with no camera is ordinary and
+                    // claims neither labels nor groups.
+                    if !labels.is_empty() {
+                        assert_eq!(
+                            drawn.len(),
+                            labels.len(),
+                            "{os} seed {seed}: {groups} is not aligned with the labels"
+                        );
+                    }
+                    // The webcam count is not floored, so it agrees exactly.
+                    if groups == keys::MEDIA_WEBCAM_GROUPS {
+                        assert_eq!(drawn.len() as u32, identity.get_u32(count).unwrap_or(0));
+                    }
+                    // No group may name the browser: the engine's own fallback
+                    // does, and it is the same string on every profile.
+                    for group in &drawn {
+                        assert!(!group.contains("camou"), "{os} seed {seed}: {group:?}");
+                    }
+                }
             }
         }
     }

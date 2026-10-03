@@ -102,8 +102,8 @@ Three honest gaps, one of which is now closed by measurement rather than provena
 - **The values have now been read back out of a running browser** — see
   [Verifying a profile](#verifying-a-profile). What that found is not all good news, and it
   is reported there rather than here: the parameter table *is* applied (measured, not
-  assumed), the engine answers a dozen of the recorded ids itself, and two navigator
-  properties the engine's own list declares are not delivered by the installed build.
+  assumed), the engine answers a dozen of the recorded ids itself, and one navigator
+  property the engine's own list declares is not delivered by the installed build.
 
 Provenance, the pinned release digest, the upstream source semantics, and the extraction
 transform are recorded in
@@ -141,8 +141,11 @@ SDK as `client.verify(id, engine?, keepAgreements?)`. A UI must ask before calli
 takes seconds and opens a window.
 
 The wired path reproduces the CLI's result on the same machine: for a generated Windows
-profile, the `verify` command answered 117 of 118 compared values agreed in 2.0 s, with
-`navigator.doNotTrack` as the single difference — the engine limitation described below.
+profile, the `verify` command now answers 119 of 119 compared values agreed in 2.2 s. That
+is one more comparison and one more agreement than the first run reported — the extra
+comparison is `navigator.languages`, which the verifier collected but never diffed, and the
+extra agreement is `navigator.doNotTrack`, which an earlier version of this file blamed on
+the engine and which turned out to be our own bug (see below).
 
 ### What the read-back found
 
@@ -166,14 +169,20 @@ RTX 4070:
   *strings*. The generator no longer claims them — see
   `generator::webgl::UNSPOOFED_PARAMETERS` — which is also what keeps the recordings'
   Chrome-shaped strings (`"WebKit"`, `"WebKit WebGL"`) out of a Firefox profile's config.
-- **Two navigator properties the engine declares are not delivered.** `navigator.doNotTrack`
-  reads back as `"unspecified"` however the config is set, so a profile with tracking
-  protection on presents it as off; its sibling `navigator.globalPrivacyControl` *is*
-  applied, so the support is half-wired. `navigator.buildID` is answered by the engine with
-  a fixed `20181001000000` — October 2018, while the user agent claims Firefox 156, a
-  contradiction present in **every** profile and unfixable from the config, because no
-  pref reaches a compile-time constant. Both are named in `engine::UNAPPLIED_PROPERTIES`,
-  and launching a profile that claims a different value raises a warning.
+- **One navigator property the engine declares is not delivered — and one we mis-blamed.**
+  `navigator.buildID` is answered by the engine with a fixed `20181001000000` — October
+  2018, while the user agent claims Firefox 156, a contradiction present in **every**
+  profile and unfixable from the config, because no pref reaches a compile-time constant.
+  It is named in `engine::UNAPPLIED_PROPERTIES`, and launching a profile that claims a
+  different value raises a warning.
+  `navigator.doNotTrack` was the second entry in that list, and it was wrong. Firefox does
+  not back that value with the config property at all: the getter, the `WorkerNavigator`
+  getter and the `DNT` request header all derive from `privacy.donottrackheader.enabled`,
+  which the engine never sets from the config key — so the claim was being dropped and the
+  divergence was ours to close, not the engine's. The launch plan now writes that pref (as
+  a JSON boolean, since `defaultPref` is typed by the value), and the read-back confirms
+  it: `navigator.doNotTrack` returns `"1"` and the request carries `dnt: 1`. Recording a
+  leak that no longer exists would have been worse than not testing at all.
 
 A verifier that reported only "everything agrees" would be the least useful version of it.
 The point of the list above is that it does not.

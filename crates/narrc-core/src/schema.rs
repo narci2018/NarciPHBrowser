@@ -649,4 +649,116 @@ mod tests {
         assert!("banana".parse::<PropertyType>().is_err());
         assert_eq!("uint".parse::<PropertyType>().unwrap(), PropertyType::Uint);
     }
+
+    /// The engine properties this crate deliberately never writes.
+    ///
+    /// Every one of them is a **behaviour switch or a caller-supplied path**,
+    /// not part of a machine's identity: nothing here describes the computer a
+    /// page is looking at, so writing one by default would either weaken the
+    /// profile or claim something no real machine does. They stay reachable
+    /// through a per-profile override, which is where a user who wants them
+    /// should be asked.
+    ///
+    /// The list is the tripwire for the opposite mistake: a property that
+    /// *should* be drawn for every profile but silently stops being. If a name
+    /// here ever starts being written, or a drawn property disappears, the
+    /// test below fails rather than the leak shipping quietly.
+    const NEVER_DRAWN: &[&str] = &[
+        // Extensions and certificates are caller-supplied files.
+        keys::ADDONS,
+        keys::CERTIFICATES,
+        keys::CERTIFICATE_PATHS,
+        // Debug logging.
+        keys::DEBUG,
+        // Behaviour switches, each with a reason it is not a default:
+        // `disableTheming` drops the engine's OS-matching browser chrome;
+        // `instantAnimations` completes CSS animations at once, which upstream
+        // warns is observable; `allowMainWorld` and `allowAddonNewtab` widen
+        // what an extension may do; `disableWorldIsolation` and
+        // `forceScopeAccess` reach past the page's own execution context, which
+        // is a capability a site can detect and which no ordinary browsing
+        // session should hand out unasked.
+        keys::DISABLE_THEMING,
+        keys::INSTANT_ANIMATIONS,
+        keys::ALLOW_MAIN_WORLD,
+        keys::ALLOW_ADDON_NEWTAB,
+        keys::DISABLE_WORLD_ISOLATION,
+        keys::FORCE_SCOPE_ACCESS,
+        // The lower bound on a humanized cursor move. The engine's default is
+        // zero, and a floor above zero would slow every move down for nothing.
+        keys::HUMANIZE_MIN_TIME,
+    ];
+
+    /// The other half of `NEVER_DRAWN`: every remaining property really is
+    /// drawn, for every OS, under some combination of the generator's options.
+    ///
+    /// A property that stops being written is a field the profile silently
+    /// stops claiming, and the engine answers it from the host instead — the
+    /// most expensive kind of bug in a fingerprint browser, because the profile
+    /// still launches and nothing errors. This is what catches that.
+    #[test]
+    fn every_other_engine_property_is_reachable_from_the_generator() {
+        use crate::generator::{generate, FontProfile, GeneratorOptions};
+        use crate::os::TargetOs;
+        use std::collections::BTreeSet;
+
+        let mut drawn: BTreeSet<String> = BTreeSet::new();
+        for os in TargetOs::ALL {
+            for seed in [1u64, 7, 12345, 999, 4242] {
+                for fonts in [FontProfile::Stock, FontProfile::Extended] {
+                    for tracking_protection in [true, false] {
+                        for humanize in [true, false] {
+                            let mut options = GeneratorOptions::new(os);
+                            options.fonts = fonts;
+                            options.tracking_protection = tracking_protection;
+                            options.humanize = humanize;
+                            let identity = generate(seed, &options).identity;
+                            drawn.extend(identity.into_map().into_keys());
+                        }
+                    }
+                }
+            }
+        }
+        // The two locale-sensitive properties need a locale that carries them,
+        // and the schema's own script rule only fires for Traditional Chinese.
+        for locale in ["zh-TW", "zh-HK", "en-US", "pt-BR", "ja-JP"] {
+            let mut options = GeneratorOptions::new(TargetOs::Windows);
+            options.locale = Some(locale.to_owned());
+            let identity = generate(3, &options).identity;
+            drawn.extend(identity.into_map().into_keys());
+        }
+
+        let schema = PropertySchema::load().unwrap();
+        let known: BTreeSet<String> = schema.names().cloned().collect();
+        let expected: BTreeSet<String> = known
+            .iter()
+            .filter(|name| !NEVER_DRAWN.contains(&name.as_str()))
+            .cloned()
+            .collect();
+
+        let missing: Vec<&String> = expected.difference(&drawn).collect();
+        assert!(
+            missing.is_empty(),
+            "the engine reads {missing:?} and the generator never writes it, so a \
+             profile silently leaves it to the host"
+        );
+        // And nothing outside the schema is written, which would be dropped by
+        // the engine without a word.
+        let extra: Vec<&String> = drawn.difference(&known).collect();
+        assert!(extra.is_empty(), "the generator writes unknown keys {extra:?}");
+    }
+
+    #[test]
+    fn every_never_drawn_name_is_a_real_property() {
+        // A name here that the engine does not read would be a comment pretending
+        // to be a guard, and it would hide the real property if it were ever
+        // renamed upstream.
+        let schema = PropertySchema::load().unwrap();
+        for name in NEVER_DRAWN {
+            assert!(
+                schema.contains(name),
+                "{name} is listed as deliberately unwritten but is not a Camoufox property"
+            );
+        }
+    }
 }

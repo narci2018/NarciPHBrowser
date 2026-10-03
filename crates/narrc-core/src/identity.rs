@@ -21,7 +21,7 @@ use serde_json::Value;
 
 use crate::error::{json_kind, Error, Result};
 use crate::rng::fnv1a64;
-use crate::schema::PropertySchema;
+use crate::schema::{keys, PropertySchema};
 
 /// A complete set of spoofed values.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -413,14 +413,62 @@ impl Identity {
         // also carries one would either double-proxy or silently override it.
         prefs.insert("network.proxy.type", Value::from(0u8));
 
-        if let Some(dnt) = self.get_str("doNotTrack") {
-            // Firefox stores tracking protection as a tri-state string, and
-            // "unspecified" is the value that means "off but not declined".
-            let state = if dnt == "1" { "1" } else { "unspecified" };
-            prefs.insert("privacy.donottrackheader.enabled", Value::from(state));
-        }
+        // The browser's own UI locale, which is *not* the same thing as the
+        // locale the identity claims: `Intl`, `navigator.language` and the
+        // `Accept-Language` header come from the spoofed properties, while
+        // `input.validationMessage`, XML parse errors and the string bundles
+        // come from this pref. A profile that sets only the properties localizes
+        // its number and date formatting while its validation messages stay
+        // English — a mix no real localized Firefox produces, because a Mozilla
+        // build localizes both. Gecko negotiates the value against the packaged
+        // locales exactly as such a build does (`zh-Hant-TW` -> `zh-TW`).
+        //
+        // Always written: an absent pref follows the host OS locale now that
+        // more than en-US is packaged, which is the leak this exists to close.
+        prefs.insert(
+            "intl.locale.requested",
+            Value::String(self.requested_locale()),
+        );
+
+        // `navigator.doNotTrack` and `navigator.globalPrivacyControl` are
+        // **pref-backed** in Firefox, not property-backed. The main-thread
+        // getter, the `WorkerNavigator` getter and the `DNT` / `Sec-GPC`
+        // request headers all read these two prefs, so a profile that spoofs
+        // only the config key leaves the wire contradicting the API — the
+        // engine's own `navigator.doNotTrack` is not patched at all, and reads
+        // nothing but `privacy.donottrackheader.enabled`.
+        //
+        // Both are booleans, and the engine applies them with `defaultPref`
+        // typed by the JSON value: a string here would not set a boolean pref.
+        // Both are written even when off, because the stock value *is* off and
+        // leaving the pref to an engine default is how a build change turns
+        // into a silent leak.
+        let dnt = self.get_str(keys::DO_NOT_TRACK) == Some("1");
+        prefs.insert("privacy.donottrackheader.enabled", Value::Bool(dnt));
+        let gpc = self.get_bool(keys::GLOBAL_PRIVACY_CONTROL).unwrap_or(false);
+        prefs.insert("privacy.globalprivacycontrol.enabled", Value::Bool(gpc));
 
         serde_json::to_string(&prefs).unwrap_or_else(|_| "{}".to_owned())
+    }
+
+    /// The BCP-47 tag for `intl.locale.requested`, from the locale properties.
+    ///
+    /// `language-Script-REGION`, the subtags this identity actually set. The
+    /// script is only present for the locales whose language defaults to a
+    /// different one, so most profiles resolve to `language-REGION`.
+    fn requested_locale(&self) -> String {
+        let parts: Vec<&str> = [keys::LOCALE_LANGUAGE, keys::LOCALE_SCRIPT, keys::LOCALE_REGION]
+            .into_iter()
+            .filter_map(|key| self.get_str(key))
+            .filter(|value| !value.is_empty())
+            .collect();
+
+        // An identity with no locale properties at all still has to name a
+        // locale: an empty `intl.locale.requested` follows the host OS.
+        if parts.is_empty() {
+            return "en-US".to_owned();
+        }
+        parts.join("-")
     }
 
     /// Parses a `CAMOU_PREFS` payload back into a map.
@@ -449,6 +497,95 @@ mod tests {
 
     fn schema() -> PropertySchema {
         PropertySchema::load().unwrap()
+    }
+
+    fn prefs(identity: &Identity) -> BTreeMap<String, Value> {
+        Identity::prefs_from_json(&identity.to_prefs_json()).unwrap()
+    }
+
+    #[test]
+    fn tracking_protection_reaches_the_prefs_the_headers_read() {
+        // `navigator.doNotTrack` and `navigator.globalPrivacyControl` are
+        // pref-backed in Firefox: the main-thread getter, the WorkerNavigator
+        // getter and the DNT / Sec-GPC request headers all read these two
+        // prefs. A profile that sets only the config key leaves the wire
+        // contradicting the API, and the engine's own `navigator.doNotTrack`
+        // reads nothing else at all.
+        let mut identity = Identity::new();
+        identity
+            .set_str(keys::DO_NOT_TRACK, "1")
+            .set_bool(keys::GLOBAL_PRIVACY_CONTROL, true);
+
+        let prefs = prefs(&identity);
+        assert_eq!(
+            prefs.get("privacy.donottrackheader.enabled"),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(
+            prefs.get("privacy.globalprivacycontrol.enabled"),
+            Some(&Value::Bool(true))
+        );
+    }
+
+    #[test]
+    fn both_tracking_prefs_are_booleans_even_when_off() {
+        // The engine applies prefs with `defaultPref` typed by the JSON value,
+        // so a string here would not set a boolean pref at all — and the stock
+        // value is `false`, which must be written rather than inherited.
+        let mut identity = Identity::new();
+        identity.set_str(keys::DO_NOT_TRACK, "unspecified");
+
+        let prefs = prefs(&identity);
+        assert_eq!(
+            prefs.get("privacy.donottrackheader.enabled"),
+            Some(&Value::Bool(false))
+        );
+        assert_eq!(
+            prefs.get("privacy.globalprivacycontrol.enabled"),
+            Some(&Value::Bool(false))
+        );
+    }
+
+    #[test]
+    fn the_requested_locale_is_the_identitys_own_not_the_hosts() {
+        // `input.validationMessage` and XML parse errors come from this pref
+        // while `Intl` formatting comes from the spoofed properties. Leaving it
+        // unset follows the host OS locale, which localizes a profile's
+        // validation messages to the machine it is trying not to be.
+        let mut identity = Identity::new();
+        identity
+            .set_str(keys::LOCALE_LANGUAGE, "zh")
+            .set_str(keys::LOCALE_SCRIPT, "Hant")
+            .set_str(keys::LOCALE_REGION, "TW");
+
+        let prefs = prefs(&identity);
+        assert_eq!(
+            prefs.get("intl.locale.requested"),
+            Some(&Value::String("zh-Hant-TW".into())),
+            "subtags must be language-Script-REGION"
+        );
+    }
+
+    #[test]
+    fn a_locale_without_a_script_omits_the_subtag() {
+        let mut identity = Identity::new();
+        identity
+            .set_str(keys::LOCALE_LANGUAGE, "en")
+            .set_str(keys::LOCALE_REGION, "US");
+        assert_eq!(
+            prefs(&identity).get("intl.locale.requested"),
+            Some(&Value::String("en-US".into()))
+        );
+    }
+
+    #[test]
+    fn an_identity_with_no_locale_still_names_one() {
+        // An empty `intl.locale.requested` follows the host OS, so the fallback
+        // has to be a real locale rather than an empty string.
+        assert_eq!(
+            prefs(&Identity::new()).get("intl.locale.requested"),
+            Some(&Value::String("en-US".into()))
+        );
     }
 
     #[test]

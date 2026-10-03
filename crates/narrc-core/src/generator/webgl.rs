@@ -255,7 +255,7 @@ fn canonical(text: &str) -> String {
                 && !token.starts_with(|c: char| c.is_ascii_digit())
         })
         .collect();
-    format!("{} ({}){}", &text[..open].trim_end(), kept.join(" "), &text[close + 1..])
+    format!("{} ({}){}", text[..open].trim_end(), kept.join(" "), &text[close + 1..])
 }
 
 /// Draws the WebGL contexts for the GPU the identity already claims.

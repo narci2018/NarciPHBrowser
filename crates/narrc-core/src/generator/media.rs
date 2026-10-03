@@ -34,6 +34,15 @@ pub struct Peripherals {
     pub speakers: Vec<String>,
     /// The value behind `mediaDevices:webcamLabels`.
     pub webcams: Vec<String>,
+    /// The value behind `mediaDevices:microphoneGroups`, aligned with
+    /// [`Self::microphones`].
+    pub microphone_groups: Vec<String>,
+    /// The value behind `mediaDevices:speakerGroups`, aligned with
+    /// [`Self::speakers`].
+    pub speaker_groups: Vec<String>,
+    /// The value behind `mediaDevices:webcamGroups`, aligned with
+    /// [`Self::webcams`].
+    pub webcam_groups: Vec<String>,
 }
 
 /// How much of a platform's font list an identity keeps.
@@ -101,12 +110,17 @@ impl FontProfile {
         let microphones = self.draw_devices(seed, "mic", self.mic_pool(os), 1, 2);
         let speakers = self.draw_devices(seed, "speaker", self.speaker_pool(os), 1, 2);
         let webcams = self.draw_devices(seed, "webcam", self.webcam_pool(os), 0, 1);
+        let (microphone_groups, speaker_groups, webcam_groups) =
+            draw_device_groups(seed, &microphones, &speakers, &webcams);
         Peripherals {
             fonts,
             voices,
             microphones,
             speakers,
             webcams,
+            microphone_groups,
+            speaker_groups,
+            webcam_groups,
         }
     }
 
@@ -168,6 +182,12 @@ impl FontProfile {
     /// prettiness: `navigator.mediaDevices.enumerateDevices` on a machine with
     /// no audio input at all reports no microphone, and every page that offers
     /// a "talk to us" widget uses that as a bot signal.
+    ///
+    /// Drawn as a *sample* rather than as a prefix of the pool. Taking the first
+    /// `count` entries made every label past the ceiling unreachable — on Linux
+    /// that hid `Webcam Audio`, a label the group logic below has a rule for,
+    /// and on Windows it meant the same two of six microphones on every profile.
+    /// A pool whose tail can never be drawn is not a pool.
     fn draw_devices(
         &self,
         seed: u64,
@@ -179,14 +199,97 @@ impl FontProfile {
         let mut rng = Rng::stream(seed, &format!("devices-{label}"));
         let ceiling = ceiling.min(pool.len());
         let count = rng.range_i32(floor as i32, ceiling.max(floor) as i32) as usize;
-        let mut labels: Vec<String> = pool
-            .iter()
-            .take(count)
+        let mut labels: Vec<String> = rng
+            .sample(pool, count)
+            .into_iter()
             .map(|name| (*name).to_owned())
             .collect();
         labels.sort_unstable();
         labels
     }
+}
+
+/// A microphone label that belongs to a camera rather than to a sound card.
+///
+/// A webcam with a built-in microphone is one piece of hardware, so Firefox
+/// reports one `groupId` for the camera and its microphone. Matching on the
+/// label is the only signal available here: the pools are label lists, not
+/// device trees, and this is the one label in them that names a camera's own
+/// audio input.
+const WEBCAM_MIC_LABEL: &str = "Webcam Audio";
+
+/// Draws one group id per device, sharing them the way a real machine does.
+///
+/// `groupId` is meant to be an opaque per-origin token, but the engine passes
+/// these straight through to the page, so whatever is drawn is what a site
+/// reads. Two things follow, and both are why this exists at all:
+///
+/// * **The engine's own fallback is a constant.** With no `mediaDevices:*Groups`
+///   the patch answers `camou-audio-group-0` / `camou-video-group-0` — the same
+///   strings on every profile this app ever launches, and a prefix that names
+///   the browser. A tracker that reads `device.groupId` can link two profiles
+///   that share nothing else. The ids below are drawn from the profile's own
+///   seed instead, so two profiles never agree.
+/// * **Related devices share a group.** A sound card's input and output are one
+///   piece of hardware and Firefox gives them one `groupId`; a page can check
+///   that invariant, and a machine whose microphone and speaker never share a
+///   group is not a machine. The engine's fallback happens to satisfy this for
+///   the first pair and breaks it for a webcam's own microphone.
+///
+/// The shape is `hw-<hex>`, matching what the engine's own launcher emits
+/// (`hw-1`, `hw-2`, …) rather than anything naming this app.
+fn draw_device_groups(
+    seed: u64,
+    microphones: &[String],
+    speakers: &[String],
+    webcams: &[String],
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut rng = Rng::stream(seed, "device-groups");
+    // A group id has to be unique within the machine and stable across
+    // regenerations, so it comes from the profile's own stream rather than from
+    // a clock or a bare counter.
+    let new_group = |rng: &mut Rng| format!("hw-{:012x}", rng.next_u64());
+
+    // Each camera gets a group of its own: a camera is separate hardware from
+    // the sound card, and no real machine reports a webcam sharing a group with
+    // a pair of speakers.
+    let mut webcam_groups: Vec<String> = Vec::with_capacity(webcams.len());
+    let mut camera_group: Option<String> = None;
+    for _ in webcams {
+        let group = new_group(&mut rng);
+        if camera_group.is_none() {
+            camera_group = Some(group.clone());
+        }
+        webcam_groups.push(group);
+    }
+
+    // The sound card's output and input share a group, paired by index: the
+    // first microphone and first speaker are the card the machine came with,
+    // the second of each is a second device (a headset, a USB interface).
+    let mut speaker_groups: Vec<String> = Vec::with_capacity(speakers.len());
+    for _ in speakers {
+        speaker_groups.push(new_group(&mut rng));
+    }
+
+    let mut microphone_groups: Vec<String> = Vec::with_capacity(microphones.len());
+    for (index, label) in microphones.iter().enumerate() {
+        if label == WEBCAM_MIC_LABEL {
+            // A camera's own microphone belongs to the camera, not the card.
+            let group = match &camera_group {
+                Some(group) => group.clone(),
+                None => new_group(&mut rng),
+            };
+            microphone_groups.push(group);
+        } else if let Some(shared) = speaker_groups.get(index) {
+            microphone_groups.push(shared.clone());
+        } else {
+            // More microphones than speakers: the extra input is a device of
+            // its own rather than a second card.
+            microphone_groups.push(new_group(&mut rng));
+        }
+    }
+
+    (microphone_groups, speaker_groups, webcam_groups)
 }
 
 /// Audio context parameters a real machine reports.
@@ -487,5 +590,114 @@ mod tests {
             "only {} distinct audio seeds in 200",
             seeds.len()
         );
+    }
+
+    #[test]
+    fn every_device_has_a_group_and_the_lists_stay_aligned() {
+        for os in TargetOs::ALL {
+            for seed in 0..200 {
+                let drawn = FontProfile::Stock.draw(seed, os);
+                assert_eq!(drawn.microphone_groups.len(), drawn.microphones.len());
+                assert_eq!(drawn.speaker_groups.len(), drawn.speakers.len());
+                assert_eq!(drawn.webcam_groups.len(), drawn.webcams.len());
+                for group in drawn
+                    .microphone_groups
+                    .iter()
+                    .chain(&drawn.speaker_groups)
+                    .chain(&drawn.webcam_groups)
+                {
+                    assert!(
+                        group.starts_with("hw-"),
+                        "{os}/{seed}: {group:?} does not look like a hardware id"
+                    );
+                    assert!(
+                        !group.contains("camou"),
+                        "{os}/{seed}: {group:?} names the browser"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_group_id_is_never_shared_between_two_profiles() {
+        // The engine's own fallback is the constant `camou-audio-group-0`, which
+        // would let a tracker link every profile this app launches just by
+        // reading `device.groupId`. Drawn ids must not reproduce that.
+        let mut seen = HashSet::new();
+        for seed in 0..500 {
+            for group in FontProfile::Stock.draw(seed, TargetOs::Windows).microphone_groups {
+                assert!(
+                    seen.insert(group.clone()),
+                    "group {group} repeats across profiles"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_sound_cards_input_and_output_share_a_group() {
+        // Paired by index: the card's own input and output are one piece of
+        // hardware. A microphone that belongs to a camera is excluded — it
+        // follows the camera, which is the other rule.
+        for os in TargetOs::ALL {
+            for seed in 0..200 {
+                let drawn = FontProfile::Stock.draw(seed, os);
+                for (index, label) in drawn.microphones.iter().enumerate() {
+                    if label == WEBCAM_MIC_LABEL {
+                        continue;
+                    }
+                    let Some(speaker) = drawn.speaker_groups.get(index) else {
+                        continue;
+                    };
+                    assert_eq!(
+                        &drawn.microphone_groups[index], speaker,
+                        "{os}/{seed}: microphone {index} ({label:?}) is not the card's"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_camera_never_shares_a_group_with_the_sound_card() {
+        for os in TargetOs::ALL {
+            for seed in 0..200 {
+                let drawn = FontProfile::Stock.draw(seed, os);
+                for webcam in &drawn.webcam_groups {
+                    assert!(
+                        !drawn.speaker_groups.contains(webcam),
+                        "{os}/{seed}: a camera shares the card's group"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_webcam_microphone_shares_the_cameras_group() {
+        // "Webcam Audio" is a camera's own input, so Firefox reports one group
+        // for the pair. Giving it the card's group would claim hardware that
+        // does not exist.
+        let mut checked = 0;
+        for seed in 0..500 {
+            let drawn = FontProfile::Stock.draw(seed, TargetOs::Linux);
+            let Some(index) = drawn
+                .microphones
+                .iter()
+                .position(|label| label == WEBCAM_MIC_LABEL)
+            else {
+                continue;
+            };
+            let Some(camera) = drawn.webcam_groups.first() else {
+                continue;
+            };
+            assert_eq!(
+                &drawn.microphone_groups[index], camera,
+                "seed {seed}: the webcam microphone did not follow its camera"
+            );
+            checked += 1;
+        }
+        assert!(checked > 0, "no seed drew a webcam microphone to check");
     }
 }

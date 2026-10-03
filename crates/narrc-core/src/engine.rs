@@ -319,24 +319,24 @@ fn webgl_coverage_warnings(identity: &Identity) -> Vec<String> {
 ///
 /// Measured, not read off a changelog: `cargo run -p narrc-core --example probe
 /// -- host` launches the engine with an empty identity, and a claimed value is
-/// compared against what the page read back. Both entries were confirmed by
-/// claiming a distinctive value and seeing the engine's own answer return.
+/// compared against what the page read back. Confirmed by claiming a
+/// distinctive value and seeing the engine's own answer return.
 ///
-/// They are not equally bad, which is why this is a list of pairs rather than a
-/// set of keys:
-///
-/// * `navigator.doNotTrack` reports `"unspecified"`. A profile with tracking
-///   protection on therefore *presents* it as off — a silent divergence between
-///   what the profile claims and what a site sees. Its sibling
-///   `navigator.globalPrivacyControl` **is** applied, so the engine's tracking
-///   -protection support is half-wired rather than absent.
 /// * `navigator.buildID` reports the engine's fixed constant. The generator
 ///   already writes that same value (see `pools::FIREFOX_BUILD_ID`), so this
 ///   only warns if something set a different one.
-pub const UNAPPLIED_PROPERTIES: &[(&str, &str)] = &[
-    ("navigator.doNotTrack", "unspecified"),
-    ("navigator.buildID", crate::pools::FIREFOX_BUILD_ID),
-];
+///
+/// `navigator.doNotTrack` was listed here and should not have been. It is
+/// **pref-backed** in Firefox rather than property-backed — the main-thread
+/// getter, the `WorkerNavigator` getter and the `DNT` request header all derive
+/// from `privacy.donottrackheader.enabled`, and the engine never reads the
+/// config key. The divergence was therefore ours to close, not the engine's to
+/// fix: `Identity::to_prefs_json` writes that pref, and a profile claiming `"1"`
+/// now reads back `"1"` (measured 119/119 agreed, with `dnt: 1` on the request).
+/// Keeping it in this list would have told users to expect a leak that no
+/// longer exists.
+pub const UNAPPLIED_PROPERTIES: &[(&str, &str)] =
+    &[("navigator.buildID", crate::pools::FIREFOX_BUILD_ID)];
 
 /// Warns when an identity claims a property the engine will not deliver.
 ///
@@ -730,22 +730,39 @@ mod tests {
     }
 
     #[test]
-    fn a_property_the_engine_ignores_is_flagged() {
+    fn a_property_the_engine_cannot_deliver_is_flagged() {
+        let mut identity = Identity::new();
+        identity.set_str(crate::schema::keys::BUILD_ID, "20190909000000");
+        let plan = build_plan(&identity, &config("C:/profiles/x")).unwrap();
+        assert!(
+            plan.warnings
+                .iter()
+                .any(|warning| warning.contains("navigator.buildID")),
+            "a buildID the engine cannot honour must be flagged, got {:?}",
+            plan.warnings
+        );
+    }
+
+    /// Tracking protection is on by default and `"1"` is delivered, so it must
+    /// *not* be flagged: the claim reaches the page through
+    /// `privacy.donottrackheader.enabled`, which the plan writes.
+    #[test]
+    fn a_tracking_protection_claim_is_not_flagged() {
         let mut identity = Identity::new();
         identity.set_str(crate::schema::keys::DO_NOT_TRACK, "1");
         let plan = build_plan(&identity, &config("C:/profiles/x")).unwrap();
         assert!(
-            plan.warnings.iter().any(|warning| warning.contains("navigator.doNotTrack")
-                && warning.contains("unspecified")),
-            "a tracking-protection profile must be told its DNT claim is not delivered, got {:?}",
+            !plan
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("navigator.doNotTrack")),
+            "a delivered DNT claim must not be reported as a leak, got {:?}",
             plan.warnings
         );
     }
 
     #[test]
     fn a_property_the_engine_delivers_is_not_flagged() {
-        // `"unspecified"` is what a page reads either way, so claiming it is
-        // not a divergence.
         let mut identity = Identity::new();
         identity.set_str(crate::schema::keys::DO_NOT_TRACK, "unspecified");
         identity.set_str(crate::schema::keys::BUILD_ID, crate::pools::FIREFOX_BUILD_ID);
@@ -760,9 +777,8 @@ mod tests {
         );
     }
 
-    /// A generated profile is warned about DNT (tracking protection is on by
-    /// default) but not about its buildID, which it writes to the engine's own
-    /// value.
+    /// A generated profile writes its buildID to the engine's own value and its
+    /// DNT claim to a pref the plan sets, so it is warned about neither.
     #[test]
     fn a_generated_profile_is_not_flagged_over_its_build_id() {
         let identity = generator::generate(7, &GeneratorOptions::default()).identity;
@@ -771,7 +787,8 @@ mod tests {
             !plan
                 .warnings
                 .iter()
-                .any(|warning| warning.contains("navigator.buildID")),
+                .any(|warning| warning.contains("navigator.buildID")
+                    || warning.contains("navigator.doNotTrack")),
             "got {:?}",
             plan.warnings
         );

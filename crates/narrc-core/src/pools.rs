@@ -1421,11 +1421,13 @@ pub const ACCEPT_ENCODING: &str = "gzip, deflate, br, zstd";
 /// The `navigator.doNotTrack` value Firefox emits when tracking protection is
 /// on: the literal string `"1"`, not the boolean.
 ///
-/// The engine's property list declares `navigator.doNotTrack`, but the installed
-/// build does not apply it — a page reads `"unspecified"` whatever the config
-/// says (measured; see `engine::UNAPPLIED_PROPERTIES`). The value is still
-/// written, because it is the correct one if the engine starts honouring the
-/// property, and the launch plan warns that it is not being delivered.
+/// The engine's property list declares `navigator.doNotTrack`, but the property
+/// is **pref-backed** in Firefox and the engine never reads the config key: the
+/// getter, the `WorkerNavigator` getter and the `DNT` request header all derive
+/// from `privacy.donottrackheader.enabled`. So writing the claim alone left a
+/// page reading `"unspecified"` — which is why `Identity::to_prefs_json` now
+/// writes that pref too. With both in place a page reads back `"1"` and the
+/// request carries `dnt: 1` (measured; see `engine::UNAPPLIED_PROPERTIES`).
 pub const DO_NOT_TRACK: &str = "1";
 
 /// The `navigator.buildID` a page reads from this engine, measured with
@@ -1481,6 +1483,66 @@ pub fn accept_language(language: &str) -> String {
         header.push_str(",en;q=0.5");
     }
     header
+}
+
+/// The `intl.accept_languages` value for one locale.
+///
+/// This is what `locale:all` carries, and it is **not** a single language tag:
+/// the engine assigns the property straight to `intl.accept_languages`, and
+/// `navigator.languages` is derived from that same pref. So it has to be the
+/// accept-languages *list*, in the hyphenated BCP-47 form the pref parses.
+///
+/// The form is the one the engine falls back to when `locale:all` is absent —
+/// `language-region, language` — written out rather than left implicit so the
+/// identity states the list a page will read, and the read-back verifier can
+/// compare `navigator.languages` against something.
+///
+/// A locale written with an underscore (`zh_TW`) does not parse as a language
+/// tag, so the pref ends up holding a list Gecko cannot read and
+/// `navigator.languages` comes back empty — a shape no Firefox produces.
+pub fn accept_languages(language: &str) -> String {
+    let base = language.split('-').next().unwrap_or(language);
+    if base == language {
+        return language.to_owned();
+    }
+    format!("{language}, {base}")
+}
+
+/// The upper bound, in seconds, on one humanized cursor movement.
+///
+/// The engine's own default (`kDefaultMaxTimeSeconds` in `CursorTrajectory.js`)
+/// written out rather than inherited, so a profile that enables humanization
+/// states its timing instead of following whatever the engine decides next.
+/// The engine treats it as a backstop against a slow recorded trajectory rather
+/// than as the pace: the moves it replays normally finish well inside it.
+pub const HUMANIZE_MAX_TIME: f64 = 1.5;
+
+/// The locales in [`LOCALES`] whose conventional script is *not* the one their
+/// language defaults to.
+///
+/// A BCP-47 tag carries a script subtag only when the script is not the
+/// language's default, and `zh` defaults to Simplified (`Hans`). Traditional
+/// Chinese is therefore `zh-Hant`, so a `zh-TW` identity that omits the script
+/// asks the engine to localize a Taiwan machine as Simplified Chinese — the
+/// browser UI locale, `input.validationMessage` and XML parse errors all come
+/// from that request (`locale:script` feeds `intl.locale.requested`).
+///
+/// A table of exceptions rather than a `script` field on every [`LocaleRegion`]
+/// row: 47 of the 49 rows need no script, and 47 `None` fields would be 47
+/// places to write the wrong value. `every_scripted_locale_is_in_the_pool`
+/// fails if a key here stops naming a row, so the table cannot go stale
+/// silently.
+///
+/// Keyed by the row's own `language`, not by the lower-cased table key, so a
+/// lookup from a drawn [`LocaleRegion`] needs no case folding.
+pub const LOCALE_SCRIPTS: &[(&str, &str)] = &[("zh-TW", "Hant"), ("zh-HK", "Hant")];
+
+/// The script for a locale, or `None` when the language's default applies.
+pub fn locale_script(language: &str) -> Option<&'static str> {
+    LOCALE_SCRIPTS
+        .iter()
+        .find(|(locale, _)| *locale == language)
+        .map(|(_, script)| *script)
 }
 
 #[cfg(test)]
@@ -1772,6 +1834,63 @@ mod tests {
                     "{id}: {name:?} appears twice in {header:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn an_accept_languages_list_is_hyphenated_and_offers_the_bare_language() {
+        // The pref parses BCP-47 language tags, so an underscore makes the whole
+        // list unreadable and `navigator.languages` comes back empty.
+        assert_eq!(accept_languages("en-US"), "en-US, en");
+        assert_eq!(accept_languages("zh-TW"), "zh-TW, zh");
+        // Nothing to strip: a region-less language is already one tag.
+        assert_eq!(accept_languages("ja"), "ja");
+    }
+
+    #[test]
+    fn every_locale_row_produces_a_parseable_accept_languages_list() {
+        for (id, locale) in LOCALES {
+            let list = accept_languages(locale.language);
+            assert!(
+                !list.contains('_'),
+                "{id}: {list:?} is not a language tag"
+            );
+            assert_eq!(
+                list.split(", ").next(),
+                Some(locale.language),
+                "{id}: the identity's own language must come first in {list:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_scripted_locale_is_in_the_pool() {
+        // A key that names no row is a script nobody can ever be given, which is
+        // how this table would silently rot after a locale is removed.
+        for (language, script) in LOCALE_SCRIPTS {
+            assert!(
+                LOCALES.iter().any(|(_, row)| row.language == *language),
+                "{language} names no locale row"
+            );
+            assert!(
+                script.len() == 4 && script.chars().next().is_some_and(char::is_uppercase),
+                "{script} is not an ISO 15924 script code"
+            );
+        }
+    }
+
+    #[test]
+    fn a_script_is_recorded_only_where_it_differs_from_the_languages_default() {
+        // `zh` defaults to Simplified, so Traditional Chinese is the case that
+        // needs spelling out. Every other row in the pool must stay scriptless:
+        // adding one would claim a script the plain tag already implies.
+        for (id, locale) in LOCALES {
+            let script = locale_script(locale.language);
+            let expected = match locale.language {
+                "zh-TW" | "zh-HK" => Some("Hant"),
+                _ => None,
+            };
+            assert_eq!(script, expected, "{id} has the wrong script");
         }
     }
 

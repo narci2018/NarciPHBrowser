@@ -427,6 +427,27 @@ pub fn compare(
         comparator.scalar(key, get(key), observation.navigator.get(field), None);
     }
 
+    // `navigator.languages` is not a property of its own: the engine assigns
+    // `locale:all` to `intl.accept_languages`, and Gecko derives the array from
+    // that pref. So the claim is the list and the reading is the tags split out
+    // of it — which is also the only way the comparison catches a list that does
+    // not parse, since a malformed value comes back as an empty array rather
+    // than as an error.
+    let languages = get(keys::LOCALE_ALL).and_then(Value::as_str).map(|list| {
+        Value::Array(
+            list.split(", ")
+                .filter(|tag| !tag.is_empty())
+                .map(|tag| Value::String(tag.to_owned()))
+                .collect(),
+        )
+    });
+    comparator.scalar(
+        "navigator.languages",
+        languages.as_ref(),
+        observation.navigator.get("languages"),
+        Some("derived from the `locale:all` list through `intl.accept_languages`"),
+    );
+
     // ---------------------------------------------------------------- screen
     for (key, field) in [
         (keys::SCREEN_WIDTH, "width"),

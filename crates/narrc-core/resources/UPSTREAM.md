@@ -279,26 +279,93 @@ reads the value through a typed cast and the browser dies before loading a page.
 generator writes the corpus's own types, so no profile this crate produces can do it, but
 it is a sharp edge worth knowing about.
 
-### Two properties the engine declares and does not deliver
+### A property the engine declares and does not deliver
 
-`navigator.doNotTrack` and `navigator.buildID` are both in `camoufox-properties.json` with
-type `str`, and the installed build applies neither. Claiming a distinctive value for
-either and reading it back returns the engine's own answer:
+`navigator.buildID` is in `camoufox-properties.json` with type `str`, and the installed
+build does not apply it. Claiming a distinctive value and reading it back returns the
+engine's own answer:
 
-* `navigator.doNotTrack` → `"unspecified"`, whatever the config says. A profile with
-  tracking protection on therefore *presents* it as off. `navigator.globalPrivacyControl`,
-  its sibling, **is** applied — so the engine's tracking-protection support is half-wired
-  rather than absent, and a profile ends up presenting `globalPrivacyControl: true` beside
-  `doNotTrack: "unspecified"`. That pair is a combination real Firefox produces, so it is
-  not itself a tell; the divergence is that the profile claims something a site does not
-  see.
 * `navigator.buildID` → `20181001000000`, a 14-digit build date from October 2018. A
   claimed value is ignored even when it is a well-formed stamp, so this cannot be patched
   from the config: no pref reaches a compile-time constant. It is a **shared tell** — every
   profile claims Firefox 156 while reporting a 2018 buildID — and the README says so.
 
-`engine::UNAPPLIED_PROPERTIES` records the measured pairs, and `build_plan` warns when a
+`engine::UNAPPLIED_PROPERTIES` records the measured pair, and `build_plan` warns when a
 profile claims a different value, in the same non-blocking way as the coverage gap.
+
+### One property we mis-read as unapplied: `navigator.doNotTrack`
+
+`navigator.doNotTrack` was the second entry in that list, and the entry was wrong. It is
+in `camoufox-properties.json` with type `str`, and the engine never reads that config key
+— but that is because Firefox does not back the value with the property at all. The
+main-thread getter, the `WorkerNavigator` getter and the `DNT` request header all derive
+from the pref `privacy.donottrackheader.enabled`, which the engine leaves to the build
+default. So a profile claiming `"1"` read back `"unspecified"` not because the engine
+refuses the value but because nothing had set the pref the value lives in.
+
+The fix is in `Identity::to_prefs_json`, which now writes
+`privacy.donottrackheader.enabled` (and its sibling `privacy.globalprivacycontrol.enabled`)
+as **JSON booleans**: the startup path in `settings/camoufox.cfg` applies each pref with
+`defaultPref(name, prefs[name])`, which is typed by the JSON value, so a string would
+silently not set a boolean pref. With the pref in place the read-back returns `"1"` and the
+request carries `dnt: 1` — measured, 119/119 compared values agreed.
+
+`navigator.globalPrivacyControl` is the case that *is* applied directly: the engine patches
+it from the config key and the launcher mirrors it into the same-named pref
+(daijro/camoufox#760), which is why only the `doNotTrack` half of the pair ever diverged.
+
+### Properties whose upstream meaning is not what the name suggests
+
+Six further properties were reachable in the schema but never written by the generator.
+Reading the patch set and the launcher (`settings/camoufox.cfg`, `patches/`, `additions/`)
+showed several of them are *not* free-standing values: each is a fragment of a coherence
+rule the engine applies elsewhere, and writing only the fragment the name suggests produces
+a profile that contradicts itself. They are now written by default, and the reason is worth
+keeping:
+
+* **`locale:all` becomes `intl.accept_languages`.** It is not one locale — it is the
+  accept-languages *list*, and `navigator.languages` is derived from that same pref. An
+  earlier version wrote `"en_US"`, which parses to nothing: the page saw an empty
+  `navigator.languages` while `navigator.language` claimed `en-US`. It is now the
+  hyphenated BCP-47 list (`"en-US, en"`), and the verifier compares `navigator.languages`
+  against it — a comparison that was collected but never diffed, which is how the malformed
+  value stayed hidden.
+* **`locale:script` reaches `intl.locale.requested`**, which selects the browser *UI*
+  locale — validation messages, XML parse errors, string bundles — and is a different thing
+  from the locale `Intl` formats in. Upstream always sets it as `language-Script-REGION`; a
+  `zh-TW` profile that omits the script asks the engine to localize a Taiwan machine as
+  Simplified Chinese. `intl.locale.requested` is written unconditionally from the identity's
+  own locale, because an absent pref follows the host OS now that more than `en-US` is
+  packaged.
+* **`mediaDevices:{microphone,speaker,webcam}Groups`.** With none set, the patch answers
+  `camou-audio-group-N` / `camou-video-group-N` — a constant on every profile, carrying a
+  `camou-` prefix that names the browser. The groups are now drawn per profile as
+  `hw-<12 hex>` and shared the way a real machine shares them: a sound card's input and
+  output together, a camera its own group, an external webcam's microphone with the camera.
+  Matching on the label is the only signal available — the pools are label lists, not device
+  trees — so this is one rule keyed on `"Webcam Audio"` and stated as such in the code.
+* **`voices:blockIfNotDefined`** is pinned `true` upstream as the fail-closed guard: it is
+  what makes an empty or malformed spoofed voice list mean "no voices" rather than "every
+  native voice on the host". Not writing it leaves the guard to the engine's default.
+* **`humanize:maxTime`** bounds how long one humanized cursor move may take. The engine's
+  default is `1.5` s (`kDefaultMaxTimeSeconds`); a profile that enables humanization now
+  states its own bound rather than following whatever the engine decides next.
+* **`humanize:minTime`** stays deliberately unwritten: it is the *lower* bound, and the
+  generator has no reason to force a floor on move duration.
+
+Eleven further properties are behaviour switches or caller-supplied paths, not identity:
+`addons`, `certificates`, `certificatePaths`, `debug`, `disableTheming`, `instantAnimations`,
+`allowMainWorld`, `allowAddonNewtab`, `disableWorldIsolation`, `forceScopeAccess` and
+`humanize:minTime`. Upstream sets none of them by default, and `instantAnimations` is
+explicitly documented as observable. They remain reachable through an explicit override and
+are listed in `schema::NEVER_DRAWN`, whose test sweeps the generator's option space to fail
+the moment a property that *should* be drawn for every profile silently stops being.
+
+A latent generator bug surfaced while writing the groups: `draw_devices` drew the first
+`count` entries of a label pool rather than a sample, so every label past the ceiling was
+unreachable dead data — on Linux that hid `Webcam Audio` (index 2 of 4), the one label the
+group rule above keys on, and on Windows it meant the same two of six microphones on every
+profile. A pool whose tail can never be drawn is not a pool.
 
 ### Re-vendoring
 
@@ -367,7 +434,10 @@ above come from — none of them were reasoned about. The host baseline run
 (`--example probe -- host`, an empty identity) is what makes the difference
 between "the engine applied this" and "the host agrees with it" measurable, and
 the answer for two same-vendor GPUs is that most limits agree, so only the few
-that differ are evidence.
+that differ are evidence. The `doNotTrack` finding was the one that a read-back
+*corrected*: the original run recorded the divergence and blamed the engine, and
+only the upstream source showed the value is pref-backed and the missing pref was
+ours, which the re-run then confirmed.
 
 **Reasoned about, not run:** macOS and Linux. The per-platform code paths exist
 and are unit-tested — the engine/core asset-name selection against real upstream
