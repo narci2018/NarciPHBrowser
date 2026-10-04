@@ -1032,6 +1032,88 @@ pub async fn verify_profile(
     .map_err(|error| format!("the verification task failed: {error}"))?
 }
 
+/// Everything an automation mount needs before a browser can start.
+struct AutomationLaunch {
+    plan: narrc_core::engine::LaunchPlan,
+    /// The automation directory holding `launchServer.js` and `warmup.js`.
+    script_dir: std::path::PathBuf,
+    assignment: Option<narrc_core::Assignment>,
+    geo_gate: Option<narrc_core::GeoGate>,
+}
+
+/// Prepares an automation launch: the interactive session and the warm-up go
+/// through the same proxy assignment, the same geo gate and the same plan, so
+/// an automated browser presents exactly what a visible one would.
+fn prepare_automation_launch(
+    state: &tauri::State<'_, AppState>,
+    app: &tauri::AppHandle,
+    id: &str,
+    headless: bool,
+) -> Result<AutomationLaunch, String> {
+    let store = open_store(state)?;
+    let mut profile = store
+        .load(id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("no profile with the id {id:?}"))?;
+
+    // The proxy assignment and the geo gate are the interactive launch's:
+    // automation is the easiest place to trip the gate, not an exemption from
+    // it.
+    let assignment = open_assignment_store(state)?.get(id).cloned();
+    if let Some(assignment) = &assignment {
+        let sub = open_subscription_store(state)?
+            .get(&assignment.subscription_id)
+            .ok_or_else(|| format!("the subscription {:?} is gone", assignment.subscription_id))?
+            .clone();
+        let port = mihomo(state)?.ensure_profile(app, id, &sub, &assignment.node)?;
+        profile.proxy = Some(narrc_core::ProxyConfig {
+            url: format!("socks5://127.0.0.1:{port}"),
+            exit_country: None,
+        });
+    }
+    let geo_gate = match profile.proxy.as_ref() {
+        Some(proxy) => {
+            let observed = open_proxy_store(state)?
+                .list()
+                .iter()
+                .find(|stored| stored.url == proxy.url)
+                .and_then(|stored| stored.last_check.clone())
+                .filter(|check| check.ok)
+                .and_then(|check| check.country);
+            Some(profile.check_geo_gate(observed.as_deref()))
+        }
+        None => None,
+    };
+    if let Some(gate) = &geo_gate {
+        if !gate.allows_launch() {
+            if assignment.is_some() {
+                let _ = mihomo(state)?.stop_profile(id);
+            }
+            return Err(format!("the geo gate refused this launch: {gate:?}"));
+        }
+    }
+
+    let camoufox_path = ensure_camoufox(app)?;
+    let dir = store.browser_dir(id);
+    let (mut plan, _discarded) = profile
+        .launch_plan_after_discarding_conflicts(&dir, None, headless)
+        .map_err(|error| error.to_string())?;
+    plan.program = camoufox_path.to_string_lossy().to_string();
+
+    let script_dir = store.automation_dir();
+    narrc_core::automation::write_automation_script(&script_dir)
+        .map_err(|error| format!("could not write the automation script: {error}"))?;
+    narrc_core::automation::write_warmup_script(&script_dir)
+        .map_err(|error| format!("could not write the warm-up script: {error}"))?;
+
+    Ok(AutomationLaunch {
+        plan,
+        script_dir,
+        assignment,
+        geo_gate,
+    })
+}
+
 /// Starts a profile's automation session.
 ///
 /// The plan is the interactive launch's plan — same identity, same engine,
@@ -1061,64 +1143,14 @@ pub async fn start_automation(
         }
     }
 
-    let store = open_store(&state)?;
-    let mut profile = store
-        .load(&id)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| format!("no profile with the id {id:?}"))?;
-
-    // The proxy assignment and the geo gate are the interactive launch's:
-    // automation is the easiest place to trip the gate, not an exemption from
-    // it.
-    let assignment = open_assignment_store(&state)?.get(&id).cloned();
-    if let Some(assignment) = &assignment {
-        let sub = open_subscription_store(&state)?
-            .get(&assignment.subscription_id)
-            .ok_or_else(|| format!("the subscription {:?} is gone", assignment.subscription_id))?
-            .clone();
-        let port = mihomo(&state)?.ensure_profile(&app, &id, &sub, &assignment.node)?;
-        profile.proxy = Some(narrc_core::ProxyConfig {
-            url: format!("socks5://127.0.0.1:{port}"),
-            exit_country: None,
-        });
-    }
-    let geo_gate = match profile.proxy.as_ref() {
-        Some(proxy) => {
-            let observed = open_proxy_store(&state)?
-                .list()
-                .iter()
-                .find(|stored| stored.url == proxy.url)
-                .and_then(|stored| stored.last_check.clone())
-                .filter(|check| check.ok)
-                .and_then(|check| check.country);
-            Some(profile.check_geo_gate(observed.as_deref()))
-        }
-        None => None,
-    };
-    if let Some(gate) = &geo_gate {
-        if !gate.allows_launch() {
-            if assignment.is_some() {
-                let _ = mihomo(&state)?.stop_profile(&id);
-            }
-            return Err(format!("the geo gate refused this launch: {gate:?}"));
-        }
-    }
-
-    let camoufox_path = ensure_camoufox(&app)?;
-    let dir = store.browser_dir(&id);
-    let (mut plan, _discarded) = profile
-        .launch_plan_after_discarding_conflicts(&dir, None, headless)
-        .map_err(|error| error.to_string())?;
-    plan.program = camoufox_path.to_string_lossy().to_string();
-
-    let script = narrc_core::automation::write_automation_script(&store.automation_dir())
-        .map_err(|error| format!("could not write the automation script: {error}"))?;
+    let prepared = prepare_automation_launch(&state, &app, &id, headless)?;
+    let script = prepared.script_dir.join("launchServer.js");
 
     // Waiting for the endpoint can take a while on a cold Node start, and the
     // main thread must keep answering the UI meanwhile.
     let spawned = tauri::async_runtime::spawn_blocking(move || {
         narrc_core::automation::spawn_agent(
-            &plan,
+            &prepared.plan,
             node_path.as_deref().unwrap_or("node"),
             driver_path.trim(),
             &script,
@@ -1134,7 +1166,7 @@ pub async fn start_automation(
         Err(error) => {
             // The core instance was started for this session and its browser
             // will never exist.
-            if assignment.is_some() {
+            if prepared.assignment.is_some() {
                 let _ = mihomo(&state)?.stop_profile(&id);
             }
             return Err(error.to_string());
@@ -1144,7 +1176,7 @@ pub async fn start_automation(
     let reply = serde_json::json!({
         "wsEndpoint": session.ws_endpoint,
         "pid": session.pid(),
-        "geo_gate": geo_gate,
+        "geo_gate": prepared.geo_gate,
     });
     state
         .agents
@@ -1170,6 +1202,118 @@ pub async fn stop_automation(
     // enforces a kill deadline if the owner goes away mid-stop.
     tauri::async_runtime::spawn_blocking(move || session.stop());
     Ok(serde_json::json!({ "stopped": true }))
+}
+
+/// Warms a profile up: visits a list of sites so cookies, cache and history
+/// accumulate in the profile's real browser data.
+///
+/// A fresh profile is itself a tell — a browser with no history, no cookies
+/// and an empty cache looks new however complete its fingerprint. The warm-up
+/// launches the profile's engine through the same automation mount an
+/// interactive session uses (same plan, same proxy, same geo gate), connects
+/// the vendored warm-up driver, and lets it dwell on each site for the given
+/// time. The browser then shuts down cleanly, which is what flushes the
+/// profile's data to disk.
+///
+/// The driver reports one JSON line per site; per-site failures come back as
+/// results with `ok: false`, because one dead site must not strand the rest.
+#[tauri::command]
+pub async fn warmup_profile(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    id: String,
+    driver_path: String,
+    node_path: Option<String>,
+    sites: Vec<String>,
+    seconds_per_site: Option<u64>,
+) -> Result<serde_json::Value, String> {
+    if driver_path.trim().is_empty() {
+        return Err("a Playwright driver path is required".to_string());
+    }
+    let sites: Vec<String> = sites
+        .into_iter()
+        .map(|site| site.trim().to_owned())
+        .filter(|site| !site.is_empty())
+        .collect();
+    if sites.is_empty() {
+        return Err("the warm-up has no sites to visit".to_string());
+    }
+    {
+        let agents = state.agents.lock().map_err(|error| error.to_string())?;
+        if agents.contains_key(&id) {
+            return Err(format!(
+                "an automation session for {id:?} is already running; stop it first"
+            ));
+        }
+    }
+
+    let seconds_per_site = seconds_per_site.unwrap_or(20).clamp(1, 300);
+    let prepared = prepare_automation_launch(&state, &app, &id, true)?;
+
+    let job = serde_json::json!({
+        "sites": sites,
+        "secondsPerSite": seconds_per_site,
+        "gotoTimeoutMs": 30_000,
+    });
+
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
+        let node = node_path.as_deref().unwrap_or("node").to_owned();
+        let driver = driver_path.trim().to_owned();
+        let session = narrc_core::automation::spawn_agent(
+            &prepared.plan,
+            &node,
+            &driver,
+            &prepared.script_dir.join("launchServer.js"),
+            None,
+            narrc_core::automation::DEFAULT_ENDPOINT_TIMEOUT,
+        )
+        .map_err(|error| error.to_string())?;
+
+        // From here the session owns the browser; every exit path below stops
+        // it, which is what closes the engine cleanly and flushes the data.
+        let run = (|| -> Result<serde_json::Value, String> {
+            let warmup = prepared.script_dir.join("warmup.js");
+            let output = std::process::Command::new(&node)
+                .arg(&warmup)
+                .arg(&driver)
+                .arg(&session.ws_endpoint)
+                .arg(job.to_string())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output()
+                .map_err(|error| format!("could not run the warm-up driver: {error}"))?;
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let last = stdout.lines().rev().find(|line| !line.trim().is_empty());
+            let Some(line) = last else {
+                return Err(format!(
+                    "the warm-up driver printed nothing{}",
+                    match String::from_utf8_lossy(&output.stderr).lines().last() {
+                        Some(stderr) => format!(" — {stderr}"),
+                        None => String::new(),
+                    }
+                ));
+            };
+            serde_json::from_str(line)
+                .map_err(|error| format!("the warm-up driver's reply is not JSON: {error}"))
+        })();
+
+        session.stop();
+        run
+    })
+    .await
+    .map_err(|error| format!("the warm-up task failed: {error}"))?;
+
+    // The browser is gone; the core instance it may have been riding goes with
+    // it, the same way an interactive launch's does.
+    if prepared.assignment.is_some() {
+        let _ = mihomo(&state)?.stop_profile(&id);
+    }
+
+    let mut reply = result?;
+    if let Some(object) = reply.as_object_mut() {
+        object.insert("geo_gate".into(), serde_json::json!(prepared.geo_gate));
+    }
+    Ok(reply)
 }
 
 /// Lists the running automation sessions.

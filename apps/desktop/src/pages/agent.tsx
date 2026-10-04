@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
-import { LuBot, LuCopy, LuPlay, LuSquare } from "react-icons/lu";
+import { LuBot, LuCopy, LuFlaskConical, LuPlay, LuSquare } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -19,6 +19,24 @@ import type { ProfileSummary } from "@narc/sdk";
 
 /** Where the driver path persists between sessions. */
 const DRIVER_STORAGE_KEY = "narc.driverPath";
+
+/**
+ * The default warm-up route: stable, ordinary front pages that set cookies.
+ * Every one is editable in the dialog — the list is a starting point, not a
+ * policy — and the visits are passive: load the page, dwell, move on.
+ */
+const DEFAULT_SITES = [
+  "https://www.wikipedia.org/",
+  "https://www.mozilla.org/",
+  "https://www.bbc.com/",
+  "https://www.nytimes.com/",
+  "https://www.reddit.com/",
+];
+
+interface WarmupForm {
+  sites: string;
+  seconds: string;
+}
 
 interface AgentSessionRow {
   id: string;
@@ -53,6 +71,12 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
     port: "",
   });
   const [busy, setBusy] = useState(false);
+  const [warmTarget, setWarmTarget] = useState<ProfileSummary | null>(null);
+  const [warmForm, setWarmForm] = useState<WarmupForm>({
+    sites: DEFAULT_SITES.join("\n"),
+    seconds: "20",
+  });
+  const [warming, setWarming] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -110,6 +134,50 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
       await refresh();
     } catch (error) {
       toast.error(String(error));
+    }
+  };
+
+  const warmup = async () => {
+    if (!warmTarget) return;
+    const sites = warmForm.sites
+      .split("\n")
+      .map((site) => site.trim())
+      .filter((site) => site !== "");
+    if (sites.length === 0) {
+      toast.error("The warm-up route has no sites");
+      return;
+    }
+    setWarming(true);
+    try {
+      window.localStorage.setItem(DRIVER_STORAGE_KEY, form.driverPath.trim());
+      const result = await invoke<{
+        results: { url: string; ok: boolean; error?: string }[];
+      }>("warmup_profile", {
+        id: warmTarget.id,
+        driverPath: form.driverPath.trim(),
+        nodePath: form.nodePath.trim() || null,
+        sites,
+        secondsPerSite: Math.max(1, Number(warmForm.seconds) || 20),
+      });
+      const visited = result.results.filter((entry) => entry.ok).length;
+      const failed = result.results.length - visited;
+      if (failed > 0) {
+        toast.warning(`Warmed ${visited} of ${result.results.length} sites`, {
+          description: result.results
+            .filter((entry) => !entry.ok)
+            .map((entry) => `${entry.url}: ${entry.error ?? "failed"}`)
+            .join("\n"),
+        });
+      } else {
+        toast.success(`Warmed up ${visited} sites for “${warmTarget.name}”`, {
+          description: "Cookies and history are in the profile's browser data.",
+        });
+      }
+      setWarmTarget(null);
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setWarming(false);
     }
   };
 
@@ -192,7 +260,20 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
                       {session ? session.pid : "—"}
                     </TableCell>
                     <TableCell className="pr-3">
-                      <div className="flex items-center justify-end">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {!session && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                            onClick={() => {
+                              setWarmTarget(profile);
+                            }}
+                          >
+                            <LuFlaskConical className="size-3.5" />
+                            Warm up
+                          </Button>
+                        )}
                         {session ? (
                           <Button
                             size="sm"
@@ -310,6 +391,92 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
             >
               <LuPlay className="size-3.5" />
               {busy ? "Starting…" : "Start session"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={warmTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !warming) setWarmTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Warm up — {warmTarget?.name}</DialogTitle>
+            <DialogDescription>
+              The browser starts headless behind the profile's proxy and dwells on each site
+              below, so cookies, cache and history accumulate in its real browser data. A
+              profile with no history is itself a tell. This takes minutes; the window closes
+              itself when the route is done.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="warmup-driver">Playwright driver path</Label>
+              <Input
+                id="warmup-driver"
+                value={form.driverPath}
+                placeholder="…\node_modules\playwright-core"
+                onChange={(event) => {
+                  setForm((current) => ({ ...current, driverPath: event.target.value }));
+                }}
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="warmup-sites">Sites, one per line</Label>
+              <textarea
+                id="warmup-sites"
+                value={warmForm.sites}
+                spellCheck={false}
+                rows={6}
+                onChange={(event) => {
+                  setWarmForm((current) => ({ ...current, sites: event.target.value }));
+                }}
+                className="w-full rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="warmup-seconds" className="shrink-0 text-sm">
+                Dwell per site (seconds)
+              </Label>
+              <Input
+                id="warmup-seconds"
+                value={warmForm.seconds}
+                inputMode="numeric"
+                onChange={(event) => {
+                  setWarmForm((current) => ({ ...current, seconds: event.target.value }));
+                }}
+                className="h-8 w-20 font-mono text-xs"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={warming}
+              onClick={() => {
+                setWarmTarget(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={warming || !form.driverPath.trim()}
+              onClick={() => {
+                void warmup();
+              }}
+            >
+              <LuFlaskConical className="size-3.5" />
+              {warming ? "Warming up…" : "Start warm-up"}
             </Button>
           </DialogFooter>
         </DialogContent>

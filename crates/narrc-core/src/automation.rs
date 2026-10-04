@@ -47,6 +47,15 @@ use crate::engine::LaunchPlan;
 /// the protocol the sidecar and the UI both rely on.
 pub const LAUNCH_SERVER_JS: &str = include_str!("../resources/launchServer.js");
 
+/// The warm-up driver, the app's own script rather than upstream code.
+///
+/// Run with the same Node runtime and driver directory the automation server
+/// uses: `node warmup.js <driverDir> <wsEndpoint> <jobJson>`. It connects to a
+/// running session, visits each site in the job for the job's dwell time, and
+/// reports one JSON line per site plus a final results line — see the header
+/// of `resources/warmup.js` for the exact protocol.
+pub const WARMUP_JS: &str = include_str!("../resources/warmup.js");
+
 /// How long [`spawn_agent`] waits for the endpoint before giving up.
 ///
 /// The engine is already installed when a launch plan exists, so this covers
@@ -162,6 +171,28 @@ pub fn write_automation_script(dir: &Path) -> std::io::Result<PathBuf> {
     if stale {
         let temp = dir.join(".launchServer.js.tmp");
         std::fs::write(&temp, LAUNCH_SERVER_JS)?;
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        std::fs::rename(&temp, &path)?;
+    }
+    Ok(path)
+}
+
+/// Writes the warm-up driver into `dir` and returns its path.
+///
+/// The same rewrite-when-stale rule as [`write_automation_script`]: the bytes
+/// on disk follow the binary that wrote them, so an older app version cannot
+/// leave a driver that speaks an older protocol.
+pub fn write_warmup_script(dir: &Path) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join("warmup.js");
+    let stale = std::fs::read(&path)
+        .map(|existing| existing != WARMUP_JS.as_bytes())
+        .unwrap_or(true);
+    if stale {
+        let temp = dir.join(".warmup.js.tmp");
+        std::fs::write(&temp, WARMUP_JS)?;
         if path.exists() {
             std::fs::remove_file(&path)?;
         }
@@ -526,6 +557,33 @@ mod tests {
         std::fs::write(&path, "// stale\n").unwrap();
         let path = write_automation_script(&dir).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), LAUNCH_SERVER_JS.as_bytes());
+    }
+
+    #[test]
+    fn the_warmup_driver_is_written_and_rewritten_when_stale() {
+        let dir = tempfile_dir();
+        let path = write_warmup_script(&dir).unwrap();
+        assert_eq!(path.file_name().unwrap(), "warmup.js");
+        assert_eq!(std::fs::read(&path).unwrap(), WARMUP_JS.as_bytes());
+
+        std::fs::write(&path, "// stale\n").unwrap();
+        let path = write_warmup_script(&dir).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), WARMUP_JS.as_bytes());
+    }
+
+    #[test]
+    fn the_warmup_driver_speaks_its_own_protocol() {
+        // Pins the load-bearing fragments of the app's own script: it takes
+        // the three arguments, reports per-site progress and a final results
+        // line, and disconnects rather than killing the server's browser.
+        assert!(WARMUP_JS.contains("process.argv[2]"));
+        assert!(WARMUP_JS.contains("require(driverDir)"));
+        assert!(WARMUP_JS.contains("firefox.connect(endpoint)"));
+        assert!(WARMUP_JS.contains("browser.contexts()[0]"));
+        assert!(WARMUP_JS.contains("waitUntil: \"domcontentloaded\""));
+        assert!(WARMUP_JS.contains("JSON.stringify({ progress: entry })"));
+        assert!(WARMUP_JS.contains("JSON.stringify({ results })"));
+        assert!(WARMUP_JS.contains("await browser.close()"));
     }
 
     fn tempfile_dir() -> PathBuf {
