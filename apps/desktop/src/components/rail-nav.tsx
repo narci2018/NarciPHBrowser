@@ -1,19 +1,16 @@
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
-import { FaDownload } from "react-icons/fa";
 import { FiWifi } from "react-icons/fi";
 import { GoGear, GoKebabHorizontal } from "react-icons/go";
 import {
   LuBot,
   LuCloud,
-  LuCookie,
   LuInfo,
   LuKeyboard,
   LuPlug,
   LuPuzzle,
   LuTrash2,
   LuUser,
-  LuUsers,
 } from "react-icons/lu";
 import { useInputModality } from "@/hooks/use-input-modality";
 import { MOTION_SPRING_POSITION } from "@/lib/motion";
@@ -25,16 +22,12 @@ export type AppPage =
   | "profiles"
   | "proxies"
   | "extensions"
-  | "groups"
-  | "cookieBot"
   | "agent"
   | "integrations"
   | "account"
-  | "import"
   | "shortcuts"
   | "settings"
-  | "about"
-  | "trash";
+  | "about";
 
 /** Shared-element indicator that slides between the active rail items. */
 function ActiveIndicator() {
@@ -62,8 +55,6 @@ const TOP_ITEMS: RailItem[] = [
   { page: "profiles", Icon: LuUser, label: "Profiles" },
   { page: "proxies", Icon: FiWifi, label: "Network" },
   { page: "extensions", Icon: LuPuzzle, label: "Extensions" },
-  { page: "groups", Icon: LuUsers, label: "Groups" },
-  { page: "cookieBot", Icon: LuCookie, label: "Cookie Bot" },
   { page: "agent", Icon: LuBot, label: "Agent" },
   { page: "integrations", Icon: LuPlug, label: "Integrations" },
   { page: "account", Icon: LuCloud, label: "Account" },
@@ -78,32 +69,21 @@ interface MoreMenuItem {
 
 const MORE_ITEMS: MoreMenuItem[] = [
   {
-    page: "import",
-    Icon: FaDownload,
-    label: "Import profile",
-    hint: "Bring a profile in from a file",
-  },
-  {
     page: "shortcuts",
     Icon: LuKeyboard,
     label: "Keyboard shortcuts",
     hint: "See every shortcut",
-  },
-  {
-    page: "trash",
-    Icon: LuTrash2,
-    label: "Trash",
-    hint: "Restore or permanently delete",
   },
 ];
 
 interface RailNavProps {
   currentPage: AppPage;
   onNavigate: (page: AppPage) => void;
+  onOpenTrash: () => void;
   onOpenAbout: () => void;
 }
 
-export function RailNav({ currentPage, onNavigate, onOpenAbout }: RailNavProps) {
+export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: RailNavProps) {
   const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
@@ -246,6 +226,25 @@ export function RailNav({ currentPage, onNavigate, onOpenAbout }: RailNavProps) 
                 </span>
               </button>
             ))}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMoreOpen(false);
+                onOpenTrash();
+              }}
+              className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100 hover:bg-accent hover:text-accent-foreground"
+            >
+              <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
+                <LuTrash2 className="size-3" />
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-xs font-medium text-foreground">Trash</span>
+                <span className="truncate text-[10px] text-muted-foreground">
+                  Restore or permanently delete
+                </span>
+              </span>
+            </button>
             <button
               type="button"
               role="menuitem"

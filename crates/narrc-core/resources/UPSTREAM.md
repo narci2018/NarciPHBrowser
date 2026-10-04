@@ -409,7 +409,30 @@ redistributes the bundle, for the licensing reasons upstream documents in
 when a per-profile `fonts.conf` exists beside the profile's browser data —
 nothing writes one yet, so on Windows (where Firefox does not use fontconfig)
 the variable is simply absent rather than pointing at a file that is not
-there. Wiring the bundle up is part of the Linux engine work.
+there.
+
+The wiring is specified and deliberately not implemented until it can be
+*run* on Linux, because a wrong `fonts.conf` does not degrade gracefully —
+it takes out every font in the browser at once, and none of that is visible
+from this Windows machine. The spec, so the work does not start from
+nothing:
+
+* The user downloads the bundle for their OS from upstream's own release
+  page and unpacks it at `<store root>/fonts/<os>/`; the app never ships
+  those bytes.
+* At launch, when `<store root>/fonts/<os>/fonts.conf` exists, the launch
+  path copies it beside the profile's browser data — the location the plan
+  builder already looks at — and `build_plan` then sets `FONTCONFIG_FILE`
+  to it in the plan's environment.
+* The conf itself must name the bundle's font directories and a per-profile
+  cache directory, and its exact shape is the one piece that has to come
+  from reading upstream's font script rather than from this document: the
+  bundle's internal layout is upstream's, and guessing it is how a Linux
+  launch loses all its fonts.
+* Unit-testable from any platform: that the env var appears only when the
+  conf exists, that its value is the copied file, and that a profile
+  without the bundle launches exactly as today. Not testable here: what
+  fontconfig does with it.
 
 ## Platform coverage: what has actually been run
 

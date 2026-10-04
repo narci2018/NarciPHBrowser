@@ -286,10 +286,24 @@ under the platform data directory, overridable with `NARCI_STORE`.
   contradicts its own limits; a launch warning says so, and the shader-precision
   query is refused instead of answered. See [WebGL contexts](#webgl-contexts).
 - Store sealing uses Windows DPAPI; on other platforms stores are written as plaintext
-  (readable either way, so files stay portable).
+  (readable either way, so files stay portable). The Settings page states this plainly
+  rather than showing a lock icon either way.
 - The mihomo `config.yaml` written per instance necessarily carries the subscription
   URL in plaintext — the core itself needs it.
-- Several surfaces (Groups, Cookie Bot, Integrations, Account) are placeholders.
+- **There is no auto-update.** Wiring Tauri's updater needs a signing keypair and a
+  release endpoint that serves signed manifests; adding the plugin without both would
+  ship an updater that cannot verify anything, which is worse than no updater. The
+  engine itself can be updated from the app — the installer re-checks upstream's
+  releases — but the application updates by re-downloading it.
+- **The Linux font bundle is unwired, deliberately.** Camoufox ships a ~2.16 GB font
+  bundle that this project never redistributes, and a wrong `fonts.conf` takes out
+  every font in a Linux browser at once — none of which is visible from the Windows
+  machine this is developed on. The wiring spec is written out in
+  [`crates/narrc-core/resources/UPSTREAM.md`](crates/narrc-core/resources/UPSTREAM.md)
+  and stays unimplemented until it can be run on Linux.
+- Integrations and Account remain placeholders. Groups, the cookie-bot warm-up,
+  import/export and the trash are implemented — groups and bulk actions live on the
+  profiles page, the warm-up on the Agent page.
 
 ## Provenance and licensing
 

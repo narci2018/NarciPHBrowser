@@ -1,15 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FaDownload } from "react-icons/fa";
-import {
-  LuCookie,
-  LuCloud,
-  LuKeyboard,
-  LuPlug,
-  LuTrash2,
-  LuUsers,
-} from "react-icons/lu";
+import { LuCloud, LuKeyboard, LuPlug } from "react-icons/lu";
 import { toast } from "sonner";
 import type {
   ClearOverrideResult,
@@ -51,18 +43,6 @@ const PLACEHOLDERS: Record<
   PlaceholderKey,
   { title: string; description: string; Icon: React.ComponentType<{ className?: string }> }
 > = {
-  groups: {
-    title: "Groups",
-    description:
-      "Organise profiles into groups and apply shared settings to every member at once.",
-    Icon: LuUsers,
-  },
-  cookieBot: {
-    title: "Cookie Bot",
-    description:
-      "Visit pages with the profile's own identity and accept consent banners automatically.",
-    Icon: LuCookie,
-  },
   integrations: {
     title: "Integrations",
     description:
@@ -75,38 +55,22 @@ const PLACEHOLDERS: Record<
       "Licence, sync and team membership. Everything on this machine stays local without an account.",
     Icon: LuCloud,
   },
-  import: {
-    title: "Import profiles",
-    description:
-      "Bring profiles in from another fingerprint browser as a file, mapped onto the seed-and-options store.",
-    Icon: FaDownload,
-  },
   shortcuts: {
     title: "Keyboard shortcuts",
     description:
       "Every shortcut the application binds, in one list.",
     Icon: LuKeyboard,
   },
-  trash: {
-    title: "Trash",
-    description:
-      "Deleted profiles rest here until you restore them or remove their data permanently.",
-    Icon: LuTrash2,
-  },
 };
 
 const PAGE_TITLE: Partial<Record<AppPage, string>> = {
   proxies: "Network",
   extensions: "Extensions",
-  groups: "Groups",
-  cookieBot: "Cookie Bot",
   agent: "Agent",
   integrations: "Integrations",
   account: "Account",
-  import: "Import",
   shortcuts: "Shortcuts",
   settings: "Settings",
-  trash: "Trash",
 };
 
 interface DownloadState {
@@ -575,6 +539,9 @@ export function App() {
       <RailNav
         currentPage={page}
         onNavigate={navigate}
+        onOpenTrash={() => {
+          setTrashOpen(true);
+        }}
         onOpenAbout={() => {
           setAboutOpen(true);
         }}
