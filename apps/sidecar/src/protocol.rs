@@ -399,6 +399,9 @@ pub struct CreateSpec {
     /// Notes the user wrote.
     #[serde(default)]
     pub notes: Option<String>,
+    /// A bucket to file the profile under, or none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     /// A proxy to launch through.
     #[serde(default)]
     pub proxy: Option<CreateProxy>,
@@ -468,6 +471,9 @@ pub struct ProfileSummary {
     pub coherent: bool,
     /// Whether a proxy is configured.
     pub proxied: bool,
+    /// The bucket the profile is filed under, when there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     /// How many browser extensions will load with this profile.
     pub addon_count: usize,
     /// A one-line summary, for the row.
@@ -493,6 +499,7 @@ impl ProfileSummary {
             // coherent; one whose violation survives repair is not.
             coherent: resolved.violations.is_empty(),
             proxied: profile.proxy.is_some(),
+            group: profile.group.clone(),
             addon_count: profile.addons.len(),
             summary,
         }
@@ -792,6 +799,7 @@ pub fn create(spec: &CreateSpec) -> Result<Value, SidecarError> {
     profile.proxy = proxy;
     profile.extra_args = spec.extra_args.clone();
     profile.addons = spec.addons.clone().unwrap_or_default();
+    profile.set_group(spec.group.as_deref().unwrap_or(""));
 
     let report = report_of(&profile);
     store.save(&profile)?;
@@ -831,6 +839,7 @@ pub fn update(id: &str, spec: &CreateSpec) -> Result<Value, SidecarError> {
     profile.proxy = proxy;
     profile.extra_args = spec.extra_args.clone();
     profile.addons = spec.addons.clone().unwrap_or_default();
+    profile.set_group(spec.group.as_deref().unwrap_or(""));
 
     let report = report_of(&profile);
     store.save(&profile)?;
@@ -1520,6 +1529,7 @@ mod tests {
             humanize: None,
             addons: None,
             notes: None,
+            group: None,
             proxy: Some(CreateProxy {
                 url: "proxy.example:3128".into(),
                 exit_country: None,
@@ -1546,12 +1556,49 @@ mod tests {
             humanize: None,
             addons: None,
             notes: None,
+            group: None,
             proxy: None,
             extra_args: Vec::new(),
         };
         let error = create(&spec).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Invalid);
         assert!(error.message.contains("ZZ"), "{}", error.message);
+    }
+
+    #[test]
+    fn a_group_travels_from_the_spec_to_the_summary() {
+        let spec = CreateSpec {
+            name: "Grouped".into(),
+            seed: Some(11),
+            os: TargetOs::Windows,
+            country: None,
+            locale: None,
+            screen: None,
+            dpr: None,
+            fonts: None,
+            tracking_protection: None,
+            humanize: None,
+            addons: None,
+            notes: None,
+            group: Some("  Work  ".into()),
+            proxy: None,
+            extra_args: Vec::new(),
+        };
+        let created = create(&spec).unwrap();
+        let summary = &created["summary"];
+        assert_eq!(
+            summary.get("group").and_then(serde_json::Value::as_str),
+            Some("Work"),
+            "the group is trimmed, not stored with padding"
+        );
+
+        // An empty group means no group, and the summary says so.
+        let mut spec = spec;
+        spec.name = "Ungrouped".into();
+        spec.seed = Some(12);
+        spec.group = Some("   ".into());
+        let created = create(&spec).unwrap();
+        assert!(created["summary"].get("group").is_none());
     }
 
     #[test]
@@ -1567,9 +1614,10 @@ mod tests {
                 dpr: None,
                 fonts: None,
                 tracking_protection: None,
-            humanize: None,
-            addons: None,
+                humanize: None,
+                addons: None,
                 notes: None,
+                group: None,
                 proxy: None,
                 extra_args: Vec::new(),
             };

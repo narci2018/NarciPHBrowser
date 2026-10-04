@@ -92,6 +92,8 @@ export interface Profile {
    * or unpacked addon directories. Absent when the profile carries none.
    */
   addons?: string[];
+  /** The bucket the profile is filed under, when there is one. */
+  group?: string;
 }
 
 // ---------------------------------------------------------------- summary
@@ -123,6 +125,8 @@ export interface ProfileSummary {
   coherent: boolean;
   /** Whether a proxy is configured. */
   proxied: boolean;
+  /** The bucket the profile is filed under, when there is one. */
+  group?: string;
   /** How many browser extensions load with this profile. */
   addon_count: number;
   /** A one-line summary, for the row. */

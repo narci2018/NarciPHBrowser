@@ -58,6 +58,8 @@ interface ProfilesPageProps {
   onInspect: (profile: ProfileSummary) => void;
   onLaunch: (profile: ProfileSummary) => void;
   onDelete: (profile: ProfileSummary) => void;
+  onBulkSetGroup: (ids: string[], group: string) => void;
+  onBulkTrash: (ids: string[]) => void;
   launchingId: string | null;
 }
 
@@ -69,49 +71,203 @@ export function ProfilesPage({
   onInspect,
   onLaunch,
   onDelete,
+  onBulkSetGroup,
+  onBulkTrash,
   launchingId,
 }: ProfilesPageProps) {
   const [sortDesc, setSortDesc] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [groupFilter, setGroupFilter] = useState<string | null>(null);
+  const [groupDraft, setGroupDraft] = useState("");
+
+  // The buckets are whatever the profiles carry; there is no group table to
+  // read, so an empty store and an ungrouped store look the same here.
+  const groups = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const profile of profiles) {
+      if (profile.group) {
+        counts.set(profile.group, (counts.get(profile.group) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [profiles]);
 
   const rows = useMemo(() => {
-    const sorted = [...profiles].sort((a, b) => a.name.localeCompare(b.name));
+    const visible = groupFilter
+      ? profiles.filter((profile) => profile.group === groupFilter)
+      : profiles;
+    const sorted = [...visible].sort((a, b) => a.name.localeCompare(b.name));
     return sortDesc ? sorted.reverse() : sorted;
-  }, [profiles, sortDesc]);
+  }, [profiles, groupFilter, sortDesc]);
+
+  // Selection only names rows the user can still see: after a group filter or
+  // a search narrows the list, stale ids would silently widen the bulk blast
+  // radius beyond what the user is looking at.
+  const selectedIds = useMemo(
+    () => rows.filter((profile) => selected.has(profile.id)).map((profile) => profile.id),
+    [rows, selected],
+  );
+  const allSelected = rows.length > 0 && selectedIds.length === rows.length;
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const bulkApplies = selectedIds.length > 0;
+
+  const applyGroup = () => {
+    if (!bulkApplies) return;
+    onBulkSetGroup(selectedIds, groupDraft.trim());
+    setSelected(new Set());
+    setGroupDraft("");
+  };
+
+  const trashSelection = () => {
+    if (!bulkApplies) return;
+    onBulkTrash(selectedIds);
+    setSelected(new Set());
+  };
 
   return (
-    <div className="scroll-fade relative min-h-0 min-w-0 flex-1 overflow-auto">
-      <Table className="table-fixed" containerClassName="overflow-visible">
-        <TableHeader className="sticky top-0 z-10 bg-background [&_tr]:border-0">
-          <TableRow className="border-0! hover:bg-transparent">
-            <TableHead className="pl-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setSortDesc((v) => !v);
-                }}
-                className="flex cursor-pointer items-center gap-1 text-left font-semibold transition-colors hover:text-foreground"
-              >
-                Name
-                {sortDesc ? (
-                  <LuChevronDown className="size-3.5" />
-                ) : (
-                  <LuChevronUp className="size-3.5" />
-                )}
-              </button>
-            </TableHead>
-            <TableHead className="w-[110px]">OS</TableHead>
-            <TableHead className="w-[90px]">Country</TableHead>
-            <TableHead className="w-[120px]">Fingerprint</TableHead>
-            <TableHead className="w-[96px]">Overrides</TableHead>
-            <TableHead className="w-[88px]">Proxy</TableHead>
-            <TableHead className="w-[112px] pr-3 text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody className="overflow-visible">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {groups.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2">
+          <button
+            type="button"
+            onClick={() => {
+              setGroupFilter(null);
+            }}
+            className={cn(
+              "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+              groupFilter === null
+                ? "border-primary/40 bg-primary/10 text-foreground"
+                : "border-border text-muted-foreground hover:text-foreground",
+            )}
+          >
+            All <span className="tabular-nums">{profiles.length}</span>
+          </button>
+          {groups.map(([group, count]) => (
+            <button
+              key={group}
+              type="button"
+              onClick={() => {
+                setGroupFilter(groupFilter === group ? null : group);
+              }}
+              className={cn(
+                "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+                groupFilter === group
+                  ? "border-primary/40 bg-primary/10 text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {group} <span className="tabular-nums">{count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {bulkApplies && (
+        <div className="mx-3 mt-2 flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+          <span className="text-xs font-medium text-foreground">
+            {selectedIds.length} selected
+          </span>
+          <input
+            list="profile-groups"
+            value={groupDraft}
+            onChange={(event) => {
+              setGroupDraft(event.target.value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") applyGroup();
+            }}
+            placeholder="Group name — empty clears it"
+            aria-label="Group for the selected profiles"
+            className="h-7 w-52 rounded-md border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          />
+          <datalist id="profile-groups">
+            {groups.map(([group]) => (
+              <option key={group} value={group} />
+            ))}
+          </datalist>
+          <Button type="button" size="sm" className="h-7 px-2.5 text-xs" onClick={applyGroup}>
+            Apply group
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2.5 text-xs text-muted-foreground hover:text-destructive"
+            onClick={trashSelection}
+          >
+            <LuTrash2 className="size-3.5" />
+            Move to trash
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              setSelected(new Set());
+            }}
+          >
+            Clear selection
+          </Button>
+        </div>
+      )}
+
+      <div className="scroll-fade relative min-h-0 min-w-0 flex-1 overflow-auto">
+        <Table className="table-fixed" containerClassName="overflow-visible">
+          <TableHeader className="sticky top-0 z-10 bg-background [&_tr]:border-0">
+            <TableRow className="border-0! hover:bg-transparent">
+              <TableHead className="w-[36px] pl-3">
+                <input
+                  type="checkbox"
+                  aria-label="Select every visible profile"
+                  checked={allSelected}
+                  className="size-3.5 accent-current"
+                  onChange={() => {
+                    setSelected(allSelected ? new Set() : new Set(rows.map((row) => row.id)));
+                  }}
+                />
+              </TableHead>
+              <TableHead className="pl-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSortDesc((v) => !v);
+                  }}
+                  className="flex cursor-pointer items-center gap-1 text-left font-semibold transition-colors hover:text-foreground"
+                >
+                  Name
+                  {sortDesc ? (
+                    <LuChevronDown className="size-3.5" />
+                  ) : (
+                    <LuChevronUp className="size-3.5" />
+                  )}
+                </button>
+              </TableHead>
+              <TableHead className="w-[110px]">OS</TableHead>
+              <TableHead className="w-[90px]">Country</TableHead>
+              <TableHead className="w-[120px]">Fingerprint</TableHead>
+              <TableHead className="w-[96px]">Overrides</TableHead>
+              <TableHead className="w-[88px]">Proxy</TableHead>
+              <TableHead className="w-[112px] pr-3 text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody className="overflow-visible">
           {isLoading && rows.length === 0 ? (
             Array.from({ length: 8 }, (_, index) => (
               <TableRow key={`skeleton-${index}`} className="border-0!" style={{ height: ROW_HEIGHT }}>
-                <TableCell colSpan={7} className="py-0 pl-3">
+                <TableCell colSpan={8} className="py-0 pl-3">
                   <div className="flex items-center gap-3">
                     <Skeleton className="size-7 shrink-0 rounded-md" />
                     <Skeleton className="h-3" style={{ width: `${30 + ((index * 17) % 40)}%` }} />
@@ -124,7 +280,7 @@ export function ProfilesPage({
             ))
           ) : rows.length === 0 ? (
             <TableRow className="border-0! hover:bg-transparent">
-              <TableCell colSpan={7} className="py-16">
+              <TableCell colSpan={8} className="py-16">
                   <div className="flex flex-col items-center gap-3 text-center">
                     <Logo className="size-12 text-muted-foreground" />
                     <div>
@@ -151,9 +307,24 @@ export function ProfilesPage({
                 key={profile.id}
                 data-profile-id={profile.id}
                 style={{ height: ROW_HEIGHT }}
-                className={cn("group/row border-0! hover:bg-muted", launchingId === profile.id && "bg-muted/60")}
+                className={cn(
+                  "group/row border-0! hover:bg-muted",
+                  launchingId === profile.id && "bg-muted/60",
+                  selected.has(profile.id) && "bg-primary/5",
+                )}
               >
                 <TableCell className="overflow-visible py-0 pl-3">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${profile.name}`}
+                    checked={selected.has(profile.id)}
+                    className="size-3.5 accent-current"
+                    onChange={() => {
+                      toggleOne(profile.id);
+                    }}
+                  />
+                </TableCell>
+                <TableCell className="overflow-visible py-0 pl-1">
                   <button
                     type="button"
                     onClick={() => {
@@ -168,8 +339,15 @@ export function ProfilesPage({
                       {initialsOf(profile.name)}
                     </span>
                     <span className="flex min-w-0 flex-col">
-                      <span className="truncate text-sm leading-tight font-medium text-foreground">
-                        {profile.name}
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate text-sm leading-tight font-medium text-foreground">
+                          {profile.name}
+                        </span>
+                        {profile.group && (
+                          <span className="shrink-0 rounded border border-border px-1 py-px text-[10px] leading-tight text-muted-foreground">
+                            {profile.group}
+                          </span>
+                        )}
                       </span>
                       <span className="truncate text-[11px] leading-tight text-muted-foreground">
                         {profile.summary}
@@ -251,8 +429,9 @@ export function ProfilesPage({
               </TableRow>
             ))
           )}
-        </TableBody>
-      </Table>
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

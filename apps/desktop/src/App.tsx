@@ -138,6 +138,7 @@ export function App() {
   const [infoLoading, setInfoLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProfileSummary | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [bulkTrashIds, setBulkTrashIds] = useState<string[] | null>(null);
   const [exportTarget, setExportTarget] = useState<ExportTarget | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
@@ -337,6 +338,58 @@ export function App() {
       setDeleteBusy(false);
     }
   }, [deleteTarget, infoProfileId, refreshProfiles]);
+
+  const handleBulkSetGroup = useCallback(
+    async (ids: string[], group: string) => {
+      try {
+        const result = await invoke<{
+          updated: string[];
+          failed: { id: string; error: string }[];
+        }>("bulk_set_group", { ids, group });
+        await refreshProfiles();
+        if (result.failed.length > 0) {
+          toast.error(`${result.failed.length} of ${ids.length} could not be filed`, {
+            description: result.failed.map((f) => `${f.id}: ${f.error}`).join("\n"),
+          });
+        } else if (group) {
+          toast.success(`Filed ${result.updated.length} under "${group}"`);
+        } else {
+          toast.success(`Removed ${result.updated.length} from groups`);
+        }
+      } catch (error) {
+        toast.error(String(error));
+      }
+    },
+    [refreshProfiles],
+  );
+
+  // The confirm dialog is shared with the single delete; which action it
+  // takes is decided here, from whether a bulk selection is pending.
+  const handleBulkTrash = useCallback(async () => {
+    if (!bulkTrashIds) return;
+    setDeleteBusy(true);
+    try {
+      const result = await invoke<{
+        trashed: string[];
+        failed: { id: string; error: string }[];
+      }>("bulk_trash", { ids: bulkTrashIds });
+      await refreshProfiles();
+      setBulkTrashIds(null);
+      if (result.failed.length > 0) {
+        toast.error(`${result.failed.length} of ${bulkTrashIds.length} could not be trashed`, {
+          description: result.failed.map((f) => `${f.id}: ${f.error}`).join("\n"),
+        });
+      } else {
+        toast.success(`Moved ${result.trashed.length} profiles to the trash`, {
+          description: "Restore them from the trash while their browser data still exists.",
+        });
+      }
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [bulkTrashIds, refreshProfiles]);
 
   const handleLaunch = useCallback(async (id: string) => {
     setLaunchingId(id);
@@ -565,6 +618,13 @@ export function App() {
               onDelete={(profile) => {
                 setDeleteTarget(profile);
               }}
+              onBulkSetGroup={(ids, group) => {
+                void handleBulkSetGroup(ids, group);
+              }}
+              onBulkTrash={(ids) => {
+                setBulkTrashIds(ids);
+                setDeleteTarget(null);
+              }}
             />
           ) : page === "proxies" ? (
             <NetworkPage
@@ -663,14 +723,19 @@ export function App() {
       />
 
       <DeleteConfirmationDialog
-        open={deleteTarget !== null}
-        profileName={deleteTarget?.name ?? ""}
+        open={deleteTarget !== null || bulkTrashIds !== null}
+        profileName={bulkTrashIds !== null ? `${bulkTrashIds.length} selected profiles` : (deleteTarget?.name ?? "")}
         busy={deleteBusy}
         onConfirm={() => {
-          void handleDelete();
+          if (bulkTrashIds !== null) {
+            void handleBulkTrash();
+          } else {
+            void handleDelete();
+          }
         }}
         onCancel={() => {
           setDeleteTarget(null);
+          setBulkTrashIds(null);
         }}
       />
 

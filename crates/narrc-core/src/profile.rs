@@ -207,6 +207,13 @@ pub struct Profile {
     /// error, because an addon not yet downloaded must not strand the profile.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub addons: Vec<String>,
+    /// The user's name for a bucket of profiles, or `None` for none.
+    ///
+    /// A label, not an entity: there is no group table to keep in sync, and a
+    /// group with no members exists only as a value the user once typed. The
+    /// set of groups is whatever the store's profiles carry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 impl Profile {
@@ -228,11 +235,26 @@ impl Profile {
             proxy: None,
             extra_args: Vec::new(),
             addons: Vec::new(),
+            group: None,
         };
         // Draw once now so an incoherent combination of options is caught at
         // creation rather than at launch, three clicks later.
         profile.validate_and_report();
         profile
+    }
+
+    /// Assigns the profile to a group, or out of one.
+    ///
+    /// Whitespace is trimmed and an empty value clears the group, because the
+    /// value comes back from an input: `""` means "no group", not "a group
+    /// named nothing", and a stray space should not split one group in two.
+    pub fn set_group(&mut self, group: &str) {
+        let trimmed = group.trim();
+        self.group = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_owned())
+        };
     }
 
     /// The identity the generator draws, before the user's edits.
@@ -986,8 +1008,25 @@ mod tests {
         profile
             .overrides
             .set_u32(crate::schema::keys::SCREEN_WIDTH, 2560);
+        profile.set_group("Accounts");
 
         let json = serde_json::to_string(&profile).unwrap();
+        let restored: Profile = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, profile);
+    }
+
+    #[test]
+    fn a_group_is_trimmed_and_an_empty_one_clears_it() {
+        let mut profile = sample("Work", 7);
+        profile.set_group("  Accounts  ");
+        assert_eq!(profile.group.as_deref(), Some("Accounts"));
+
+        profile.set_group("   ");
+        assert_eq!(profile.group, None, "an empty input clears the group");
+
+        // And the cleared profile still round-trips, with no group key at all.
+        let json = serde_json::to_string(&profile).unwrap();
+        assert!(!json.contains("group"), "{json}");
         let restored: Profile = serde_json::from_str(&json).unwrap();
         assert_eq!(restored, profile);
     }

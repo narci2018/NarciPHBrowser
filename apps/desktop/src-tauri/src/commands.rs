@@ -581,6 +581,91 @@ pub async fn purge_all_trash(
     Ok(serde_json::json!({ "purged": purged }))
 }
 
+/// Files one profile under a group, or out of its group.
+///
+/// An empty string clears the group — the same rule the profile itself
+/// applies, so a UI sending back an input's contents cannot create a group
+/// named nothing.
+#[tauri::command]
+pub async fn set_profile_group(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    group: String,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let mut profile = store
+        .load(&id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("no profile with the id {id:?}"))?;
+    profile.set_group(&group);
+    store.save(&profile).map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({ "id": id, "group": profile.group }))
+}
+
+/// Files many profiles under one group.
+///
+/// Per-profile failures are reported, not fatal: a profile that went
+/// unreadable between listing and editing should not stop the other forty
+/// from being filed.
+#[tauri::command]
+pub async fn bulk_set_group(
+    state: tauri::State<'_, AppState>,
+    ids: Vec<String>,
+    group: String,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let mut updated: Vec<String> = Vec::new();
+    let mut failed: Vec<serde_json::Value> = Vec::new();
+    for id in &ids {
+        match store.load(id) {
+            Ok(Some(mut profile)) => {
+                profile.set_group(&group);
+                match store.save(&profile) {
+                    Ok(()) => updated.push(id.clone()),
+                    Err(error) => failed.push(serde_json::json!({ "id": id, "error": error.to_string() })),
+                }
+            }
+            Ok(None) => failed.push(serde_json::json!({ "id": id, "error": "no such profile" })),
+            Err(error) => failed.push(serde_json::json!({ "id": id, "error": error.to_string() })),
+        }
+    }
+    Ok(serde_json::json!({ "updated": updated, "failed": failed }))
+}
+
+/// Moves many profiles to the trash in one go.
+///
+/// Each profile's core instance stops and its proxy assignment drops, exactly
+/// as a single trash does; a failure on one profile does not stop the rest.
+#[tauri::command]
+pub async fn bulk_trash(
+    state: tauri::State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let mut trashed: Vec<String> = Vec::new();
+    let mut failed: Vec<serde_json::Value> = Vec::new();
+    for id in &ids {
+        let outcome = store.trash(id).map_err(|error| error.to_string());
+        match outcome {
+            Ok(true) => {
+                if let Err(error) = mihomo(&state)?.stop_profile(id) {
+                    // The profile is already in the trash; a core that would
+                    // not stop is reported, not fatal to the batch.
+                    failed.push(serde_json::json!({ "id": id, "error": error }));
+                    continue;
+                }
+                let _ = open_assignment_store(&state)?
+                    .remove(id)
+                    .map_err(|error| error.to_string());
+                trashed.push(id.clone());
+            }
+            Ok(false) => failed.push(serde_json::json!({ "id": id, "error": "no such profile" })),
+            Err(error) => failed.push(serde_json::json!({ "id": id, "error": error })),
+        }
+    }
+    Ok(serde_json::json!({ "trashed": trashed, "failed": failed }))
+}
+
 /// Sets an override on a profile.
 #[tauri::command]
 pub async fn set_override(
