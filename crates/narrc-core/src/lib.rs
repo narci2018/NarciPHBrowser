@@ -76,6 +76,7 @@ pub use profile::{
 pub use proxy_store::{ProxyCheck, ProxyStore, StoredProxy};
 pub use rng::Rng;
 pub use schema::PropertySchema;
+pub use seal::{seal_available, seal_note};
 pub use subscription::{StoredSubscription, SubscriptionStore};
 pub use verify::{Report as VerificationReport, VerifyError};
 

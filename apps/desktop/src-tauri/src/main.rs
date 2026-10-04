@@ -12,7 +12,8 @@ use commands::{
     ensure_engine, export_profile, import_profile, inspect_profile, launch_profile,
     list_assignments, list_automation, list_proxies, list_profiles, list_subscription_nodes,
     list_subscriptions, list_trash, property_schema, purge_all_trash, purge_trash,
-    bulk_set_group, bulk_trash, set_profile_group, warmup_profile,
+    bulk_set_group, bulk_trash, collect_diagnostics, security_info, set_profile_group,
+    warmup_profile,
     refresh_subscription, remove_addon, restore_profile, screen_presets, set_override,
     start_automation, stop_automation, test_node_delay, test_node_exit, test_node_speed,
     trash_profile, unassign_node, update_profile, update_proxy, update_subscription,
@@ -31,6 +32,8 @@ fn main() {
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             app_info,
+            security_info,
+            collect_diagnostics,
             ensure_engine,
             list_profiles,
             screen_presets,

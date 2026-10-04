@@ -134,6 +134,33 @@ pub fn seal(plaintext: &[u8]) -> std::result::Result<Vec<u8>, Error> {
     imp::protect(plaintext, ENTROPY)
 }
 
+/// Whether this platform has a seal implementation at all.
+///
+/// A UI shows this rather than guessing: where it is `false`, every store
+/// file on disk is plaintext — proxy logins and subscription URLs included —
+/// and the user should know that without reading this module. Where it is
+/// `true`, writes are sealed; a runtime DPAPI failure still falls back to
+/// plaintext, which is exactly why the envelope format keeps a marker and the
+/// honest note below names the limit rather than overclaiming.
+pub fn seal_available() -> bool {
+    cfg!(windows)
+}
+
+/// The honest one-paragraph description of what the seal does here.
+///
+/// Paired with [`seal_available`] for display; the wording is the module
+/// documentation condensed, not a marketing line.
+pub fn seal_note() -> &'static str {
+    if cfg!(windows) {
+        "Files are sealed with Windows DPAPI under your user account. That \
+         protects them from other machines, offline copies and synced folders; \
+         it does not protect them from code running inside your session."
+    } else {
+        "This platform has no store sealing. Files are written as plaintext: \
+         proxy logins and subscription URLs live in them unencrypted."
+    }
+}
+
 /// Seals bytes, on the platforms that can.
 #[cfg(not(windows))]
 pub fn seal(plaintext: &[u8]) -> std::result::Result<Vec<u8>, Error> {

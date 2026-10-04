@@ -1,3 +1,8 @@
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
+import { LuSave } from "react-icons/lu";
+import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme-provider";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -13,6 +18,11 @@ import { THEME_OPTIONS, type ThemeMode } from "@/lib/themes";
 interface DownloadState {
   phase: string;
   percent: number;
+}
+
+interface SecurityInfo {
+  store_sealed: boolean;
+  store_seal_note: string;
 }
 
 interface SettingsPageProps {
@@ -63,6 +73,32 @@ function Section({
 export function SettingsPage({ versionLine, download }: SettingsPageProps) {
   const versions = parseVersions(versionLine);
   const { theme, setTheme } = useTheme();
+  const [security, setSecurity] = useState<SecurityInfo | null>(null);
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
+
+  useEffect(() => {
+    invoke<SecurityInfo>("security_info")
+      .then(setSecurity)
+      .catch(() => setSecurity(null));
+  }, []);
+
+  const saveDiagnostics = async () => {
+    if (diagnosticsBusy) return;
+    setDiagnosticsBusy(true);
+    try {
+      const result = await invoke<{ cancelled?: boolean; path?: string }>(
+        "collect_diagnostics",
+        {},
+      );
+      if (!result.cancelled) {
+        toast.success("Diagnostics saved", { description: result.path });
+      }
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setDiagnosticsBusy(false);
+    }
+  };
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
@@ -133,9 +169,52 @@ export function SettingsPage({ versionLine, download }: SettingsPageProps) {
           <Row label="Identity" value="drawn on read, never stored" />
         </Section>
 
+        <Section title="Security" description="What protects the stores, stated plainly.">
+          {security === null ? (
+            <div className="space-y-2 px-4 py-3">
+              <Skeleton className="h-3 w-1/3" />
+              <Skeleton className="h-3 w-1/2" />
+            </div>
+          ) : (
+            <div className="border-b border-border px-4 py-2.5">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-xs text-muted-foreground">Store files</span>
+                <span className="text-xs text-foreground">
+                  {security.store_sealed ? "Sealed to your user account" : "Plaintext"}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                {security.store_seal_note}
+              </p>
+            </div>
+          )}
+        </Section>
+
         <Section title="Application" description="Build and window information.">
           <Row label="Application" value="NarciPHBrowser" />
           <Row label="Window" value="Frameless, Windows controls" />
+        </Section>
+
+        <Section
+          title="Diagnostics"
+          description="A JSON bundle for bug reports: versions, configuration and health. It carries no identities, no proxy URLs and no subscription tokens."
+        >
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+            <p className="text-xs text-muted-foreground">
+              Saved wherever you choose; read it before sharing.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0 gap-1.5 text-xs"
+              disabled={diagnosticsBusy}
+              onClick={() => void saveDiagnostics()}
+            >
+              <LuSave className="size-3.5" />
+              {diagnosticsBusy ? "Saving…" : "Save diagnostics"}
+            </Button>
+          </div>
         </Section>
       </div>
     </div>

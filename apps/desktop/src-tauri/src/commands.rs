@@ -11,6 +11,13 @@ use crate::state::AppState;
 /// The GitHub repository for Camoufox releases.
 const CAMOUFOX_REPO: &str = "daijro/camoufox";
 
+/// How many automation sessions may run at once.
+///
+/// Each is a browser plus a Node server that live until someone stops them,
+/// so the ceiling exists to keep "I forgot it running" from becoming forty
+/// forgotten browsers.
+const MAX_AUTOMATION_SESSIONS: usize = 8;
+
 const CHROME_SKIN: &str = include_str!("../chrome-skin.css");
 
 fn apply_chrome_skin(install_dir: &Path) -> Result<(), String> {
@@ -422,6 +429,110 @@ pub async fn app_info(_state: tauri::State<'_, AppState>) -> Result<String, Stri
         narrc_core::VERSION,
         narrc_core::ENGINE_TARGET,
     ))
+}
+
+/// Whether store files are sealed at rest, with the honest description.
+///
+/// The note is the seal module's own wording, not a summary of it: where the
+/// platform has no seal the user is told their proxy logins are on disk in
+/// plaintext, not shown a reassuring lock icon.
+#[tauri::command]
+pub async fn security_info() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "store_sealed": narrc_core::seal_available(),
+        "store_seal_note": narrc_core::seal_note(),
+    }))
+}
+
+/// Saves a diagnostics bundle to a file the user picks.
+///
+/// The bundle is for bug reports, so it carries **no secrets by
+/// construction**: profile identities are reduced to summaries — a seed, a
+/// digest and counts, never the drawn values a page would see; proxy entries
+/// lose their URLs, because a proxy URL can carry an embedded login; and
+/// subscription URLs are bearer tokens, so only their count survives. What
+/// remains is what a report actually needs: versions, what is configured and
+/// where, and what is broken.
+///
+/// Sync like the other file-dialog commands: the dialog blocks, off the main
+/// thread.
+#[tauri::command]
+pub fn collect_diagnostics(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let profiles: Vec<protocol::ProfileSummary> =
+        store.list().iter().map(protocol::ProfileSummary::of).collect();
+    let trash = store.list_trash();
+    let proxy_store = open_proxy_store(&state)?;
+    let proxies = proxy_store.list();
+    // A proxy URL may embed user:pass, so the bundle carries the proxy's
+    // name and health check and never the URL itself.
+    let proxy_view: Vec<serde_json::Value> = proxies
+        .iter()
+        .map(|proxy| {
+            serde_json::json!({
+                "name": proxy.name,
+                "exit_country": proxy.exit_country,
+                "last_check": proxy.last_check.as_ref().map(|check| {
+                    serde_json::json!({
+                        "ok": check.ok,
+                        "country": check.country,
+                        "latency_ms": check.latency_ms,
+                        "error": check.error,
+                    })
+                }),
+            })
+        })
+        .collect();
+    let sessions: Vec<String> = state
+        .agents
+        .lock()
+        .map_err(|error| error.to_string())?
+        .keys()
+        .cloned()
+        .collect();
+
+    let bundle = serde_json::json!({
+        "kind": "narciphbrowser-diagnostics",
+        "generated_at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_secs())
+            .unwrap_or(0),
+        "versions": {
+            "app": env!("CARGO_PKG_VERSION"),
+            "core": narrc_core::VERSION,
+            "engine_target": narrc_core::ENGINE_TARGET,
+        },
+        "platform": std::env::consts::OS,
+        "store": {
+            "root": store.root().display().to_string(),
+            "sealed": narrc_core::seal_available(),
+            "seal_note": narrc_core::seal_note(),
+            "unreadable_ids": store.unreadable_ids(),
+        },
+        "profiles": profiles,
+        "trash": {
+            "count": trash.len(),
+            "entries": trash,
+        },
+        "proxies": proxy_view,
+        "subscription_count": open_subscription_store(&state)?.list().len(),
+        "automation_sessions": sessions,
+    });
+
+    let Some(path) = rfd::FileDialog::new()
+        .set_file_name("narciphbrowser-diagnostics.json")
+        .add_filter("NarciPHBrowser diagnostics", &["json"])
+        .save_file()
+    else {
+        return Ok(serde_json::json!({ "cancelled": true }));
+    };
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&bundle)
+            .map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("could not write {}: {error}", path.display()))?;
+    Ok(serde_json::json!({ "path": path.display().to_string() }))
 }
 
 /// Lists every profile.
@@ -1141,6 +1252,15 @@ pub async fn start_automation(
         if agents.contains_key(&id) {
             return Err(format!("an automation session for {id:?} is already running"));
         }
+        // Every session is a browser plus a Node server, and both stay alive
+        // for as long as the session does. The cap is not a performance tune:
+        // unattended processes are the one thing this app must not leak.
+        if agents.len() >= MAX_AUTOMATION_SESSIONS {
+            return Err(format!(
+                "{MAX_AUTOMATION_SESSIONS} automation sessions are already running; stop one \
+                 before starting another"
+            ));
+        }
     }
 
     let prepared = prepare_automation_launch(&state, &app, &id, headless)?;
@@ -1257,6 +1377,15 @@ pub async fn warmup_profile(
     });
 
     let result = tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
+        // Held for the whole run: a warm-up is minutes of headless browsing,
+        // and two racing would double the load without finishing any sooner.
+        let app2 = app.clone();
+        let state = app2.state::<AppState>();
+        let _warmup_guard = state
+            .warmup_lock
+            .lock()
+            .map_err(|error| format!("the warm-up lock is poisoned: {error}"))?;
+
         let node = node_path.as_deref().unwrap_or("node").to_owned();
         let driver = driver_path.trim().to_owned();
         let session = narrc_core::automation::spawn_agent(

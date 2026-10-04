@@ -24,6 +24,12 @@ pub struct AppState {
     /// closing the app closes the servers and the browsers behind them
     /// instead of leaking unattended processes.
     pub agents: Mutex<HashMap<String, narrc_core::automation::AgentSession>>,
+    /// Serialises warm-ups.
+    ///
+    /// A warm-up is a full headless browser run that lasts minutes. Two at
+    /// once would double the machine's load without finishing any sooner, and
+    /// there is no result in which racing them is what the user wanted.
+    pub warmup_lock: Mutex<()>,
 }
 
 impl Default for AppState {
@@ -40,6 +46,7 @@ impl AppState {
             mihomo: Mutex::new(MihomoManager::new()),
             speed_lock: Mutex::new(()),
             agents: Mutex::new(HashMap::new()),
+            warmup_lock: Mutex::new(()),
         }
     }
 }
