@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { GoPlus } from "react-icons/go";
 import { LuCircleHelp, LuDownload, LuSearch, LuTrash2, LuX } from "react-icons/lu";
 import { cn } from "@/lib/utils";
@@ -19,12 +20,14 @@ const isInteractiveTarget = (target: EventTarget | null): boolean => {
   return el !== null;
 };
 
-const SearchSyntaxHelp = () => (
-  <Popover>
+const SearchSyntaxHelp = () => {
+  const { t } = useTranslation();
+  return (
+    <Popover>
     <PopoverTrigger asChild>
       <button
         type="button"
-        aria-label="Search help"
+        aria-label={t("common.searchHelp")}
         className="grid size-6 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors duration-100 hover:bg-accent hover:text-accent-foreground"
       >
         <LuCircleHelp className="size-3.5" />
@@ -33,19 +36,18 @@ const SearchSyntaxHelp = () => (
     <PopoverContent align="end" className="w-80 p-0">
       <div className="space-y-3 p-3 text-xs">
         <div>
-          <p className="font-medium text-foreground">Search profiles</p>
+          <p className="font-medium text-foreground">{t("common.searchHelpTitle")}</p>
           <p className="mt-1 text-muted-foreground">
-            Type freely — name, notes, country, operating system and the
-            machine summary are all matched at once.
+            {t("common.searchHelpDescription")}
           </p>
         </div>
         <div>
-          <p className="font-medium text-foreground">Examples</p>
+          <p className="font-medium text-foreground">{t("common.searchHelpExamples")}</p>
           <div className="mt-1.5 space-y-1.5">
             <div>
               <code className="font-mono text-[11px] text-foreground">de</code>
               <p className="text-muted-foreground">
-                Profiles in or summarised as Germany
+                {t("common.searchExampleDe")}
               </p>
             </div>
             <div>
@@ -53,7 +55,7 @@ const SearchSyntaxHelp = () => (
                 windows
               </code>
               <p className="text-muted-foreground">
-                Profiles presenting as Windows
+                {t("common.searchExampleWindows")}
               </p>
             </div>
             <div>
@@ -61,7 +63,7 @@ const SearchSyntaxHelp = () => (
                 proxy
               </code>
               <p className="text-muted-foreground">
-                Profiles with a proxy configured
+                {t("common.searchExampleProxy")}
               </p>
             </div>
           </div>
@@ -69,7 +71,8 @@ const SearchSyntaxHelp = () => (
       </div>
     </PopoverContent>
   </Popover>
-);
+  );
+};
 
 interface Props {
   onCreateProfileDialogOpen: (open: boolean) => void;
@@ -90,6 +93,7 @@ const HomeHeader = ({
   totalProfiles,
   pageTitle,
 }: Props) => {
+  const { t } = useTranslation();
   const holdTimeoutRef = useRef<number | null>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragStartedRef = useRef(false);
@@ -191,7 +195,7 @@ const HomeHeader = ({
         </span>
       ) : (
         <span className="ml-1 flex h-7 shrink-0 items-center gap-1.5 px-1 text-xs font-medium text-foreground">
-          All
+          {t("common.all")}
           <span className="text-[11px] text-muted-foreground tabular-nums">
             {totalProfiles}
           </span>
@@ -204,7 +208,7 @@ const HomeHeader = ({
         <div className="relative shrink-0">
           <Input
             type="text"
-            placeholder="Search profiles..."
+            placeholder={t("common.searchProfiles")}
             value={searchQuery}
             onChange={(e) => {
               onSearchQueryChange(e.target.value);
@@ -219,7 +223,7 @@ const HomeHeader = ({
                 onSearchQueryChange("");
               }}
               className="absolute top-1/2 right-1.5 -translate-y-1/2 transform rounded-sm p-0.5 transition-colors hover:bg-accent hover:text-accent-foreground"
-              aria-label="Clear search"
+              aria-label={t("common.clearSearch")}
             >
               <LuX className="size-3.5 text-muted-foreground hover:text-foreground" />
             </button>
@@ -237,14 +241,14 @@ const HomeHeader = ({
                 size="sm"
                 variant="ghost"
                 onClick={onOpenTrash}
-                aria-label="Open the trash"
+                aria-label={t("common.openTrash")}
                 className="flex h-7 w-7 items-center justify-center px-0 text-muted-foreground hover:text-foreground"
               >
                 <LuTrash2 className="size-3.5" />
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent>Trash — deleted profiles</TooltipContent>
+          <TooltipContent>{t("common.trashTooltip")}</TooltipContent>
         </Tooltip>
       )}
 
@@ -259,11 +263,11 @@ const HomeHeader = ({
                 className="flex h-7 items-center gap-1.5 px-2.5 text-xs"
               >
                 <LuDownload className="size-3.5" />
-                Import
+                {t("common.import")}
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent>Import profiles from an export file</TooltipContent>
+          <TooltipContent>{t("common.importTooltip")}</TooltipContent>
         </Tooltip>
       )}
 
@@ -279,11 +283,11 @@ const HomeHeader = ({
                 className="flex h-7 items-center gap-1.5 px-2.5 text-xs"
               >
                 <GoPlus className="size-3.5" />
-                New
+                {t("common.new")}
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent>Create a new profile</TooltipContent>
+          <TooltipContent>{t("common.newTooltip")}</TooltipContent>
         </Tooltip>
       )}
     </div>

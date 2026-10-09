@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ export function ProxyDistributeDialog({
   profiles,
   onDone,
 }: ProxyDistributeDialogProps) {
+  const { t } = useTranslation();
   const [proxyIds, setProxyIds] = useState<string[]>([]);
   const [profileIds, setProfileIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -103,9 +105,9 @@ export function ProxyDistributeDialog({
         failed += result.failed.length;
       }
       if (failed > 0) {
-        toast.error(`${failed} profile${failed === 1 ? "" : "s"} could not be assigned`);
+        toast.error(t("common.assignFailed", { count: failed}));
       } else {
-        toast.success(`Distributed across ${updated} profile${updated === 1 ? "" : "s"}`);
+        toast.success(t("common.distributedAcross", { count: updated}));
       }
       onDone();
       onOpenChange(false);
@@ -120,17 +122,16 @@ export function ProxyDistributeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Distribute proxies</DialogTitle>
+          <DialogTitle>{t("common.distributeProxies")}</DialogTitle>
           <DialogDescription>
-            Hands the selected proxies to the selected profiles round-robin, one profile per slot.
-            Profiles whose country no selected proxy exits from stay on their current routing.
+            {t("common.distributeProxiesDescription")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span>Proxies</span>
+              <span>{t("common.proxiesLabel")}</span>
               <span>
                 {proxyIds.length} of {proxies.length}
               </span>
@@ -163,7 +164,7 @@ export function ProxyDistributeDialog({
                 ))}
                 {proxies.length === 0 && (
                   <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-                    No proxies yet.
+                    {t("common.noProxiesYet")}
                   </p>
                 )}
               </div>
@@ -172,7 +173,7 @@ export function ProxyDistributeDialog({
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span>Profiles</span>
+              <span>{t("common.profilesLabel")}</span>
               <span>
                 {profileIds.length} of {profiles.length}
               </span>
@@ -205,7 +206,7 @@ export function ProxyDistributeDialog({
                       </span>
                       {!reachable && (
                         <span className="shrink-0 rounded-sm border border-warning/50 bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning-text">
-                          no match
+                          {t("common.noMatch")}
                         </span>
                       )}
                     </div>
@@ -213,7 +214,7 @@ export function ProxyDistributeDialog({
                 })}
                 {profiles.length === 0 && (
                   <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-                    No profiles yet.
+                    {t("common.noProfilesYet")}
                   </p>
                 )}
               </div>
@@ -222,8 +223,8 @@ export function ProxyDistributeDialog({
         </div>
 
         <p className="text-[11px] text-muted-foreground">
-          {plannedProfiles} profile{plannedProfiles === 1 ? "" : "s"} will be assigned
-          {unplanned > 0 && `; ${unplanned} skipped (no geo match)`}.
+          {t("common.willBeAssigned", { count: plannedProfiles})}
+          {unplanned > 0 && t("common.skippedNoGeo", { count: unplanned })}.
         </p>
 
         <DialogFooter>
@@ -235,7 +236,7 @@ export function ProxyDistributeDialog({
               onOpenChange(false);
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
@@ -245,7 +246,7 @@ export function ProxyDistributeDialog({
               void submit();
             }}
           >
-            {busy ? "Distributing…" : `Distribute ${plan.size} prox${plan.size === 1 ? "y" : "ies"}`}
+            {busy ? t("common.distributing") : t("common.distributeCount", { count: plan.size})}
           </Button>
         </DialogFooter>
       </DialogContent>

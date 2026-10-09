@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { LuSave } from "react-icons/lu";
@@ -13,7 +14,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import i18n from "@/i18n";
 import { THEME_OPTIONS, type ThemeMode } from "@/lib/themes";
+
+/** Language names are shown in their own language, so they are not translated. */
+const LANGUAGE_OPTIONS = [
+  { value: "en", label: "English" },
+  { value: "zh", label: "简体中文" },
+];
 
 interface DownloadState {
   phase: string;
@@ -71,6 +79,7 @@ function Section({
 }
 
 export function SettingsPage({ versionLine, download }: SettingsPageProps) {
+  const { t } = useTranslation();
   const versions = parseVersions(versionLine);
   const { theme, setTheme } = useTheme();
   const [security, setSecurity] = useState<SecurityInfo | null>(null);
@@ -91,7 +100,7 @@ export function SettingsPage({ versionLine, download }: SettingsPageProps) {
         {},
       );
       if (!result.cancelled) {
-        toast.success("Diagnostics saved", { description: result.path });
+        toast.success(t("common.diagnosticsSaved"), { description: result.path });
       }
     } catch (error) {
       toast.error(String(error));
@@ -103,12 +112,12 @@ export function SettingsPage({ versionLine, download }: SettingsPageProps) {
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">
-        <Section title="Appearance" description="How the application looks.">
+        <Section title={t("common.appearance")} description={t("common.appearanceDescription")}>
           <div className="flex items-center justify-between gap-4 px-4 py-2.5">
             <div className="min-w-0">
-              <p className="text-xs text-foreground">Theme</p>
+              <p className="text-xs text-foreground">{t("common.theme")}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                System follows your operating system setting.
+                {t("common.systemFollows")}
               </p>
             </div>
             <Select
@@ -121,6 +130,31 @@ export function SettingsPage({ versionLine, download }: SettingsPageProps) {
               <SelectContent>
                 {THEME_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
+                    {t(option.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between gap-4 border-t border-border px-4 py-2.5">
+            <div className="min-w-0">
+              <p className="text-xs text-foreground">{t("common.language")}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {t("common.languageDescription")}
+              </p>
+            </div>
+            <Select
+              value={i18n.resolvedLanguage ?? "en"}
+              onValueChange={(value) => {
+                void i18n.changeLanguage(value);
+              }}
+            >
+              <SelectTrigger size="sm" className="w-32 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LANGUAGE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
                 ))}
@@ -129,16 +163,16 @@ export function SettingsPage({ versionLine, download }: SettingsPageProps) {
           </div>
         </Section>
 
-        <Section title="Engine" description="The browser build profiles launch into.">
-          <Row label="Target" value={versions.engine} />
-          <Row label="Core" value={versions.core} />
-          <Row label="Sidecar" value={versions.sidecar} />
+        <Section title={t("common.engine")} description={t("common.engineDescription")}>
+          <Row label={t("common.target")} value={versions.engine} />
+          <Row label={t("common.core")} value={versions.core} />
+          <Row label={t("common.sidecar")} value={versions.sidecar} />
         </Section>
 
         {download && (
           <Section
-            title="Downloading engine"
-            description="The profile list is available as soon as the install finishes."
+            title={t("common.downloadingEngine")}
+            description={t("common.downloadingEngineDescription")}
           >
             <div className="space-y-2 px-4 py-3">
               <div className="flex items-center justify-between text-xs">
@@ -153,7 +187,7 @@ export function SettingsPage({ versionLine, download }: SettingsPageProps) {
         )}
 
         {!versionLine && (
-          <Section title="Engine">
+          <Section title={t("common.engine")}>
             <div className="space-y-2 px-4 py-3">
               <Skeleton className="h-3 w-1/3" />
               <Skeleton className="h-3 w-1/2" />
@@ -162,14 +196,14 @@ export function SettingsPage({ versionLine, download }: SettingsPageProps) {
         )}
 
         <Section
-          title="Profiles store"
-          description="Where identities are kept: seed, options and hand edits."
+          title={t("common.profilesStore")}
+          description={t("common.profilesStoreDescription")}
         >
-          <Row label="Stored as" value="seed + options (sparse overrides)" />
-          <Row label="Identity" value="drawn on read, never stored" />
+          <Row label={t("common.storedAs")} value={t("common.seedOptions")} />
+          <Row label={t("common.identityDrawn")} value={t("common.drawnOnRead")} />
         </Section>
 
-        <Section title="Security" description="What protects the stores, stated plainly.">
+        <Section title={t("common.security")} description={t("common.securityDescription")}>
           {security === null ? (
             <div className="space-y-2 px-4 py-3">
               <Skeleton className="h-3 w-1/3" />
@@ -178,9 +212,9 @@ export function SettingsPage({ versionLine, download }: SettingsPageProps) {
           ) : (
             <div className="border-b border-border px-4 py-2.5">
               <div className="flex items-center justify-between gap-4">
-                <span className="text-xs text-muted-foreground">Store files</span>
+                <span className="text-xs text-muted-foreground">{t("common.storeFiles")}</span>
                 <span className="text-xs text-foreground">
-                  {security.store_sealed ? "Sealed to your user account" : "Plaintext"}
+                  {security.store_sealed ? t("common.sealed") : t("common.plaintext")}
                 </span>
               </div>
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
@@ -190,18 +224,18 @@ export function SettingsPage({ versionLine, download }: SettingsPageProps) {
           )}
         </Section>
 
-        <Section title="Application" description="Build and window information.">
-          <Row label="Application" value="NarciPHBrowser" />
-          <Row label="Window" value="Frameless, Windows controls" />
+        <Section title={t("common.application")} description={t("common.applicationDescription")}>
+          <Row label={t("common.application")} value={t("common.applicationName")} />
+          <Row label={t("common.window")} value={t("common.windowFrameless")} />
         </Section>
 
         <Section
-          title="Diagnostics"
-          description="A JSON bundle for bug reports: versions, configuration and health. It carries no identities, no proxy URLs and no subscription tokens."
+          title={t("common.diagnostics")}
+          description={t("common.diagnosticsDescription")}
         >
           <div className="flex items-center justify-between gap-4 px-4 py-2.5">
             <p className="text-xs text-muted-foreground">
-              Saved wherever you choose; read it before sharing.
+              {t("common.diagnosticsHint")}
             </p>
             <Button
               type="button"
@@ -212,7 +246,7 @@ export function SettingsPage({ versionLine, download }: SettingsPageProps) {
               onClick={() => void saveDiagnostics()}
             >
               <LuSave className="size-3.5" />
-              {diagnosticsBusy ? "Saving…" : "Save diagnostics"}
+              {diagnosticsBusy ? t("common.saving") : t("common.saveDiagnostics")}
             </Button>
           </div>
         </Section>

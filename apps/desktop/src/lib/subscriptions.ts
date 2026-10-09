@@ -17,6 +17,19 @@ export interface SubscriptionNode {
   delay?: number | null;
 }
 
+/** A profile's route through a subscription node, as stored. */
+export interface StoredAssignment {
+  profile_id: string;
+  subscription_id: string;
+  node: string;
+}
+
+/** What a profile should be routed through, decided when it is saved. */
+export interface NodeAssignment {
+  subscription_id: string;
+  node: string;
+}
+
 /** What a test measured for one node, and whether it is running. */
 export interface NodeResult {
   delay?: number | null;
@@ -100,6 +113,14 @@ export async function testNodeDelay(id: string, node: string): Promise<number | 
   return result.delay;
 }
 
+/** Measures every node in one batch: node name to delay in milliseconds. */
+export async function testAllNodeDelays(id: string): Promise<Record<string, number>> {
+  const result = await invoke<{ delays: Record<string, number> }>("test_subscription_delays", {
+    id,
+  });
+  return result.delays;
+}
+
 /** Measures one node's download speed, in megabits per second. */
 export async function testNodeSpeed(id: string, node: string): Promise<number> {
   const result = await invoke<{ mbps: number }>("test_node_speed", {
@@ -114,4 +135,26 @@ export async function testNodeExit(id: string, node: string): Promise<NodeExit> 
     payload: { subscription_id: id, node },
   });
   return result;
+}
+
+/** Every stored profile-to-node route. */
+export async function listAssignments(): Promise<StoredAssignment[]> {
+  const result = await invoke<{ assignments: StoredAssignment[] }>("list_assignments");
+  return result.assignments;
+}
+
+/** Routes `profileId` through `assignment`'s node, replacing any earlier route. */
+export async function assignNode(profileId: string, assignment: NodeAssignment): Promise<void> {
+  await invoke("assign_node", {
+    payload: {
+      profile_ids: [profileId],
+      subscription_id: assignment.subscription_id,
+      node: assignment.node,
+    },
+  });
+}
+
+/** Drops the route `profileId` had, leaving it direct. */
+export async function unassignNode(profileId: string): Promise<void> {
+  await invoke("unassign_node", { payload: { profile_ids: [profileId] } });
 }

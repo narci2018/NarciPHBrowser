@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -43,9 +44,8 @@ interface ProxyFormDialogProps {
   onSubmit: (value: ProxyFormValue) => Promise<void>;
 }
 
-const AUTH_ERROR = "A username is required to send a password.";
-
 export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFormDialogProps) {
+  const { t } = useTranslation();
   const editing = proxy !== null;
   const [name, setName] = useState("");
   const [scheme, setScheme] = useState("http");
@@ -105,15 +105,15 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
 
   const portNumber = Number(port);
   const portValid = Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535;
-  const urlError = host.trim() ? validateProxyUrl(builtUrl) : "A host is required.";
+  const urlError = host.trim() ? validateProxyUrl(builtUrl) : t("common.proxyHostRequired");
   const error = !name.trim()
-    ? "A name is required"
+    ? t("common.proxyNameRequired")
     : password && !username.trim()
-      ? AUTH_ERROR
+      ? t("common.authError")
       : !host.trim()
         ? urlError
         : !portValid
-          ? "Port must be between 1 and 65535."
+          ? t("common.proxyPortRange")
           : urlError;
 
   const usage = proxy?.used_by ?? [];
@@ -145,21 +145,21 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{editing ? "Edit proxy" : "New proxy"}</DialogTitle>
+          <DialogTitle>{editing ? t("common.editProxy") : t("common.newProxy")}</DialogTitle>
           <DialogDescription>
             {editing
-              ? "Stored once here, then assigned to any profile that should exit through it."
-              : "A named proxy you keep once and assign to profiles instead of retyping per profile."}
+              ? t("common.editProxyDescription")
+              : t("common.newProxyDescription")}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="grid gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="proxy-name">Name</Label>
+            <Label htmlFor="proxy-name">{t("common.proxyName")}</Label>
             <Input
               id="proxy-name"
               autoFocus
-              placeholder="e.g. Berlin residential"
+              placeholder={t("common.proxyNamePlaceholder")}
               value={name}
               onChange={(event) => {
                 setName(event.target.value);
@@ -169,10 +169,10 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
 
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="proxy-type">Type</Label>
+              <Label htmlFor="proxy-type">{t("common.proxyType")}</Label>
               <Select value={scheme} onValueChange={setScheme}>
                 <SelectTrigger id="proxy-type" className="w-full">
-                  <SelectValue placeholder="Type" />
+                  <SelectValue placeholder={t("common.proxyType")} />
                 </SelectTrigger>
                 <SelectContent>
                   {schemeOptions.map((option) => (
@@ -184,10 +184,10 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="proxy-exit-country">Exit country</Label>
+              <Label htmlFor="proxy-exit-country">{t("common.exitCountry")}</Label>
               <Input
                 id="proxy-exit-country"
-                placeholder="DE"
+                placeholder={t("common.countryPlaceholder")}
                 maxLength={2}
                 value={exitCountry}
                 onChange={(event) => {
@@ -199,10 +199,10 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
 
           <div className="grid grid-cols-[1fr_110px] gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="proxy-host">Host</Label>
+              <Label htmlFor="proxy-host">{t("common.proxyHost")}</Label>
               <Input
                 id="proxy-host"
-                placeholder="proxy.example.com"
+                placeholder={t("common.proxyHostPlaceholder")}
                 value={host}
                 onChange={(event) => {
                   setHost(event.target.value);
@@ -210,11 +210,11 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="proxy-port">Port</Label>
+              <Label htmlFor="proxy-port">{t("common.proxyPort")}</Label>
               <Input
                 id="proxy-port"
                 inputMode="numeric"
-                placeholder="8080"
+                placeholder={t("common.proxyPortPlaceholder")}
                 value={port}
                 onChange={(event) => {
                   setPort(event.target.value.replace(/[^\d]/g, ""));
@@ -228,10 +228,10 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
 
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="proxy-username">Username</Label>
+              <Label htmlFor="proxy-username">{t("common.proxyUsername")}</Label>
               <Input
                 id="proxy-username"
-                placeholder="Optional"
+                placeholder={t("common.optional")}
                 value={username}
                 onChange={(event) => {
                   setUsername(event.target.value);
@@ -239,11 +239,11 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="proxy-password">Password</Label>
+              <Label htmlFor="proxy-password">{t("common.proxyPassword")}</Label>
               <Input
                 id="proxy-password"
                 type="password"
-                placeholder="Optional"
+                placeholder={t("common.optional")}
                 value={password}
                 onChange={(event) => {
                   setPassword(event.target.value);
@@ -253,12 +253,12 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
           </div>
 
           <div className="grid gap-2">
-            <Label>URL</Label>
+            <Label>{t("common.proxyUrlLabel")}</Label>
             <code className="block truncate rounded-md border border-border bg-muted/50 px-3 py-2 font-mono text-xs text-muted-foreground">
-              {host.trim() ? maskPassword(builtUrl) : "scheme://host:port"}
+              {host.trim() ? maskPassword(builtUrl) : t("common.proxyUrlPlaceholder")}
             </code>
             <p className="text-[11px] text-muted-foreground">
-              The exit IP must sit where a profile claims, or the geo gate refuses the launch.
+              {t("common.proxyUrlHint")}
             </p>
           </div>
 
@@ -266,13 +266,13 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
             <div className="rounded-md border border-warning/50 bg-warning/10 p-3">
               <p className="text-xs font-medium text-warning-text">
                 {username.trim()
-                  ? "These credentials cross the network readable"
-                  : "The connection to this proxy is not encrypted"}
+                  ? t("common.proxyCredentialsWarning")
+                  : t("common.proxyNoEncryptionWarning")}
               </p>
               <p className="mt-1 text-[11px] text-muted-foreground">
                 {username.trim()
-                  ? "This type sends the username and password without encryption. Treat them as exposed on any network you do not control."
-                  : "Anyone between this machine and the proxy sees where you go and everything sent outside HTTPS."}
+                  ? t("common.proxyCredentialsWarningHint")
+                  : t("common.proxyNoEncryptionWarningHint")}
               </p>
             </div>
           )}
@@ -289,10 +289,10 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
               />
               <span className="min-w-0">
                 <span className="block text-xs font-medium text-foreground">
-                  Also update {usage.length} profile{usage.length === 1 ? "" : "s"} using this proxy
+                  {t("common.syncProfiles", { count: usage.length})}
                 </span>
                 <span className="block text-[11px] text-muted-foreground">
-                  The URL changes, so the profiles carrying the old one are rewritten with the new.
+                  {t("common.syncProfilesHint")}
                 </span>
               </span>
             </label>
@@ -313,7 +313,7 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
                 onOpenChange(false);
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
@@ -323,7 +323,7 @@ export function ProxyFormDialog({ open, onOpenChange, proxy, onSubmit }: ProxyFo
                 setTouched(true);
               }}
             >
-              {busy ? "Saving…" : editing ? "Save changes" : "Create proxy"}
+              {busy ? t("common.saving") : editing ? t("common.saveChanges") : t("common.createProxy")}
             </Button>
           </DialogFooter>
         </form>

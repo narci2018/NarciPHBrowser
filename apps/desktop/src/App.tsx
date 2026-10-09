@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { LuCloud, LuKeyboard, LuPlug } from "react-icons/lu";
 import { toast } from "sonner";
 import type {
@@ -28,49 +29,54 @@ import { RailNav, type AppPage } from "@/components/rail-nav";
 import { Progress } from "@/components/ui/progress";
 import { WindowDragArea } from "@/components/window-drag-area";
 import { PlaceholderPage } from "@/pages/placeholder";
-import { AgentPage } from "@/pages/agent";
-import { ExtensionsPage } from "@/pages/extensions";
-import { NetworkPage } from "@/pages/network";
 import { ProfilesPage } from "@/pages/profiles";
-import { SettingsPage } from "@/pages/settings";
+import { listGroups, type GroupInfo } from "@/lib/groups";
+import {
+  assignNode,
+  listAssignments,
+  unassignNode,
+  type NodeAssignment,
+  type StoredAssignment,
+} from "@/lib/subscriptions";
+
+// Only the profiles page is needed for the first paint; the rest are fetched
+// when the rail navigates to them, so startup parses less JavaScript. The
+// fallback is deliberately empty — the chunks come off local disk, so a spinner
+// would only flash.
+const AgentPage = lazy(() => import("@/pages/agent").then((m) => ({ default: m.AgentPage })));
+const ExtensionsPage = lazy(() =>
+  import("@/pages/extensions").then((m) => ({ default: m.ExtensionsPage })),
+);
+const GroupsPage = lazy(() => import("@/pages/groups").then((m) => ({ default: m.GroupsPage })));
+const NetworkPage = lazy(() =>
+  import("@/pages/network").then((m) => ({ default: m.NetworkPage })),
+);
+const SettingsPage = lazy(() =>
+  import("@/pages/settings").then((m) => ({ default: m.SettingsPage })),
+);
 
 type PlaceholderKey = Exclude<
   AppPage,
-  "profiles" | "proxies" | "settings" | "about" | "extensions" | "agent"
+  "profiles" | "groups" | "proxies" | "settings" | "about" | "extensions" | "agent"
 >;
 
-const PLACEHOLDERS: Record<
-  PlaceholderKey,
-  { title: string; description: string; Icon: React.ComponentType<{ className?: string }> }
-> = {
-  integrations: {
-    title: "Integrations",
-    description:
-      "Connect external tools to profiles, groups and session data through a local API.",
-    Icon: LuPlug,
-  },
-  account: {
-    title: "Account",
-    description:
-      "Licence, sync and team membership. Everything on this machine stays local without an account.",
-    Icon: LuCloud,
-  },
-  shortcuts: {
-    title: "Keyboard shortcuts",
-    description:
-      "Every shortcut the application binds, in one list.",
-    Icon: LuKeyboard,
-  },
+type PlaceholderEntry = { titleKey: string; descKey: string; Icon: React.ComponentType<{ className?: string }> };
+
+const PLACEHOLDER_KEYS: Record<PlaceholderKey, PlaceholderEntry> = {
+  integrations: { titleKey: "common.integrationsTitle", descKey: "common.integrationsDescription", Icon: LuPlug },
+  account: { titleKey: "common.accountTitle", descKey: "common.accountDescription", Icon: LuCloud },
+  shortcuts: { titleKey: "common.shortcutsTitle", descKey: "common.shortcutsDescription", Icon: LuKeyboard },
 };
 
-const PAGE_TITLE: Partial<Record<AppPage, string>> = {
-  proxies: "Network",
-  extensions: "Extensions",
-  agent: "Agent",
-  integrations: "Integrations",
-  account: "Account",
-  shortcuts: "Shortcuts",
-  settings: "Settings",
+const PAGE_TITLE_KEYS: Partial<Record<AppPage, string>> = {
+  groups: "common.groupsTitle",
+  proxies: "common.networkTitle",
+  extensions: "common.extensionsTitle",
+  agent: "common.agentTitle",
+  integrations: "common.integrationsTitle",
+  account: "common.accountTitle",
+  shortcuts: "common.shortcutsTitle",
+  settings: "common.settingsTitle",
 };
 
 interface DownloadState {
@@ -82,6 +88,17 @@ const ENGINE_TOAST_ID = "engine-download";
 const CORE_TOAST_ID = "core-download";
 
 export function App() {
+  const { t } = useTranslation();
+  // `t` is rebound whenever the language changes, so a callback memoized over it
+  // directly would keep emitting the language that was active when it was
+  // created. The two bootstrap callbacks below must also stay identity-stable —
+  // they are dependencies of the mount effect — so they read the current `t`
+  // through a ref instead of taking it as a dependency, which would re-run the
+  // whole bootstrap on every language switch.
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [ready, setReady] = useState(false);
   const [fatal, setFatal] = useState<string | null>(null);
   const [versionLine, setVersionLine] = useState("");
@@ -89,6 +106,14 @@ export function App() {
 
   const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(true);
+  // Where each profile's traffic leaves is stored beside the profile: an
+  // assignment file holds the subscription routes, `profile.proxy` the URLs.
+  // The rows and the info dialog show all three kinds, so both need it.
+  const [assignments, setAssignments] = useState<StoredAssignment[]>([]);
+  // Group names live in their own file beside the profiles: the groups page
+  // lists and edits them, and the pickers offer them, so both read this copy
+  // — refreshed with the profiles, since a save can file one under a new name.
+  const [groups, setGroups] = useState<GroupInfo[]>([]);
 
   const [page, setPage] = useState<AppPage>("profiles");
   const [searchQuery, setSearchQuery] = useState("");
@@ -119,13 +144,27 @@ export function App() {
       setProfiles(result.profiles);
       if (result.unreadable.length > 0) {
         toast.warning(
-          `${result.unreadable.length} profile${result.unreadable.length === 1 ? "" : "s"} could not be read`,
+          tRef.current("common.profilesCouldNotRead", { count: result.unreadable.length }),
         );
       }
     } catch (error) {
       toast.error(String(error));
     } finally {
       setProfilesLoading(false);
+    }
+    // The route is a separate file from the profile, so it is read on its own:
+    // a failing assignment list must not hide the profiles themselves.
+    try {
+      setAssignments(await listAssignments());
+    } catch (error) {
+      toast.error(String(error));
+    }
+    // So are the group names: a failing group file must not take the profile
+    // list down with it, and the pickers read this refresh too.
+    try {
+      setGroups(await listGroups());
+    } catch (error) {
+      toast.error(String(error));
     }
   }, []);
 
@@ -140,19 +179,25 @@ export function App() {
     });
   }, []);
 
+  // The retry action re-runs this same call, so it reaches the callback through
+  // a ref rather than referencing the const while it is still being initialized.
+  const ensureEngineRef = useRef<() => void>(() => {});
   const ensureEngine = useCallback((): void => {
     void invoke<string>("ensure_engine")
       .then(() => {
         if (downloadToastOpen.current) {
           downloadToastOpen.current = false;
           setDownload(null);
-          toast.success("Engine ready", { id: ENGINE_TOAST_ID, duration: 5000 });
+          toast.success(tRef.current("common.engineReady"), { id: ENGINE_TOAST_ID, duration: 5000 });
         }
       })
       .catch((error) => {
         setDownload(null);
         const message = String(error);
-        const retry = { label: "Retry", onClick: () => ensureEngine() };
+        const retry = {
+          label: tRef.current("common.retry"),
+          onClick: () => ensureEngineRef.current(),
+        };
         if (downloadToastOpen.current) {
           downloadToastOpen.current = false;
           toast.error(message, { id: ENGINE_TOAST_ID, duration: Infinity, action: retry });
@@ -161,6 +206,9 @@ export function App() {
         }
       });
   }, []);
+  useEffect(() => {
+    ensureEngineRef.current = ensureEngine;
+  }, [ensureEngine]);
 
   useEffect(() => {
     let disposed = false;
@@ -254,17 +302,29 @@ export function App() {
   }, [infoProfileId, loadInfo]);
 
   const handleSubmit = useCallback(
-    async (spec: CreateSpec) => {
+    async (spec: CreateSpec, assignment?: NodeAssignment | null) => {
+      // The route lives beside the profile rather than inside it: an inline
+      // proxy URL and a node assignment are two ways of saying where the
+      // traffic leaves, so the stored route is rewritten on every save instead
+      // of being left to describe an older profile.
+      const route = async (id: string) => {
+        if (assignment) {
+          await assignNode(id, assignment);
+        } else {
+          await unassignNode(id);
+        }
+      };
       try {
         if (editingProfile) {
           await invoke<CreateResult>("update_profile", {
             id: editingProfile.id,
             spec,
           });
+          await route(editingProfile.id);
           await refreshProfiles();
           setCreateOpen(false);
           setEditingProfile(null);
-          toast.success(`Saved "${spec.name}"`);
+          toast.success(t("common.savedProfile", { name: spec.name }));
           if (infoProfileId) {
             const [nextInspection, nextReport] = await loadInfo(infoProfileId);
             setInspection(nextInspection);
@@ -273,16 +333,24 @@ export function App() {
           return;
         }
         const result = await invoke<CreateResult>("create_profile", { spec });
+        try {
+          await route(result.summary.id);
+        } catch (routeError) {
+          // The profile exists now. Reopening the dialog instead of closing it
+          // would offer a second create of the same profile, so the route's
+          // failure is reported and the dialog closes on the profile it made.
+          toast.error(String(routeError));
+        }
         await refreshProfiles();
         setCreateOpen(false);
-        toast.success(`Created "${result.summary.name}"`);
+        toast.success(t("common.createdProfile", { name: result.summary.name }));
         setInfoProfileId(result.summary.id);
       } catch (error) {
         toast.error(String(error));
         throw error;
       }
     },
-    [editingProfile, infoProfileId, loadInfo, refreshProfiles],
+    [editingProfile, infoProfileId, loadInfo, refreshProfiles, t],
   );
 
   const handleDelete = useCallback(async () => {
@@ -293,15 +361,15 @@ export function App() {
       if (infoProfileId === deleteTarget.id) setInfoProfileId(null);
       await refreshProfiles();
       setDeleteTarget(null);
-      toast.success(`Moved "${deleteTarget.name}" to the trash`, {
-        description: "Restore it from the trash while its browser data still exists.",
+      toast.success(t("common.movedToTrash", { name: deleteTarget.name }), {
+        description: t("common.movedToTrashHint"),
       });
     } catch (error) {
       toast.error(String(error));
     } finally {
       setDeleteBusy(false);
     }
-  }, [deleteTarget, infoProfileId, refreshProfiles]);
+  }, [deleteTarget, infoProfileId, refreshProfiles, t]);
 
   const handleBulkSetGroup = useCallback(
     async (ids: string[], group: string) => {
@@ -312,19 +380,67 @@ export function App() {
         }>("bulk_set_group", { ids, group });
         await refreshProfiles();
         if (result.failed.length > 0) {
-          toast.error(`${result.failed.length} of ${ids.length} could not be filed`, {
+          toast.error(t("common.couldNotFile", { failed: result.failed.length, total: ids.length }), {
             description: result.failed.map((f) => `${f.id}: ${f.error}`).join("\n"),
           });
         } else if (group) {
-          toast.success(`Filed ${result.updated.length} under "${group}"`);
+          toast.success(t("common.filedUnder", { count: result.updated.length, group }));
         } else {
-          toast.success(`Removed ${result.updated.length} from groups`);
+          toast.success(t("common.removedFromGroups", { count: result.updated.length }));
         }
       } catch (error) {
         toast.error(String(error));
       }
     },
-    [refreshProfiles],
+    [refreshProfiles, t],
+  );
+
+  // Group mutations report whether they went through, so the groups page can
+  // keep an inline rename or a delete confirmation open on a refusal instead
+  // of closing over a change that never landed.
+  const handleCreateGroup = useCallback(
+    async (name: string) => {
+      try {
+        await invoke("create_group", { name });
+        await refreshProfiles();
+        toast.success(t("common.groupCreated", { name: name.trim() }));
+        return true;
+      } catch (error) {
+        toast.error(String(error));
+        return false;
+      }
+    },
+    [refreshProfiles, t],
+  );
+
+  const handleRenameGroup = useCallback(
+    async (from: string, to: string) => {
+      try {
+        await invoke("rename_group", { from, to });
+        await refreshProfiles();
+        toast.success(t("common.groupRenamed", { name: to.trim() }));
+        return true;
+      } catch (error) {
+        toast.error(String(error));
+        return false;
+      }
+    },
+    [refreshProfiles, t],
+  );
+
+  const handleDeleteGroup = useCallback(
+    async (name: string) => {
+      try {
+        await invoke("delete_group", { name });
+        await refreshProfiles();
+        toast.success(t("common.groupDeleted", { name }));
+        return true;
+      } catch (error) {
+        toast.error(String(error));
+        return false;
+      }
+    },
+    [refreshProfiles, t],
   );
 
   // The confirm dialog is shared with the single delete; which action it
@@ -340,12 +456,12 @@ export function App() {
       await refreshProfiles();
       setBulkTrashIds(null);
       if (result.failed.length > 0) {
-        toast.error(`${result.failed.length} of ${bulkTrashIds.length} could not be trashed`, {
+        toast.error(t("common.couldNotTrash", { failed: result.failed.length, total: bulkTrashIds.length }), {
           description: result.failed.map((f) => `${f.id}: ${f.error}`).join("\n"),
         });
       } else {
-        toast.success(`Moved ${result.trashed.length} profiles to the trash`, {
-          description: "Restore them from the trash while their browser data still exists.",
+        toast.success(t("common.movedToTrashCount", { count: result.trashed.length }), {
+          description: t("common.movedToTrashHint"),
         });
       }
     } catch (error) {
@@ -353,31 +469,31 @@ export function App() {
     } finally {
       setDeleteBusy(false);
     }
-  }, [bulkTrashIds, refreshProfiles]);
+  }, [bulkTrashIds, refreshProfiles, t]);
 
   const handleLaunch = useCallback(async (id: string) => {
     setLaunchingId(id);
     try {
       const launched = await invoke<Launched>("launch_profile", { id });
       const pid = typeof launched.pid === "number" ? ` (pid ${launched.pid})` : "";
-      toast.success(`Browser launched${pid}`);
+      toast.success(t("common.browserLaunched", { pid }));
       if (launched.geo_gate && launched.geo_gate.verdict === "unknown") {
         toast.warning(
-          `Proxy exit country is not verified (profile claims ${launched.geo_gate.expected}) — run a proxy check before relying on it`,
+          t("common.geoGateUnknown", { expected: launched.geo_gate.expected }),
         );
       } else if (launched.geo_gate && launched.geo_gate.verdict === "mismatch") {
         toast.warning(
-          `Geo-gate warning: proxy exits in ${launched.geo_gate.observed}, but profile claims ${launched.geo_gate.expected}. Proceed with caution!`,
+          t("common.geoGateMismatch", { observed: launched.geo_gate.observed, expected: launched.geo_gate.expected }),
         );
       }
       if (launched.discarded.length > 0) {
-        toast.info(`${launched.discarded.length} conflicting value(s) were discarded`);
+        toast.info(t("common.discardedValues", { count: launched.discarded.length }));
       }
       // Plan warnings do not block the launch, but they name things the user
       // would otherwise only find out by testing the browser themselves — a
       // missing engine, an addon the engine will skip, a WebGL renderer whose
       // limits will come from the host and contradict it.
-      for (const warning of launched.plan.warnings) {
+      for (const warning of launched.plan?.warnings ?? []) {
         toast.warning(warning, { duration: 12000 });
       }
     } catch (error) {
@@ -385,7 +501,7 @@ export function App() {
     } finally {
       setLaunchingId(null);
     }
-  }, []);
+  }, [t]);
 
   const handleVerify = useCallback(
     async (keepAgreements: boolean) => {
@@ -410,12 +526,10 @@ export function App() {
             difference.verdict !== "refused",
         );
         if (mismatches.length === 0) {
-          toast.success(`Verified: ${result.agreed} of ${result.checked} values agreed`);
+          toast.success(t("common.verifiedAgreed", { agreed: result.agreed, checked: result.checked }));
         } else {
           toast.warning(
-            `Verification found ${mismatches.length} difference${
-              mismatches.length === 1 ? "" : "s"
-            } — see the Verify tab`,
+            t("common.verificationFound", { count: mismatches.length }),
           );
         }
       } catch (error) {
@@ -424,7 +538,7 @@ export function App() {
         setVerifying(false);
       }
     },
-    [infoProfileId],
+    [infoProfileId, t],
   );
 
   const handleOverrideChange = useCallback(
@@ -440,12 +554,12 @@ export function App() {
         const next = await invoke<Inspection>("inspect_profile", { id: infoProfileId });
         setInspection(next);
         await refreshProfiles();
-        toast.success(`Updated ${property}${result.coerced ? " (coerced)" : ""}`);
+        toast.success(t("common.updatedProperty", { property, coerced: result.coerced }));
       } catch (error) {
         toast.error(String(error));
       }
     },
-    [infoProfileId, refreshProfiles],
+    [infoProfileId, refreshProfiles, t],
   );
 
   const handleOverrideRemove = useCallback(
@@ -460,12 +574,12 @@ export function App() {
         const next = await invoke<Inspection>("inspect_profile", { id: infoProfileId });
         setInspection(next);
         await refreshProfiles();
-        toast.success(`Reset ${property}`);
+        toast.success(t("common.resetProperty", { property }));
       } catch (error) {
         toast.error(String(error));
       }
     },
-    [infoProfileId, refreshProfiles],
+    [infoProfileId, refreshProfiles, t],
   );
 
   // The export dialog reads the proxy straight off the inspection the info
@@ -484,11 +598,11 @@ export function App() {
       const result = await invoke<{ cancelled?: boolean; name?: string }>("import_profile", {});
       if (result.cancelled) return;
       await refreshProfiles();
-      toast.success(`Imported ${result.name}`);
+      toast.success(t("common.importedProfile", { name: result.name }));
     } catch (error) {
       toast.error(String(error));
     }
-  }, [refreshProfiles]);
+  }, [refreshProfiles, t]);
 
   const filteredProfiles = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -518,7 +632,7 @@ export function App() {
       <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-background text-foreground">
         <Logo className="size-10 animate-pulse text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          {fatal ? `Error: ${fatal}` : "Starting engine…"}
+          {fatal ? `Error: ${fatal}` : t("common.startingEngine")}
         </p>
         {download && (
           <div className="w-64 space-y-2">
@@ -532,7 +646,10 @@ export function App() {
     );
   }
 
-  const placeholder = PLACEHOLDERS[page as PlaceholderKey] ?? null;
+  const placeholderKey = PLACEHOLDER_KEYS[page as PlaceholderKey] ?? null;
+  const placeholder = placeholderKey
+    ? { title: t(placeholderKey.titleKey), description: t(placeholderKey.descKey), Icon: placeholderKey.Icon }
+    : null;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
@@ -562,62 +679,74 @@ export function App() {
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}
           totalProfiles={profiles.length}
-          pageTitle={page === "profiles" ? undefined : (PAGE_TITLE[page] ?? page)}
+          pageTitle={page === "profiles" ? undefined : (PAGE_TITLE_KEYS[page] ? t(PAGE_TITLE_KEYS[page]!) : page)}
         />
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {page === "profiles" ? (
-            <ProfilesPage
-              profiles={filteredProfiles}
-              totalCount={profiles.length}
-              isLoading={profilesLoading}
-              launchingId={launchingId}
-              onCreate={() => {
-                setEditingProfile(null);
-                setCreateOpen(true);
-              }}
-              onInspect={(profile) => {
-                setInfoProfileId(profile.id);
-              }}
-              onLaunch={(profile) => {
-                void handleLaunch(profile.id);
-              }}
-              onDelete={(profile) => {
-                setDeleteTarget(profile);
-              }}
-              onBulkSetGroup={(ids, group) => {
-                void handleBulkSetGroup(ids, group);
-              }}
-              onBulkTrash={(ids) => {
-                setBulkTrashIds(ids);
-                setDeleteTarget(null);
-              }}
-            />
-          ) : page === "proxies" ? (
-            <NetworkPage
-              profiles={profiles}
-              onProfilesChanged={() => {
-                void refreshProfiles();
-              }}
-            />
-          ) : page === "extensions" ? (
-            <ExtensionsPage
-              profiles={profiles}
-              onProfilesChanged={() => {
-                void refreshProfiles();
-              }}
-            />
-          ) : page === "agent" ? (
-            <AgentPage profiles={profiles} />
-          ) : page === "settings" ? (
-            <SettingsPage versionLine={versionLine} download={download} />
-          ) : placeholder ? (
-            <PlaceholderPage
-              title={placeholder.title}
-              description={placeholder.description}
-              Icon={placeholder.Icon}
-            />
-          ) : null}
+          <Suspense fallback={<div className="flex min-h-0 flex-1" />}>
+            {page === "profiles" ? (
+              <ProfilesPage
+                profiles={filteredProfiles}
+                totalCount={profiles.length}
+                isLoading={profilesLoading}
+                assignments={assignments}
+                launchingId={launchingId}
+                onCreate={() => {
+                  setEditingProfile(null);
+                  setCreateOpen(true);
+                }}
+                onInspect={(profile) => {
+                  setInfoProfileId(profile.id);
+                }}
+                onLaunch={(profile) => {
+                  void handleLaunch(profile.id);
+                }}
+                onDelete={(profile) => {
+                  setDeleteTarget(profile);
+                }}
+                onBulkSetGroup={(ids, group) => {
+                  void handleBulkSetGroup(ids, group);
+                }}
+                onBulkTrash={(ids) => {
+                  setBulkTrashIds(ids);
+                  setDeleteTarget(null);
+                }}
+                groupNames={groups.map((group) => group.name)}
+              />
+            ) : page === "groups" ? (
+              <GroupsPage
+                groups={groups}
+                isLoading={profilesLoading}
+                onCreate={handleCreateGroup}
+                onRename={handleRenameGroup}
+                onDelete={handleDeleteGroup}
+              />
+            ) : page === "proxies" ? (
+              <NetworkPage
+                profiles={profiles}
+                onProfilesChanged={() => {
+                  void refreshProfiles();
+                }}
+              />
+            ) : page === "extensions" ? (
+              <ExtensionsPage
+                profiles={profiles}
+                onProfilesChanged={() => {
+                  void refreshProfiles();
+                }}
+              />
+            ) : page === "agent" ? (
+              <AgentPage profiles={profiles} />
+            ) : page === "settings" ? (
+              <SettingsPage versionLine={versionLine} download={download} />
+            ) : placeholder ? (
+              <PlaceholderPage
+                title={placeholder.title}
+                description={placeholder.description}
+                Icon={placeholder.Icon}
+              />
+            ) : null}
+          </Suspense>
         </main>
       </div>
 
@@ -630,6 +759,7 @@ export function App() {
           if (!open) setEditingProfile(null);
         }}
         profile={editingProfile}
+        groupNames={groups.map((group) => group.name)}
         onSubmit={handleSubmit}
       />
 
@@ -641,6 +771,7 @@ export function App() {
         inspection={inspection}
         report={report}
         loading={infoLoading}
+        assignments={assignments}
         launching={launchingId === infoProfileId}
         verification={verification}
         verifying={verifying}
@@ -691,7 +822,7 @@ export function App() {
 
       <DeleteConfirmationDialog
         open={deleteTarget !== null || bulkTrashIds !== null}
-        profileName={bulkTrashIds !== null ? `${bulkTrashIds.length} selected profiles` : (deleteTarget?.name ?? "")}
+        profileName={bulkTrashIds !== null ? t("common.selectedProfiles", { count: bulkTrashIds.length }) : (deleteTarget?.name ?? "")}
         busy={deleteBusy}
         onConfirm={() => {
           if (bulkTrashIds !== null) {

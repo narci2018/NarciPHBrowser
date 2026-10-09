@@ -492,6 +492,8 @@ export interface CreateSpec {
   humanize?: boolean;
   /** Notes the user wrote. */
   notes?: string;
+  /** The bucket to file the profile under, or none. */
+  group?: string;
   /** A proxy to launch through. */
   proxy?: CreateProxy;
   /** Extra engine arguments, verbatim. */

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,33 +26,31 @@ export function DeleteConfirmationDialog({
   onConfirm,
   onCancel,
 }: DeleteConfirmationDialogProps) {
+  const { t } = useTranslation();
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onCancel()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Delete profile</DialogTitle>
+          <DialogTitle>{t("common.deleteProfileTitle")}</DialogTitle>
           <DialogDescription>
-            Moves <span className="font-medium text-foreground">{profileName}</span> to the
-            store's trash, and it can be restored from there.
+            {t("common.deleteProfileDescription", { name: profileName })}
           </DialogDescription>
         </DialogHeader>
 
         <Alert>
           <LuTriangleAlert className="size-4" />
-          <AlertTitle>The proxy assignment is let go</AlertTitle>
+          <AlertTitle>{t("common.deleteProfileAlertTitle")}</AlertTitle>
           <AlertDescription>
-            The profile keeps its browser data in the trash — cookies, sessions, history all
-            come back on restore. Its proxy assignment does not; assign one again after
-            restoring.
+            {t("common.deleteProfileAlertDescription")}
           </AlertDescription>
         </Alert>
 
         <DialogFooter>
           <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button type="button" variant="destructive" size="sm" disabled={busy} onClick={onConfirm}>
-            {busy ? "Moving…" : "Move to trash"}
+            {busy ? t("common.moving") : t("common.moveToTrash")}
           </Button>
         </DialogFooter>
       </DialogContent>

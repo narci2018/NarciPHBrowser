@@ -409,8 +409,12 @@ impl Identity {
         // a network request a real machine of this kind would not make.
         prefs.insert("browser.spellcheck.remote", Value::Bool(false));
 
-        // No proxy magic: the proxy is set by the launcher, and a profile that
-        // also carries one would either double-proxy or silently override it.
+        // The default proxy: none. The identity does not know whether the
+        // profile has one — that is the launcher's to say — so this is what a
+        // profile with none reads, and what a profile that does have one gets
+        // pinned over by `EngineConfig::extra_prefs` before launch. Written as
+        // a default rather than omitted, because an absent pref would follow a
+        // host setting that belongs to somebody else's machine.
         prefs.insert("network.proxy.type", Value::from(0u8));
 
         // The browser's own UI locale, which is *not* the same thing as the

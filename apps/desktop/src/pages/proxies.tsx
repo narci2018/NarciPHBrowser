@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import {
@@ -61,6 +62,7 @@ function UsageCell({
   onOpenAssign: (proxy: StoredProxy, preselected: string[]) => void;
   onRemove: (proxy: StoredProxy, profile: ProfileSummaryLike) => void;
 }) {
+  const { t } = useTranslation();
   const usage = proxy.used_by ?? [];
   if (usage.length === 0) {
     return <span className="text-muted-foreground">—</span>;
@@ -72,12 +74,14 @@ function UsageCell({
           type="button"
           className="cursor-pointer rounded-sm text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
         >
-          {usage.length} profile{usage.length === 1 ? "" : "s"}
+          {t("common.usageCount", { count: usage.length })}
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64">
         <div className="space-y-2">
-          <p className="text-xs font-medium text-foreground">Routed through “{proxy.name}”</p>
+          <p className="text-xs font-medium text-foreground">
+            {t("common.routedThrough", { name: proxy.name })}
+          </p>
           <div className="max-h-44 space-y-0.5 overflow-y-auto">
             {usage.map((profile) => (
               <div
@@ -89,7 +93,10 @@ function UsageCell({
                 </span>
                 <button
                   type="button"
-                  aria-label={`Remove ${profile.name} from ${proxy.name}`}
+                  aria-label={t("common.removeFromProxy", {
+                    profile: profile.name,
+                    proxy: proxy.name,
+                  })}
                   className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
                   onClick={() => {
                     onRemove(proxy, profile);
@@ -110,7 +117,7 @@ function UsageCell({
             }}
           >
             <LuNetwork className="size-3.5" />
-            Reassign…
+            {t("common.reassign")}
           </Button>
         </div>
       </PopoverContent>
@@ -119,6 +126,7 @@ function UsageCell({
 }
 
 export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
+  const { t } = useTranslation();
   const [proxies, setProxies] = useState<StoredProxy[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortDesc, setSortDesc] = useState(false);
@@ -175,12 +183,12 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
       });
       toast.success(
         result.updated_profiles > 0
-          ? `Saved — ${result.updated_profiles} profile${result.updated_profiles === 1 ? "" : "s"} rewritten`
-          : `Saved “${value.name}”`,
+          ? t("common.savedRewritten", { count: result.updated_profiles })
+          : t("common.savedNamed", { name: value.name }),
       );
     } else {
       await invoke("create_proxy", { spec: value });
-      toast.success(`Created “${value.name}”`);
+      toast.success(t("common.createdNamed", { name: value.name }));
     }
     await refresh();
     await onProfilesChanged();
@@ -198,11 +206,11 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
           await invoke("delete_proxy", { id });
           done += 1;
         }
-        toast.success(`Deleted ${done} prox${done === 1 ? "y" : "ies"}`);
+        toast.success(t("common.deletedProxies", { count: done }));
         setSelectedIds([]);
       } else {
         await invoke("delete_proxy", { id: deleteTarget.id });
-        toast.success(`Deleted “${deleteTarget.name}”`);
+        toast.success(t("common.deletedNamed", { name: deleteTarget.name }));
       }
       await refresh();
       await onProfilesChanged();
@@ -219,7 +227,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
       await invoke("assign_proxy", {
         payload: { profile_ids: [profile.id], proxy: null },
       });
-      toast.success(`“${profile.name}” no longer routes through “${proxy.name}”`);
+      toast.success(t("common.noLongerRoutes", { profile: profile.name, proxy: proxy.name }));
       await refresh();
       await onProfilesChanged();
     } catch (error) {
@@ -239,7 +247,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
         <span className="text-xs text-muted-foreground">
-          {rows.length} prox{rows.length === 1 ? "y" : "ies"}
+          {t("common.proxyCount", { count: rows.length })}
         </span>
         <div className="flex-1" />
         <Button
@@ -251,7 +259,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
           }}
         >
           <LuUpload className="size-3.5" />
-          Import
+          {t("common.import")}
         </Button>
         <Button
           type="button"
@@ -263,7 +271,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
           }}
         >
           <LuDownload className="size-3.5" />
-          Export
+          {t("common.export")}
         </Button>
         <Button
           type="button"
@@ -275,7 +283,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
           }}
         >
           <LuShuffle className="size-3.5" />
-          Distribute
+          {t("common.distribute")}
         </Button>
         <Button
           type="button"
@@ -286,7 +294,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
           }}
         >
           <LuPlus className="size-3.5" />
-          New proxy
+          {t("common.newProxy")}
         </Button>
       </div>
 
@@ -310,7 +318,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
                   }}
                   className="flex cursor-pointer items-center gap-1 text-left font-semibold transition-colors hover:text-foreground"
                 >
-                  Name
+                  {t("common.name")}
                   {sortDesc ? (
                     <LuChevronDown className="size-3.5" />
                   ) : (
@@ -318,12 +326,12 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
                   )}
                 </button>
               </TableHead>
-              <TableHead className="w-[120px]">Protocol</TableHead>
-              <TableHead className="w-[200px]">Host</TableHead>
-              <TableHead className="w-[76px]">Exit</TableHead>
-              <TableHead className="w-[130px]">Usage</TableHead>
-              <TableHead className="w-[64px]">Check</TableHead>
-              <TableHead className="w-[112px] pr-3 text-right">Actions</TableHead>
+              <TableHead className="w-[120px]">{t("common.protocol")}</TableHead>
+              <TableHead className="w-[200px]">{t("common.host")}</TableHead>
+              <TableHead className="w-[76px]">{t("common.exit")}</TableHead>
+              <TableHead className="w-[130px]">{t("common.usage")}</TableHead>
+              <TableHead className="w-[64px]">{t("common.check")}</TableHead>
+              <TableHead className="w-[112px] pr-3 text-right">{t("common.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody className="overflow-visible">
@@ -351,11 +359,10 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
                   <div className="flex flex-col items-center gap-3 text-center">
                     <Logo className="size-12 text-muted-foreground" />
                     <div>
-                      <p className="text-sm font-medium text-foreground">No proxies yet</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Store each exit once, then assign it to profiles instead of retyping the
-                        URL per profile.
+                      <p className="text-sm font-medium text-foreground">
+                        {t("common.noProxiesYet")}
                       </p>
+                      <p className="mt-1 text-xs text-muted-foreground">{t("common.noProxiesHint")}</p>
                     </div>
                     <div className="mt-1 flex gap-2">
                       <Button
@@ -365,7 +372,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
                           setFormOpen(true);
                         }}
                       >
-                        Add your first proxy
+                        {t("common.addFirstProxy")}
                       </Button>
                       <Button
                         size="sm"
@@ -374,7 +381,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
                           setImportOpen(true);
                         }}
                       >
-                        Import
+                        {t("common.import")}
                       </Button>
                     </div>
                   </div>
@@ -445,7 +452,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
                           <TooltipTrigger asChild>
                             <button
                               type="button"
-                              aria-label={`Assign ${proxy.name}`}
+                              aria-label={t("common.assignNamed", { name: proxy.name })}
                               onClick={() => {
                                 openAssign(proxy);
                               }}
@@ -454,11 +461,11 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
                               <LuNetwork className="size-3.5" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent>Assign to profiles</TooltipContent>
+                          <TooltipContent>{t("common.assignProxy")}</TooltipContent>
                         </Tooltip>
                         <button
                           type="button"
-                          aria-label={`Edit ${proxy.name}`}
+                          aria-label={t("common.editNamed", { name: proxy.name })}
                           onClick={() => {
                             setEditing(proxy);
                             setFormOpen(true);
@@ -469,7 +476,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
                         </button>
                         <button
                           type="button"
-                          aria-label={`Delete ${proxy.name}`}
+                          aria-label={t("common.deleteNamed", { name: proxy.name })}
                           onClick={() => {
                             setDeleteTarget(proxy);
                           }}
@@ -490,7 +497,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
       {selectedIds.length > 0 && (
         <div className="flex items-center gap-3 border-t border-border bg-background px-4 py-2">
           <span className="text-xs text-muted-foreground">
-            {selectedIds.length} selected
+            {t("common.selectedCount", { count: selectedIds.length })}
           </span>
           <div className="flex-1" />
           <Button
@@ -501,7 +508,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
               setSelectedIds([]);
             }}
           >
-            Clear
+            {t("common.clear")}
           </Button>
           <Button
             type="button"
@@ -512,7 +519,7 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
             }}
           >
             <LuTrash2 className="size-3.5" />
-            Delete {selectedIds.length}
+            {t("common.deleteCount", { count: selectedIds.length })}
           </Button>
         </div>
       )}
@@ -564,28 +571,21 @@ export function ProxiesPage({ profiles, onProfilesChanged }: ProxiesPageProps) {
         open={deleteTarget !== null}
         title={
           deleteTarget === "bulk"
-            ? `Delete ${selectedIds.length} proxies?`
+            ? t("common.deleteProxies", { count: selectedIds.length })
             : deleteTarget
-              ? `Delete “${deleteTarget.name}”?`
+              ? t("common.deleteProxy", { name: deleteTarget.name })
               : ""
         }
         description={
           deleteTarget === "bulk" ? (
             <>
-              {bulkUsing > 0
-                ? `${bulkUsing} of them are still used by profiles — those profiles keep their URLs and keep routing, but the entries leave this list. `
-                : ""}
-              This cannot be undone.
+              {bulkUsing > 0 ? `${t("common.deleteBulkWarning", { count: bulkUsing })} ` : ""}
+              {t("common.cannotBeUndone")}
             </>
           ) : deleteTarget && (deleteTarget.used_by ?? []).length > 0 ? (
-            <>
-              {(deleteTarget.used_by ?? []).length} profile
-              {(deleteTarget.used_by ?? []).length === 1 ? "" : "s"} route
-              {(deleteTarget.used_by ?? []).length === 1 ? "s" : ""} through this proxy — they keep
-              the URL and keep routing, but the entry leaves the list. This cannot be undone.
-            </>
+            t("common.deleteProxyWarning", { count: (deleteTarget.used_by ?? []).length })
           ) : (
-            "This cannot be undone."
+            t("common.cannotBeUndone")
           )
         }
         busy={deleteBusy}

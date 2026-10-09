@@ -3,10 +3,10 @@ export type ResolvedTheme = "light" | "dark";
 
 export const THEME_STORAGE_KEY = "narciph.theme";
 
-export const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
-  { value: "system", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
+export const THEME_OPTIONS: { value: ThemeMode; labelKey: string }[] = [
+  { value: "system", labelKey: "common.themeSystem" },
+  { value: "light", labelKey: "common.themeLight" },
+  { value: "dark", labelKey: "common.themeDark" },
 ];
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";

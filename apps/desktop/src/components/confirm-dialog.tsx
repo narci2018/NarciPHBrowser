@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,11 +24,12 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = "Delete",
+  confirmLabel = "common.delete",
   busy,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const { t } = useTranslation();
   return (
     <Dialog
       open={open}
@@ -49,7 +51,7 @@ export function ConfirmDialog({
               onCancel();
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
@@ -60,7 +62,7 @@ export function ConfirmDialog({
               onConfirm();
             }}
           >
-            {busy ? "Deleting…" : confirmLabel}
+            {busy ? t("common.deleting") : t(confirmLabel)}
           </Button>
         </DialogFooter>
       </DialogContent>

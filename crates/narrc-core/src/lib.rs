@@ -54,6 +54,7 @@ pub mod coherence;
 pub mod engine;
 pub mod error;
 pub mod generator;
+pub mod group;
 pub mod identity;
 pub mod os;
 pub mod pools;

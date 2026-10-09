@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import {
@@ -34,6 +35,7 @@ import { cn } from "@/lib/utils";
 const ROW_HEIGHT = 44;
 
 export function SubscriptionsPage() {
+  const { t } = useTranslation();
   const [rows, setRows] = useState<SubscriptionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -63,10 +65,10 @@ export function SubscriptionsPage() {
   const submitForm = async (value: SubscriptionFormValue) => {
     if (editing) {
       await invoke("update_subscription", { id: editing.id, spec: value });
-      toast.success(`Saved “${value.name}”`);
+      toast.success(t("common.savedNamed", { name: value.name }));
     } else {
       await invoke("create_subscription", { spec: value });
-      toast.success(`Added “${value.name}”`);
+      toast.success(t("common.addedNamed", { name: value.name }));
     }
     await refresh();
     setFormOpen(false);
@@ -77,9 +79,7 @@ export function SubscriptionsPage() {
     setBusyId(row.id);
     try {
       const result = await invoke<{ nodes: unknown[] }>("refresh_subscription", { id: row.id });
-      toast.success(
-        `Updated — ${result.nodes.length} node${result.nodes.length === 1 ? "" : "s"}`,
-      );
+      toast.success(t("common.updatedNodes", { count: result.nodes.length }));
       await refresh();
     } catch (error) {
       toast.error(String(error));
@@ -95,17 +95,18 @@ export function SubscriptionsPage() {
       await invoke("assign_node", {
         payload: { profile_ids: [profileId], subscription_id: subscriptionId, node: assignNode },
       });
-      toast.success(`Assigned “${assignNode}”`);
+      toast.success(t("common.assignedNamed", { name: assignNode }));
     } catch (error) {
       toast.error(String(error));
     }
   };
 
-  const confirmDelete = async () => {    if (!deleteTarget || deleteBusy) return;
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleteBusy) return;
     setDeleteBusy(true);
     try {
       await invoke("delete_subscription", { id: deleteTarget.id });
-      toast.success(`Deleted “${deleteTarget.name}”`);
+      toast.success(t("common.deletedNamed", { name: deleteTarget.name }));
       setDeleteTarget(null);
       await refresh();
     } catch (error) {
@@ -119,7 +120,7 @@ export function SubscriptionsPage() {
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
         <span className="text-xs text-muted-foreground">
-          {rows.length} subscription{rows.length === 1 ? "" : "s"}
+          {t("common.subscriptionCount", { count: rows.length })}
         </span>
         <div className="flex-1" />
         <Button
@@ -131,7 +132,7 @@ export function SubscriptionsPage() {
           }}
         >
           <LuPlus className="size-3.5" />
-          Add subscription
+          {t("common.addSubscription")}
         </Button>
       </div>
 
@@ -139,11 +140,11 @@ export function SubscriptionsPage() {
         <Table className="table-fixed" containerClassName="overflow-visible">
           <TableHeader className="sticky top-0 z-10 bg-background [&_tr]:border-0">
             <TableRow className="border-0! hover:bg-transparent">
-              <TableHead className="pl-3">Name</TableHead>
-              <TableHead className="w-[110px]">Nodes</TableHead>
-              <TableHead className="w-[280px]">URL</TableHead>
-              <TableHead className="w-[140px]">Updated</TableHead>
-              <TableHead className="w-[152px] pr-3 text-right">Actions</TableHead>
+              <TableHead className="pl-3">{t("common.name")}</TableHead>
+              <TableHead className="w-[110px]">{t("common.nodes")}</TableHead>
+              <TableHead className="w-[280px]">{t("common.url")}</TableHead>
+              <TableHead className="w-[140px]">{t("common.updated")}</TableHead>
+              <TableHead className="w-[152px] pr-3 text-right">{t("common.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody className="overflow-visible">
@@ -161,10 +162,11 @@ export function SubscriptionsPage() {
                   <div className="flex flex-col items-center gap-3 text-center">
                     <Logo className="size-12 text-muted-foreground" />
                     <div>
-                      <p className="text-sm font-medium text-foreground">No subscriptions yet</p>
+                      <p className="text-sm font-medium text-foreground">
+                        {t("common.noSubscriptionsYet")}
+                      </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Add a subscription URL and the core turns it into nodes you can test and
-                        route through.
+                        {t("common.noSubscriptionsHint")}
                       </p>
                     </div>
                     <Button
@@ -175,7 +177,7 @@ export function SubscriptionsPage() {
                         setFormOpen(true);
                       }}
                     >
-                      Add your first subscription
+                      {t("common.addFirstSubscription")}
                     </Button>
                   </div>
                 </TableCell>
@@ -206,13 +208,13 @@ export function SubscriptionsPage() {
                     {maskSubscriptionUrl(row.url)}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {row.updated_at ? relativeTime(row.updated_at) : "Never"}
+                    {row.updated_at ? relativeTime(row.updated_at) : t("common.never")}
                   </TableCell>
                   <TableCell className="pr-3">
                     <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
                       <button
                         type="button"
-                        aria-label={`Open nodes for ${row.name}`}
+                        aria-label={t("common.openNodesFor", { name: row.name })}
                         onClick={() => {
                           setNodesTarget(row);
                         }}
@@ -222,7 +224,7 @@ export function SubscriptionsPage() {
                       </button>
                       <button
                         type="button"
-                        aria-label={`Update ${row.name}`}
+                        aria-label={t("common.updateNamed", { name: row.name })}
                         disabled={busyId === row.id}
                         onClick={() => void updateNodes(row)}
                         className="grid size-6 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
@@ -231,7 +233,7 @@ export function SubscriptionsPage() {
                       </button>
                       <button
                         type="button"
-                        aria-label={`Edit ${row.name}`}
+                        aria-label={t("common.editNamed", { name: row.name })}
                         onClick={() => {
                           setEditing(row);
                           setFormOpen(true);
@@ -242,7 +244,7 @@ export function SubscriptionsPage() {
                       </button>
                       <button
                         type="button"
-                        aria-label={`Delete ${row.name}`}
+                        aria-label={t("common.deleteNamed", { name: row.name })}
                         onClick={() => {
                           setDeleteTarget(row);
                         }}
@@ -296,8 +298,8 @@ export function SubscriptionsPage() {
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        title={deleteTarget ? `Delete “${deleteTarget.name}”?` : ""}
-        description="The subscription and its stored URL are removed. Nodes fetched from it are discarded. This cannot be undone."
+        title={deleteTarget ? t("common.deleteSubscriptionTitle", { name: deleteTarget.name }) : ""}
+        description={t("common.deleteSubscriptionDescription")}
         busy={deleteBusy}
         onConfirm={() => {
           void confirmDelete();

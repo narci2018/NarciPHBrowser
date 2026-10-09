@@ -1,3 +1,5 @@
+import i18n from "@/i18n";
+
 /** A stored proxy as the list command returns it. */
 export interface StoredProxy {
   id: string;
@@ -291,16 +293,17 @@ export function formatExport(proxies: StoredProxy[], format: "txt" | "json"): st
   return proxies.map((proxy) => proxy.url).join("\n");
 }
 
-/** A short relative description of when a check ran. */
+/** A short relative description of when a check ran, in the active UI locale. */
 export function relativeTime(unixSeconds: number): string {
   const seconds = Math.max(0, Math.floor(Date.now() / 1000 - unixSeconds));
-  if (seconds < 10) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
+  const format = new Intl.RelativeTimeFormat(i18n.language, { numeric: "auto", style: "narrow" });
+  if (seconds < 10) return format.format(0, "second");
+  if (seconds < 60) return format.format(-seconds, "second");
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return format.format(-minutes, "minute");
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return format.format(-hours, "hour");
+  return format.format(-Math.floor(hours / 24), "day");
 }
 
 /** A profile and a proxy agree when the proxy's exit sits where the profile claims. */

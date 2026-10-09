@@ -149,6 +149,88 @@ pub struct ProxyParts {
     pub credentials: Option<String>,
 }
 
+/// The Firefox preferences that make a browser use this proxy.
+///
+/// Firefox's manual configuration is a host and a port per protocol — no
+/// scheme, no credentials — so the scheme decides *which* pair gets filled,
+/// and a URL written into a host preference would be read as a hostname that
+/// does not exist. The identity pins `network.proxy.type` to `0` ("no proxy")
+/// for every profile; these are the values that have to land *after* it, or
+/// the browser reads "no proxy" for a profile the user configured one for and
+/// connects direct — silently, which is the one outcome a user who configured
+/// a proxy never wants.
+pub fn proxy_prefs(parts: &ProxyParts) -> BTreeMap<String, serde_json::Value> {
+    let mut prefs = BTreeMap::new();
+    prefs.insert(
+        "network.proxy.type".to_owned(),
+        serde_json::Value::from(1u8),
+    );
+    let host = serde_json::Value::from(parts.host.as_str());
+    let port = serde_json::Value::from(parts.port);
+    match parts.scheme.as_str() {
+        // SOCKS carries every protocol, so the HTTP and SSL pairs are left
+        // empty on purpose: Firefox falls back to the SOCKS entry when they
+        // are, and filling them as well would send the same traffic to two
+        // places.
+        "socks" | "socks5" | "socks5h" => {
+            prefs.insert("network.proxy.socks".to_owned(), host);
+            prefs.insert("network.proxy.socks_port".to_owned(), port);
+            prefs.insert(
+                "network.proxy.socks_version".to_owned(),
+                serde_json::Value::from(5u8),
+            );
+            // Resolve names through the proxy. A name resolved locally asks
+            // the very network the proxy exists to stand between the browser
+            // and.
+            prefs.insert(
+                "network.proxy.socks_remote_dns".to_owned(),
+                serde_json::Value::Bool(true),
+            );
+            prefs.insert(
+                "network.proxy.socks5_remote_dns".to_owned(),
+                serde_json::Value::Bool(true),
+            );
+        }
+        // http:// and https:// both speak plain HTTP to the proxy; the "ssl"
+        // pair covers HTTPS *destinations*, not a TLS connection to the proxy
+        // itself, which a preference cannot ask for — see [`proxy_warnings`].
+        _ => {
+            prefs.insert("network.proxy.http".to_owned(), host.clone());
+            prefs.insert("network.proxy.http_port".to_owned(), port.clone());
+            prefs.insert("network.proxy.ssl".to_owned(), host);
+            prefs.insert("network.proxy.ssl_port".to_owned(), port);
+        }
+    }
+    prefs
+}
+
+/// What a Firefox proxy cannot be told, said before launch instead of after.
+///
+/// Both cases are limits of the manual configuration rather than bugs: the
+/// preference set has no field for either, and the engine's failure modes
+/// without them are a connection that does not happen and a prompt nobody
+/// filled in.
+pub fn proxy_warnings(parts: &ProxyParts) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if parts.scheme == "https" {
+        // Firefox accepts `HTTPS host:port` from a PAC file only; a manual
+        // host and port are always dialed over plain HTTP. Told here, the
+        // user can switch the scheme to http:// or use a SOCKS entry instead
+        // of discovering it as a browser that never loads a page.
+        warnings.push(format!(
+            "{}:{} is an HTTPS proxy; the engine dials a manual proxy over plain HTTP, so it will not connect",
+            parts.host, parts.port
+        ));
+    }
+    if parts.credentials.is_some() {
+        warnings.push(format!(
+            "{}:{} carries credentials, which no preference can hold; the browser will prompt for them itself",
+            parts.host, parts.port
+        ));
+    }
+    warnings
+}
+
 /// An override the engine would not apply.
 ///
 /// Both cases are the same failure from the user's side — the value they see in
@@ -209,9 +291,13 @@ pub struct Profile {
     pub addons: Vec<String>,
     /// The user's name for a bucket of profiles, or `None` for none.
     ///
-    /// A label, not an entity: there is no group table to keep in sync, and a
-    /// group with no members exists only as a value the user once typed. The
-    /// set of groups is whatever the store's profiles carry.
+    /// The membership half of a group: the names themselves live in
+    /// [`crate::group::GroupStore`], which is what lets a group exist before it
+    /// has a member and be renamed in one action. This copy is deliberately on
+    /// the profile rather than in a membership table — it travels with the
+    /// profile through export, import and the trash, so there is no second
+    /// copy of the filing to fall out of step. The two are read together at
+    /// the edge: a name on profiles alone is still a group.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
 }
@@ -393,22 +479,42 @@ impl Profile {
         let mut config = EngineConfig::new(profile_dir);
         config.extra_args = self.extra_args.clone();
         config.headless = headless;
+        // One row carries both the tabs and the profile's name: value 1 is
+        // tabs-in-titlebar, where the system titlebar has no row and the top
+        // strip is the tab row — the same row the pinned title is drawn into
+        // by the profile's own `narrc-title.css`, written at launch and
+        // injected by the engine's autoconfig
+        // (narrc_desktop::window_title::apply_display / ensure_loader).
+        // Stating the pref here pins that layout instead of trusting a
+        // default the engine may migrate, so the stylesheet's
+        // `:root[customtitlebar]` selector always holds. This pref is
+        // **integer-typed** in this engine (the old boolean name,
+        // `browser.tabs.drawInTitlebar`, is migrated away and inert): a bool
+        // here reaches `setBoolPref` and the type clash makes AutoConfig pop
+        // an error dialog at every launch — measured. Applied through the
+        // prefs channel at startup, so every window of every profile opens
+        // this way without a per-profile file to maintain.
+        config.extra_prefs.insert(
+            "browser.tabs.inTitlebar".to_owned(),
+            serde_json::Value::from(1),
+        );
         if let Some(path) = engine_path {
             config.program = path.to_owned();
         }
         if let Some(proxy) = &self.proxy {
             let parts = proxy.parts()?;
+            // The preferences are the channel Firefox reads. The environment
+            // variables below are kept for whoever inspects a plan, but no
+            // Firefox ever read `HTTP_PROXY`, and a browser reading only them
+            // would connect direct.
+            config.extra_prefs.extend(proxy_prefs(&parts));
+            config.extra_warnings.extend(proxy_warnings(&parts));
             config
                 .extra_env
                 .insert("HTTP_PROXY".to_owned(), proxy.url.clone());
             config
                 .extra_env
                 .insert("HTTPS_PROXY".to_owned(), proxy.url.clone());
-            // Firefox reads its proxy configuration from prefs, not the
-            // environment, so the same three values are surfaced for the
-            // launcher to write into the prefs channel as well. The environment
-            // alone would leave the browser connecting direct — the one outcome
-            // a user who configured a proxy never wants.
             config
                 .extra_env
                 .insert("NARCI_PROXY_SCHEME".to_owned(), parts.scheme);
@@ -665,6 +771,49 @@ impl ProfileStore {
             .collect();
         profiles.sort_by_key(|profile| profile.name.to_lowercase());
         profiles
+    }
+
+    /// Files every profile under `to` instead of `from`, reporting how many.
+    ///
+    /// The trash keeps the name it was trashed with: a restore re-files its
+    /// profile where the user put it. A save that fails stops the walk, and
+    /// the profiles still carrying `from` keep it visible to a merged listing,
+    /// so running the rename again finishes the job.
+    pub fn rename_group(&self, from: &str, to: &str) -> Result<usize> {
+        let from = from.trim();
+        let to = to.trim();
+        let mut moved = 0;
+        for mut profile in self
+            .list()
+            .into_iter()
+            .filter(|profile| profile.group.as_deref() == Some(from))
+        {
+            profile.set_group(to);
+            self.save(&profile)?;
+            moved += 1;
+        }
+        Ok(moved)
+    }
+
+    /// Clears the group from every profile filed under it, reporting how many.
+    ///
+    /// This is the un-filing a group deletion does: the profiles are kept —
+    /// a group is a label on a row, and removing a label is not removing the
+    /// row — they simply become ungrouped. Same trash and failure rules as
+    /// [`Self::rename_group`].
+    pub fn clear_group(&self, name: &str) -> Result<usize> {
+        let name = name.trim();
+        let mut cleared = 0;
+        for mut profile in self
+            .list()
+            .into_iter()
+            .filter(|profile| profile.group.as_deref() == Some(name))
+        {
+            profile.set_group("");
+            self.save(&profile)?;
+            cleared += 1;
+        }
+        Ok(cleared)
     }
 
     /// The ids present on disk, including any that failed to parse.
@@ -1029,6 +1178,52 @@ mod tests {
         assert!(!json.contains("group"), "{json}");
         let restored: Profile = serde_json::from_str(&json).unwrap();
         assert_eq!(restored, profile);
+    }
+
+    #[test]
+    fn renaming_a_group_moves_only_the_profiles_filed_under_it() {
+        let store = temp_store("rename-group");
+        let mut accounts = sample("Accounts-p", 1);
+        accounts.set_group("Accounts");
+        let mut shop = sample("Shop-p", 2);
+        shop.set_group("Shop");
+        let unfiled = sample("Unfiled-p", 3);
+        store.save(&accounts).unwrap();
+        store.save(&shop).unwrap();
+        store.save(&unfiled).unwrap();
+
+        assert_eq!(store.rename_group("Accounts", "Logins").unwrap(), 1);
+        let moved = store.load(&accounts.id).unwrap().unwrap();
+        assert_eq!(moved.group.as_deref(), Some("Logins"));
+        let untouched = store.load(&shop.id).unwrap().unwrap();
+        assert_eq!(
+            untouched.group.as_deref(),
+            Some("Shop"),
+            "another group must not be dragged along"
+        );
+        // A group no profile carries moves nothing and fails nothing: the
+        // store side of the rename is the caller's to have checked.
+        assert_eq!(store.rename_group("Nope", "Whatever").unwrap(), 0);
+    }
+
+    #[test]
+    fn clearing_a_group_keeps_its_profiles_and_leaves_them_unfiled() {
+        let store = temp_store("clear-group");
+        let mut first = sample("Shop-a", 2);
+        first.set_group("Shop");
+        let mut second = sample("Shop-b", 4);
+        second.set_group("Shop");
+        store.save(&first).unwrap();
+        store.save(&second).unwrap();
+
+        assert_eq!(store.clear_group("Shop").unwrap(), 2);
+        // Un-filing is not deleting: both profiles are still there, they just
+        // no longer say where they were filed.
+        for id in [&first.id, &second.id] {
+            assert!(store.load(id).unwrap().is_some(), "{id} must survive");
+            assert_eq!(store.load(id).unwrap().unwrap().group, None);
+        }
+        assert_eq!(store.clear_group("Shop").unwrap(), 0);
     }
 
     #[test]
@@ -1748,6 +1943,124 @@ mod tests {
         assert_eq!(plan.env["HTTPS_PROXY"], "http://proxy.example:3128");
         assert_eq!(plan.env["NARCI_PROXY_HOST"], "proxy.example");
         assert_eq!(plan.env["NARCI_PROXY_PORT"], "3128");
+    }
+
+    /// The preferences a plan hands the browser, reassembled from its chunks.
+    ///
+    /// This is the whole channel: everything Firefox reads about a proxy
+    /// arrives as `CAMOU_PREFS_*`, so it is what has to be asserted rather
+    /// than the environment variables nothing reads.
+    fn plan_prefs(plan: &LaunchPlan) -> serde_json::Value {
+        let chunks = engine::numbered_chunks(&plan.env, engine::PREFS_PREFIX);
+        serde_json::from_str(&engine::rejoin_chunks(&chunks)).expect("the prefs are JSON")
+    }
+
+    #[test]
+    fn a_proxied_profile_pins_a_proxy_the_browser_actually_reads() {
+        // The failure this exists to prevent: an identity that says "no proxy"
+        // while the profile says a proxy, and a browser that believed the
+        // identity — connecting direct, with the UI promising otherwise.
+        let mut profile = sample("Work", 1);
+        profile.proxy = Some(ProxyConfig::new("http://proxy.example:3128"));
+        let plan = profile
+            .launch_plan(Path::new("C:/profiles/work"), None, false)
+            .unwrap();
+
+        let prefs = plan_prefs(&plan);
+        assert_eq!(prefs["network.proxy.type"], serde_json::json!(1));
+        assert_eq!(
+            prefs["network.proxy.http"],
+            serde_json::json!("proxy.example")
+        );
+        assert_eq!(prefs["network.proxy.http_port"], serde_json::json!(3128));
+        assert_eq!(
+            prefs["network.proxy.ssl"],
+            serde_json::json!("proxy.example")
+        );
+        assert_eq!(prefs["network.proxy.ssl_port"], serde_json::json!(3128));
+    }
+
+    #[test]
+    fn a_launch_plan_keeps_the_single_row_titlebar_the_in_window_title_needs() {
+        // Tabs-in-titlebar (1) is the layout the in-window title is drawn
+        // into: one top row carries the tabs and the profile's name, with no
+        // system titlebar above them. The plan states the pref so that row —
+        // and the `:root[customtitlebar]` state its stylesheet targets — is
+        // guaranteed, not inherited.
+        let profile = sample("Work", 1);
+        let plan = profile
+            .launch_plan(Path::new("C:/profiles/work"), None, false)
+            .unwrap();
+
+        let prefs = plan_prefs(&plan);
+        assert_eq!(prefs["browser.tabs.inTitlebar"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn a_socks_proxy_gets_the_socks_entry_and_no_others() {
+        let mut profile = sample("Work", 1);
+        profile.proxy = Some(ProxyConfig::new("socks5://proxy.example:1080"));
+        let plan = profile
+            .launch_plan(Path::new("C:/profiles/work"), None, false)
+            .unwrap();
+
+        let prefs = plan_prefs(&plan);
+        assert_eq!(prefs["network.proxy.type"], serde_json::json!(1));
+        assert_eq!(
+            prefs["network.proxy.socks"],
+            serde_json::json!("proxy.example")
+        );
+        assert_eq!(prefs["network.proxy.socks_port"], serde_json::json!(1080));
+        assert_eq!(prefs["network.proxy.socks_version"], serde_json::json!(5));
+        // Names resolved through the proxy: asking the local network is
+        // asking the one thing the proxy stands between it and.
+        assert_eq!(
+            prefs["network.proxy.socks_remote_dns"],
+            serde_json::json!(true)
+        );
+        // SOCKS carries HTTP and HTTPS alike; a second entry would send the
+        // same traffic to two places.
+        assert!(prefs.get("network.proxy.http").is_none(), "{prefs:?}");
+        assert!(prefs.get("network.proxy.ssl").is_none(), "{prefs:?}");
+    }
+
+    #[test]
+    fn a_profile_without_a_proxy_still_says_no_proxy() {
+        let plan = sample("Work", 1)
+            .launch_plan(Path::new("C:/profiles/work"), None, false)
+            .unwrap();
+        assert_eq!(
+            plan_prefs(&plan)["network.proxy.type"],
+            serde_json::json!(0)
+        );
+    }
+
+    #[test]
+    fn what_a_proxy_cannot_be_told_is_a_warning_before_launch() {
+        let mut profile = sample("Work", 1);
+        profile.proxy = Some(ProxyConfig::new("https://user:pass@proxy.example:8443"));
+        let plan = profile
+            .launch_plan(Path::new("C:/profiles/work"), None, false)
+            .unwrap();
+
+        assert!(
+            plan.warnings.iter().any(|w| w.contains("HTTPS proxy")),
+            "{:?}",
+            plan.warnings
+        );
+        assert!(
+            plan.warnings.iter().any(|w| w.contains("credentials")),
+            "{:?}",
+            plan.warnings
+        );
+    }
+
+    #[test]
+    fn an_http_proxy_has_nothing_to_apologize_for() {
+        let parts = ProxyConfig::new("http://proxy.example:3128")
+            .parts()
+            .unwrap();
+        assert!(proxy_warnings(&parts).is_empty());
     }
 
     #[test]

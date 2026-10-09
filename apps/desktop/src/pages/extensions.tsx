@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { LuPlus, LuPuzzle, LuTrash2 } from "react-icons/lu";
@@ -31,6 +32,7 @@ interface ExtensionsPageProps {
  * change, so the table never lies about what a profile carries.
  */
 export function ExtensionsPage({ profiles, onProfilesChanged }: ExtensionsPageProps) {
+  const { t } = useTranslation();
   const [target, setTarget] = useState<ProfileSummary | null>(null);
   const [addons, setAddons] = useState<string[]>([]);
   const [path, setPath] = useState("");
@@ -97,7 +99,7 @@ export function ExtensionsPage({ profiles, onProfilesChanged }: ExtensionsPagePr
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex items-center border-b border-border px-4 py-2.5">
         <span className="text-xs text-muted-foreground">
-          {profiles.length} profile{profiles.length === 1 ? "" : "s"}
+          {t("common.usageCount", { count: profiles.length})}
         </span>
         <div className="flex-1" />
       </div>
@@ -106,9 +108,9 @@ export function ExtensionsPage({ profiles, onProfilesChanged }: ExtensionsPagePr
         <Table className="table-fixed" containerClassName="overflow-visible">
           <TableHeader className="sticky top-0 z-10 bg-background [&_tr]:border-0">
             <TableRow className="border-0! hover:bg-transparent">
-              <TableHead className="pl-3">Profile</TableHead>
-              <TableHead className="w-[110px]">Extensions</TableHead>
-              <TableHead className="w-[140px] pr-3 text-right">Actions</TableHead>
+              <TableHead className="pl-3">{t("common.profileColumn")}</TableHead>
+              <TableHead className="w-[110px]">{t("common.extensionsColumn")}</TableHead>
+              <TableHead className="w-[140px] pr-3 text-right">{t("common.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody className="overflow-visible">
@@ -118,9 +120,9 @@ export function ExtensionsPage({ profiles, onProfilesChanged }: ExtensionsPagePr
                   <div className="flex flex-col items-center gap-3 text-center">
                     <LuPuzzle className="size-12 text-muted-foreground" />
                     <div>
-                      <p className="text-sm font-medium text-foreground">No profiles yet</p>
+                      <p className="text-sm font-medium text-foreground">{t("common.noProfilesYet")}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Create a profile first, then attach extensions to it here.
+                        {t("common.noProfilesForExtensions")}
                       </p>
                     </div>
                   </div>
@@ -144,7 +146,7 @@ export function ExtensionsPage({ profiles, onProfilesChanged }: ExtensionsPagePr
                     <div className="flex items-center justify-end">
                       <Button size="sm" variant="outline" onClick={() => setTarget(profile)}>
                         <LuPuzzle className="size-3.5" />
-                        Manage
+                        {t("common.manageExtensions")}
                       </Button>
                     </div>
                   </TableCell>
@@ -163,18 +165,16 @@ export function ExtensionsPage({ profiles, onProfilesChanged }: ExtensionsPagePr
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Extensions — {target?.name}</DialogTitle>
+            <DialogTitle>{t("common.extensionsTitle", { name: target?.name })}</DialogTitle>
             <DialogDescription>
-              Paths to <span className="font-mono">.xpi</span> files or unpacked addon
-              directories. A path the engine cannot find is skipped with a launch
-              warning.
+              {t("common.extensionsDescription")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
             {addons.length === 0 ? (
               <p className="py-2 text-center text-xs text-muted-foreground">
-                No extensions on this profile.
+                {t("common.noExtensionsYet")}
               </p>
             ) : (
               addons.map((addon) => (
@@ -187,7 +187,7 @@ export function ExtensionsPage({ profiles, onProfilesChanged }: ExtensionsPagePr
                   </span>
                   <button
                     type="button"
-                    aria-label={`Remove ${addon}`}
+                    aria-label={t("common.removeExtension", { name: addon })}
                     disabled={busy}
                     onClick={() => void removeAddon(addon)}
                     className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
@@ -202,7 +202,7 @@ export function ExtensionsPage({ profiles, onProfilesChanged }: ExtensionsPagePr
           <DialogFooter className="gap-2 sm:gap-0">
             <Input
               value={path}
-              placeholder="C:\addons\uBlock0_1.62.0.chromium.xpi"
+              placeholder={t("common.extensionPathPlaceholder")}
               onChange={(event) => setPath(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") void addAddon();
@@ -211,7 +211,7 @@ export function ExtensionsPage({ profiles, onProfilesChanged }: ExtensionsPagePr
             />
             <Button type="button" size="sm" disabled={busy || !path.trim()} onClick={() => void addAddon()}>
               <LuPlus className="size-3.5" />
-              Add
+              {t("common.add")}
             </Button>
           </DialogFooter>
         </DialogContent>

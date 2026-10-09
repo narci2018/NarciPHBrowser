@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes the previous run moot.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust — clippy and tests
+    # The engine and core downloaders select per-platform assets, but only the
+    # Windows paths have been exercised; macOS and Linux are untested. CI runs
+    # where the project is actually known to work rather than implying a green
+    # light elsewhere.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins stable with the clippy and rustfmt components,
+      # so rustup installs exactly that on the first cargo invocation.
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+
+  desktop:
+    name: Desktop — typecheck, lint, tests, build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The pnpm version comes from the packageManager field in package.json.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build

@@ -5,19 +5,20 @@ mod commands;
 mod job;
 mod mihomo;
 mod state;
+mod window_title;
 
 use commands::{
-    add_addon, app_info, assign_node, assign_proxy, check_proxy, clear_override, core_status,
-    create_profile, create_proxy, create_subscription, delete_proxy, delete_subscription,
-    ensure_engine, export_profile, import_profile, inspect_profile, launch_profile,
-    list_assignments, list_automation, list_proxies, list_profiles, list_subscription_nodes,
+    add_addon, app_info, assign_node, assign_proxy, bulk_set_group, bulk_trash, check_proxy,
+    clear_override, collect_diagnostics, core_status, create_group, create_profile, create_proxy,
+    create_subscription, delete_group, delete_proxy, delete_subscription, ensure_engine,
+    export_profile, import_profile, inspect_profile, launch_profile, list_assignments,
+    list_automation, list_groups, list_profiles, list_proxies, list_subscription_nodes,
     list_subscriptions, list_trash, property_schema, purge_all_trash, purge_trash,
-    bulk_set_group, bulk_trash, collect_diagnostics, security_info, set_profile_group,
-    warmup_profile,
-    refresh_subscription, remove_addon, restore_profile, screen_presets, set_override,
-    start_automation, stop_automation, test_node_delay, test_node_exit, test_node_speed,
-    trash_profile, unassign_node, update_profile, update_proxy, update_subscription,
-    validate_profile, verify_profile,
+    refresh_subscription, remove_addon, rename_group, restore_profile, screen_presets,
+    security_info, set_override, set_profile_group, start_automation, stop_automation,
+    test_node_delay, test_node_exit, test_node_speed, test_subscription_delays, trash_profile,
+    unassign_node, update_profile, update_proxy, update_subscription, validate_profile,
+    verify_profile, warmup_profile,
 };
 use state::AppState;
 
@@ -48,6 +49,10 @@ fn main() {
             purge_all_trash,
             set_profile_group,
             bulk_set_group,
+            list_groups,
+            create_group,
+            rename_group,
+            delete_group,
             bulk_trash,
             warmup_profile,
             launch_profile,
@@ -78,6 +83,7 @@ fn main() {
             test_node_delay,
             test_node_exit,
             test_node_speed,
+            test_subscription_delays,
             assign_node,
             unassign_node,
             list_assignments,

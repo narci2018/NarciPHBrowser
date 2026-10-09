@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { LuChevronDown, LuChevronUp, LuInfo, LuPlay, LuTrash2 } from "react-icons/lu";
 import type { ProfileSummary, TargetOs } from "@narc/sdk";
 import { Logo } from "@/components/icons/logo";
@@ -14,12 +15,13 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { StoredAssignment } from "@/lib/subscriptions";
 import { cn } from "@/lib/utils";
 
-const OS_LABEL: Record<TargetOs, string> = {
-  windows: "Windows",
-  macos: "macOS",
-  linux: "Linux",
+const OS_LABEL_KEY: Record<TargetOs, string> = {
+  windows: "common.osWindows",
+  macos: "common.osMacos",
+  linux: "common.osLinux",
 };
 
 const AVATAR_COLORS = [
@@ -54,6 +56,9 @@ interface ProfilesPageProps {
   profiles: ProfileSummary[];
   totalCount: number;
   isLoading: boolean;
+  assignments: StoredAssignment[];
+  /** Every group's name — the datalist offers all of them, empty ones too. */
+  groupNames: string[];
   onCreate: () => void;
   onInspect: (profile: ProfileSummary) => void;
   onLaunch: (profile: ProfileSummary) => void;
@@ -67,6 +72,8 @@ export function ProfilesPage({
   profiles,
   totalCount,
   isLoading,
+  assignments,
+  groupNames,
   onCreate,
   onInspect,
   onLaunch,
@@ -75,13 +82,16 @@ export function ProfilesPage({
   onBulkTrash,
   launchingId,
 }: ProfilesPageProps) {
+  const { t } = useTranslation();
   const [sortDesc, setSortDesc] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [groupDraft, setGroupDraft] = useState("");
 
-  // The buckets are whatever the profiles carry; there is no group table to
-  // read, so an empty store and an ungrouped store look the same here.
+  // The chips are the buckets the visible profiles are actually in, so the
+  // counts follow a search. The bulk input below offers *every* group — an
+  // empty one included, straight from the group list — because a group
+  // created before it has a member is still a group one can file into.
   const groups = useMemo(() => {
     const counts = new Map<string, number>();
     for (const profile of profiles) {
@@ -152,7 +162,7 @@ export function ProfilesPage({
                 : "border-border text-muted-foreground hover:text-foreground",
             )}
           >
-            All <span className="tabular-nums">{profiles.length}</span>
+            {t("common.all")} <span className="tabular-nums">{profiles.length}</span>
           </button>
           {groups.map(([group, count]) => (
             <button
@@ -177,7 +187,7 @@ export function ProfilesPage({
       {bulkApplies && (
         <div className="mx-3 mt-2 flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
           <span className="text-xs font-medium text-foreground">
-            {selectedIds.length} selected
+            {t("common.selectedCount", { count: selectedIds.length })}
           </span>
           <input
             list="profile-groups"
@@ -188,17 +198,17 @@ export function ProfilesPage({
             onKeyDown={(event) => {
               if (event.key === "Enter") applyGroup();
             }}
-            placeholder="Group name — empty clears it"
-            aria-label="Group for the selected profiles"
+            placeholder={t("common.groupNamePlaceholder")}
+            aria-label={t("common.groupForSelected")}
             className="h-7 w-52 rounded-md border border-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           />
           <datalist id="profile-groups">
-            {groups.map(([group]) => (
+            {groupNames.map((group) => (
               <option key={group} value={group} />
             ))}
           </datalist>
           <Button type="button" size="sm" className="h-7 px-2.5 text-xs" onClick={applyGroup}>
-            Apply group
+            {t("common.applyGroup")}
           </Button>
           <Button
             type="button"
@@ -208,7 +218,7 @@ export function ProfilesPage({
             onClick={trashSelection}
           >
             <LuTrash2 className="size-3.5" />
-            Move to trash
+            {t("common.moveToTrash")}
           </Button>
           <Button
             type="button"
@@ -219,7 +229,7 @@ export function ProfilesPage({
               setSelected(new Set());
             }}
           >
-            Clear selection
+            {t("common.clearSelection")}
           </Button>
         </div>
       )}
@@ -231,7 +241,7 @@ export function ProfilesPage({
               <TableHead className="w-[36px] pl-3">
                 <input
                   type="checkbox"
-                  aria-label="Select every visible profile"
+                  aria-label={t("common.selectEveryVisible")}
                   checked={allSelected}
                   className="size-3.5 accent-current"
                   onChange={() => {
@@ -247,7 +257,7 @@ export function ProfilesPage({
                   }}
                   className="flex cursor-pointer items-center gap-1 text-left font-semibold transition-colors hover:text-foreground"
                 >
-                  Name
+                  {t("common.name")}
                   {sortDesc ? (
                     <LuChevronDown className="size-3.5" />
                   ) : (
@@ -255,12 +265,12 @@ export function ProfilesPage({
                   )}
                 </button>
               </TableHead>
-              <TableHead className="w-[110px]">OS</TableHead>
-              <TableHead className="w-[90px]">Country</TableHead>
-              <TableHead className="w-[120px]">Fingerprint</TableHead>
-              <TableHead className="w-[96px]">Overrides</TableHead>
-              <TableHead className="w-[88px]">Proxy</TableHead>
-              <TableHead className="w-[112px] pr-3 text-right">Actions</TableHead>
+              <TableHead className="w-[110px]">{t("common.os")}</TableHead>
+              <TableHead className="w-[90px]">{t("common.country")}</TableHead>
+              <TableHead className="w-[120px]">{t("common.fingerprint")}</TableHead>
+              <TableHead className="w-[96px]">{t("common.overrides")}</TableHead>
+              <TableHead className="w-[88px]">{t("common.networkTab")}</TableHead>
+              <TableHead className="w-[112px] pr-3 text-right">{t("common.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody className="overflow-visible">
@@ -285,24 +295,28 @@ export function ProfilesPage({
                     <Logo className="size-12 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium text-foreground">
-                        {totalCount === 0 ? "No profiles yet" : "No profiles match your search"}
+                        {totalCount === 0 ? t("common.noProfilesYet") : t("common.noProfilesMatch")}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {totalCount === 0
-                          ? "Each profile is a seed plus options — the identity is drawn, never stored."
-                          : "Try a shorter query, or clear the search field."}
+                          ? t("common.noProfilesHint")
+                          : t("common.noProfilesMatchHint")}
                       </p>
                     </div>
                     {totalCount === 0 && (
                       <Button size="sm" onClick={onCreate} className="mt-1">
-                        Create your first profile
+                        {t("common.createFirstProfile")}
                       </Button>
                     )}
                   </div>
               </TableCell>
             </TableRow>
           ) : (
-            rows.map((profile) => (
+            rows.map((profile) => {
+              const assignment = assignments.find(
+                (candidate) => candidate.profile_id === profile.id,
+              );
+              return (
               <TableRow
                 key={profile.id}
                 data-profile-id={profile.id}
@@ -316,7 +330,7 @@ export function ProfilesPage({
                 <TableCell className="overflow-visible py-0 pl-3">
                   <input
                     type="checkbox"
-                    aria-label={`Select ${profile.name}`}
+                    aria-label={t("common.selectProfile", { name: profile.name })}
                     checked={selected.has(profile.id)}
                     className="size-3.5 accent-current"
                     onChange={() => {
@@ -355,7 +369,7 @@ export function ProfilesPage({
                     </span>
                   </button>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{OS_LABEL[profile.os]}</TableCell>
+                <TableCell className="text-muted-foreground">{t(OS_LABEL_KEY[profile.os])}</TableCell>
                 <TableCell className="text-muted-foreground">{profile.country || "—"}</TableCell>
                 <TableCell>
                   {profile.coherent ? (
@@ -363,14 +377,14 @@ export function ProfilesPage({
                       variant="outline"
                       className="border-success/30 bg-success/10 text-success-text"
                     >
-                      Coherent
+                      {t("common.coherent")}
                     </Badge>
                   ) : (
                     <Badge
                       variant="outline"
                       className="border-destructive/30 bg-destructive/10 text-destructive-text"
                     >
-                      Issues
+                      {t("common.issues")}
                     </Badge>
                   )}
                 </TableCell>
@@ -378,10 +392,17 @@ export function ProfilesPage({
                   {profile.override_count > 0 ? `${profile.override_count}` : "—"}
                 </TableCell>
                 <TableCell>
-                  {profile.proxied ? (
-                    <Badge variant="secondary">Proxy</Badge>
+                  {assignment ? (
+                    <Badge
+                      variant="secondary"
+                      title={`${assignment.subscription_id} · ${assignment.node}`}
+                    >
+                      {t("common.routeSubscription")}
+                    </Badge>
+                  ) : profile.proxied ? (
+                    <Badge variant="secondary">{t("common.proxy")}</Badge>
                   ) : (
-                    <span className="text-muted-foreground">—</span>
+                    <span className="text-muted-foreground">{t("common.routeDirect")}</span>
                   )}
                 </TableCell>
                 <TableCell className="pr-3">
@@ -390,7 +411,7 @@ export function ProfilesPage({
                       <TooltipTrigger asChild>
                         <button
                           type="button"
-                          aria-label={`Launch ${profile.name}`}
+                          aria-label={t("common.launchProfile", { name: profile.name })}
                           disabled={!profile.coherent || launchingId === profile.id}
                           onClick={() => {
                             onLaunch(profile);
@@ -401,12 +422,12 @@ export function ProfilesPage({
                         </button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {profile.coherent ? "Launch" : "Fix coherence issues first"}
+                        {profile.coherent ? t("common.launch") : t("common.fixCoherenceFirst")}
                       </TooltipContent>
                     </Tooltip>
                     <button
                       type="button"
-                      aria-label={`Open ${profile.name}`}
+                      aria-label={t("common.openProfile", { name: profile.name })}
                       onClick={() => {
                         onInspect(profile);
                       }}
@@ -416,7 +437,7 @@ export function ProfilesPage({
                     </button>
                     <button
                       type="button"
-                      aria-label={`Delete ${profile.name}`}
+                      aria-label={t("common.deleteProfile", { name: profile.name })}
                       onClick={() => {
                         onDelete(profile);
                       }}
@@ -427,7 +448,8 @@ export function ProfilesPage({
                   </div>
                 </TableCell>
               </TableRow>
-            ))
+              );
+            })
           )}
           </TableBody>
         </Table>

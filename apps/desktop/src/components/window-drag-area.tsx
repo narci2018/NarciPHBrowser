@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { WindowResizeHandles } from "./window-resize-handles";
 
 type WindowControl = "minimize" | "maximize" | "close";
@@ -10,6 +11,7 @@ type WindowControl = "minimize" | "maximize" | "close";
  * a press-and-hold pointer gesture, so no drag-region attribute is used here.
  */
 export function WindowDragArea() {
+  const { t } = useTranslation();
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -70,7 +72,7 @@ export function WindowDragArea() {
               void handleMinimize();
             }}
             className="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            aria-label="Minimize"
+            aria-label={t("common.minimize")}
           >
             <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
               <rect width="10" height="1" />
@@ -86,7 +88,7 @@ export function WindowDragArea() {
               void handleToggleMaximize();
             }}
             className="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            aria-label={isMaximized ? "Restore" : "Maximize"}
+            aria-label={isMaximized ? t("common.restoreWindow") : t("common.maximize")}
           >
             {isMaximized ? (
               <svg
@@ -123,7 +125,7 @@ export function WindowDragArea() {
               void handleClose();
             }}
             className="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
-            aria-label="Close"
+            aria-label={t("common.close")}
           >
             <svg
               width="10"

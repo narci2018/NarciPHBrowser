@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { LuUser } from "react-icons/lu";
@@ -18,6 +19,7 @@ interface ProfilePickerDialogProps {
 }
 
 export function ProfilePickerDialog({ open, onOpenChange, onPick }: ProfilePickerDialogProps) {
+  const { t } = useTranslation();
   const [profiles, setProfiles] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -34,10 +36,9 @@ export function ProfilePickerDialog({ open, onOpenChange, onPick }: ProfilePicke
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Assign to a profile</DialogTitle>
+          <DialogTitle>{t("common.assignToProfile")}</DialogTitle>
           <DialogDescription>
-            The profile's browser will route through this node. A dedicated proxy process serves it
-            and stops when the browser closes.
+            {t("common.assignToProfileDescription")}
           </DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-72 rounded-md border border-border">
@@ -57,7 +58,7 @@ export function ProfilePickerDialog({ open, onOpenChange, onPick }: ProfilePicke
             ))}
             {profiles.length === 0 && !loading && (
               <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-                No profiles yet.
+                {t("common.noProfilesForPicker")}
               </p>
             )}
           </div>

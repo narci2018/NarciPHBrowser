@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,7 @@ export function ProfileExportDialog({
   onOpenChange,
   onExported,
 }: ProfileExportDialogProps) {
+  const { t } = useTranslation();
   const [includeLogin, setIncludeLogin] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -67,7 +69,7 @@ export function ProfileExportDialog({
         onOpenChange(false);
         return;
       }
-      toast.success(`Exported ${target.name}`, {
+      toast.success(t("common.exportedProfile", { name: target.name }), {
         description: result.path,
       });
       onExported();
@@ -83,10 +85,9 @@ export function ProfileExportDialog({
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Export {target.name}</DialogTitle>
+          <DialogTitle>{t("common.exportProfile", { name: target.name })}</DialogTitle>
           <DialogDescription>
-            Writes a portable copy of the profile — its seed, options, hand edits, addons and
-            proxy. Importing it elsewhere re-draws the same machine; browser data stays behind.
+            {t("common.exportProfileDescription")}
           </DialogDescription>
         </DialogHeader>
 
@@ -101,14 +102,14 @@ export function ProfileExportDialog({
               }}
               className="size-3.5 accent-current"
             />
-            Include the proxy login in the file
+            {t("common.includeProxyLogin")}
           </label>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             {loginInUse
               ? includeLogin
-                ? "The proxy password will be written into the file as plaintext. Anyone who can read the file can use the proxy as you."
-                : "The proxy is exported without its login — same proxy, no password in the file."
-              : "This profile's proxy (or lack of one) carries no login, so there is nothing to include."}
+                ? t("common.proxyLoginWarning")
+                : t("common.proxyNoLogin")
+              : t("common.proxyNoLoginToInclude")}
           </p>
         </div>
 
@@ -121,10 +122,10 @@ export function ProfileExportDialog({
               onOpenChange(false);
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button size="sm" disabled={busy} onClick={() => void confirm()}>
-            Export
+            {t("common.export")}
           </Button>
         </DialogFooter>
       </DialogContent>

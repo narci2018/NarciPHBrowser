@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import type { Inspection, PropertySchema as WireSchema } from "@narc/sdk";
 import { LuRefreshCw, LuSearch } from "react-icons/lu";
@@ -47,7 +48,7 @@ const textOf = (kind: string, value: unknown): string => {
   return String(value);
 };
 
-type Parsed = { ok: true; value: unknown } | { ok: false; need: string };
+type Parsed = { ok: true; value: unknown } | { ok: false; needKey: string };
 
 /**
  * Parses a draft the way the sidecar will, so a value the engine would drop
@@ -59,24 +60,24 @@ const parseDraft = (kind: string, raw: string): Parsed => {
     case "bool": {
       if (raw === "true") return { ok: true, value: true };
       if (raw === "false") return { ok: true, value: false };
-      return { ok: false, need: "true or false" };
+      return { ok: false, needKey: "common.trueOrFalse" };
     }
     case "uint": {
       if (raw.trim() === "") return { ok: true, value: undefined };
       const n = Number(raw.trim());
-      if (!Number.isInteger(n) || n < 0) return { ok: false, need: "a whole number ≥ 0" };
+      if (!Number.isInteger(n) || n < 0) return { ok: false, needKey: "common.wholeNumberGte0" };
       return { ok: true, value: n };
     }
     case "int": {
       if (raw.trim() === "") return { ok: true, value: undefined };
       const n = Number(raw.trim());
-      if (!Number.isInteger(n)) return { ok: false, need: "a whole number" };
+      if (!Number.isInteger(n)) return { ok: false, needKey: "common.wholeNumber" };
       return { ok: true, value: n };
     }
     case "double": {
       if (raw.trim() === "") return { ok: true, value: undefined };
       const n = Number(raw.trim());
-      if (!Number.isFinite(n)) return { ok: false, need: "a number" };
+      if (!Number.isFinite(n)) return { ok: false, needKey: "common.aNumber" };
       return { ok: true, value: n };
     }
     case "array": {
@@ -99,7 +100,7 @@ const parseDraft = (kind: string, raw: string): Parsed => {
       } catch {
         // falls through
       }
-      return { ok: false, need: "a JSON object" };
+      return { ok: false, needKey: "common.jsonObject" };
     }
     default:
       return { ok: true, value: raw };
@@ -113,20 +114,17 @@ const parseDraft = (kind: string, raw: string): Parsed => {
  * caller-supplied path, not part of the machine's identity.
  */
 const NEVER_DRAWN_NOTES: Record<string, string> = {
-  addons:
-    "Extension paths come from the profile's own addon list — manage them on the Extensions page, not here.",
-  certificates: "Root certificate bundles this profile will trust. Caller-supplied files, not identity.",
-  certificatepaths: "Root certificate directories this profile will trust. Caller-supplied files, not identity.",
-  debug: "Engine debug logging, for development.",
-  disabletheming: "Drops the engine's OS-matching browser chrome, so the window stops looking native.",
-  instantanimations: "Completes CSS animations at once, which upstream documents as observable.",
-  allowmainworld: "Lets an extension reach the page's own execution context, widening what an addon can do.",
-  allowaddonnewtab: "Lets extensions observe new-tab pages, widening what an addon can do.",
-  disableworldisolation:
-    "Reaches past the page's own execution context — a capability a site can detect, and not one ordinary browsing hands out.",
-  forcescopeaccess:
-    "Reaches past the page's own execution context — a capability a site can detect, and not one ordinary browsing hands out.",
-  humanizemintime: "A floor on how long one humanized cursor move may take; the engine default is zero.",
+  addons: "common.neverDrawnAddons",
+  certificates: "common.neverDrawnCertificates",
+  certificatepaths: "common.neverDrawnCertificatePaths",
+  debug: "common.neverDrawnDebug",
+  disabletheming: "common.neverDrawnDisableTheming",
+  instantanimations: "common.neverDrawnInstantAnimations",
+  allowmainworld: "common.neverDrawnAllowMainWorld",
+  allowaddonnewtab: "common.neverDrawnAllowAddonNewTab",
+  disableworldisolation: "common.neverDrawnDisableWorldIsolation",
+  forcescopeaccess: "common.neverDrawnForceScopeAccess",
+  humanizemintime: "common.neverDrawnHumanizeMinTime",
 };
 
 const normalize = (name: string): string => name.toLowerCase().replace(/[^a-z]/g, "");
@@ -150,9 +148,6 @@ const groupOf = (property: string): string => {
   const cut = property.search(/[.:]/);
   return cut === -1 ? "other" : property.slice(0, cut);
 };
-
-const groupLabel = (group: string): string =>
-  group === "other" ? "Engine options" : group.charAt(0).toUpperCase() + group.slice(1);
 
 const groupRank = (group: string): number => {
   const index = GROUP_ORDER.indexOf(normalize(group));
@@ -185,6 +180,7 @@ function FieldRow({
   onSave: (property: string, value: unknown) => void;
   onRemove: (property: string) => void;
 }) {
+  const { t } = useTranslation();
   const effective = inspection.effective[property];
   const drawn = inspection.drawn[property];
   const overridden = inspection.override_diff.some(
@@ -216,19 +212,19 @@ function FieldRow({
         </Badge>
         {neverDrawn && (
           <Badge variant="secondary" className="text-[10px]">
-            engine opt-in
+            {t("common.engineOptIn")}
           </Badge>
         )}
         {overridden && (
           <Badge variant="secondary" className="text-[10px]">
-            Edited
+            {t("common.edited")}
           </Badge>
         )}
       </div>
 
       {(overridden || (drawn !== undefined && drawn !== effective)) && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] tracking-wide text-muted-foreground uppercase">Drawn</span>
+          <span className="text-[10px] tracking-wide text-muted-foreground uppercase">{t("common.drawn")}</span>
           <code className="max-w-full truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
             {formatValue(drawn)}
           </code>
@@ -239,7 +235,7 @@ function FieldRow({
         {kind === "bool" ? (
           <Select value={raw === "" ? undefined : raw} onValueChange={(next) => onDraft(property, next)}>
             <SelectTrigger size="sm" className="h-7 w-32 font-mono text-xs">
-              <SelectValue placeholder={baseline === "" ? "not set" : baseline} />
+              <SelectValue placeholder={baseline === "" ? t("common.notSet") : baseline} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="true">true</SelectItem>
@@ -249,23 +245,23 @@ function FieldRow({
         ) : kind === "array" || kind === "dict" ? (
           <Textarea
             value={raw}
-            aria-label={`Value for ${property}`}
+            aria-label={t("common.valueOf", { property })}
             spellCheck={false}
             className={cn(
               "min-h-16 flex-1 resize-y font-mono text-xs",
               kind === "array" && "min-h-20",
             )}
-            placeholder={baseline === "" ? "not set" : undefined}
+            placeholder={baseline === "" ? t("common.notSet") : undefined}
             onChange={(event) => onDraft(property, event.target.value)}
           />
         ) : (
           <Input
             value={raw}
-            aria-label={`Value for ${property}`}
+            aria-label={t("common.valueOf", { property })}
             spellCheck={false}
             inputMode={kind === "uint" || kind === "int" || kind === "double" ? "numeric" : undefined}
             className="h-7 flex-1 font-mono text-xs"
-            placeholder={baseline === "" ? "not set" : undefined}
+            placeholder={baseline === "" ? t("common.notSet") : undefined}
             onChange={(event) => onDraft(property, event.target.value)}
           />
         )}
@@ -282,12 +278,12 @@ function FieldRow({
               }}
             >
               <LuRefreshCw className="size-3" />
-              Reset
+              {t("common.reset")}
             </Button>
           )}
           {dirty && parsed?.ok === true && changed && (
             <Button type="button" size="sm" className="h-7 px-2.5 text-xs" onClick={() => onSave(property, parsed.value)}>
-              Save
+              {t("common.save")}
             </Button>
           )}
         </div>
@@ -295,10 +291,10 @@ function FieldRow({
 
       {parsed && !parsed.ok && (
         <p className="text-[11px] text-destructive-text">
-          This property wants {parsed.need}.
+          {t("common.propertyWants", { need: t(parsed.needKey) })}
         </p>
       )}
-      {note && <p className="text-[11px] text-muted-foreground">{note}</p>}
+      {note && <p className="text-[11px] text-muted-foreground">{t(note)}</p>}
     </div>
   );
 }
@@ -317,6 +313,7 @@ export function IdentityFieldsTab({
   onOverrideChange,
   onOverrideRemove,
 }: IdentityFieldsTabProps) {
+  const { t } = useTranslation();
   const [schema, setSchema] = useState<WireSchema | null>(cachedSchema);
   const [query, setQuery] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -365,7 +362,7 @@ export function IdentityFieldsTab({
   if (!schema) {
     return (
       <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
-        Loading the engine schema…
+        {t("common.loadingEngineSchema")}
       </div>
     );
   }
@@ -388,18 +385,16 @@ export function IdentityFieldsTab({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="max-w-md text-xs text-muted-foreground">
-          {Object.keys(schema.properties).length} properties the engine understands. A saved
-          value becomes an override on the profile; Reset returns the field to what the seed
-          draws.
+          {t("common.propertiesEngineUnderstands", { count: Object.keys(schema.properties).length })}
         </p>
         <div className="relative w-56">
           <LuSearch className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Filter by name or value"
+            placeholder={t("common.filterByOrValue")}
             className="h-8 pl-7 text-xs"
-            aria-label="Filter properties"
+            aria-label={t("common.filterProperties")}
           />
         </div>
       </div>
@@ -407,7 +402,7 @@ export function IdentityFieldsTab({
       {groups.map(({ group, properties }) => (
         <section key={group} className="flex flex-col gap-2">
           <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-            {groupLabel(group)}
+            {group === "other" ? t("common.engineOptions") : group.charAt(0).toUpperCase() + group.slice(1)}
             <span className="ml-1.5 font-normal">{properties.length}</span>
           </h3>
           {properties.map((property) => (
@@ -435,7 +430,7 @@ export function IdentityFieldsTab({
 
       {groups.length === 0 && (
         <p className="py-6 text-center text-sm text-muted-foreground">
-          No property matches “{query.trim()}”.
+          {t("common.noPropertyMatches", { query: query.trim() })}
         </p>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ProfileSummary } from "@narc/sdk";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProxiesPage } from "@/pages/proxies";
@@ -11,6 +12,7 @@ interface NetworkPageProps {
 }
 
 export function NetworkPage({ profiles, onProfilesChanged }: NetworkPageProps) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState("proxy");
 
   return (
@@ -22,10 +24,10 @@ export function NetworkPage({ profiles, onProfilesChanged }: NetworkPageProps) {
       <div className="flex items-center border-b border-border px-4 pt-2.5 pb-2.5">
         <TabsList className="h-8">
           <TabsTrigger value="proxy" className="h-6 px-3 text-xs">
-            Proxy
+            {t("common.proxyTab")}
           </TabsTrigger>
           <TabsTrigger value="subscription" className="h-6 px-3 text-xs">
-            Subscription
+            {t("common.subscriptionTab")}
           </TabsTrigger>
         </TabsList>
       </div>

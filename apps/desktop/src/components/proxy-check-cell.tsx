@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import {
@@ -28,6 +29,7 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export function ProxyCheckCell({ proxy, onChecked }: ProxyCheckCellProps) {
+  const { t } = useTranslation();
   const [checking, setChecking] = useState(false);
   const [open, setOpen] = useState(false);
   const check = proxy.last_check ?? null;
@@ -72,7 +74,7 @@ export function ProxyCheckCell({ proxy, onChecked }: ProxyCheckCellProps) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={`Check ${proxy.name}`}
+          aria-label={t("common.checkNamed", { name: proxy.name })}
           onClick={() => {
             if (!open) void run();
           }}
@@ -86,12 +88,12 @@ export function ProxyCheckCell({ proxy, onChecked }: ProxyCheckCellProps) {
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-medium text-foreground">
               {checking
-                ? "Checking…"
+                ? t("common.checking")
                 : !check
-                  ? "Not checked yet"
+                  ? t("common.notCheckedYet")
                   : check.ok
-                    ? "Last check succeeded"
-                    : "Proxy check failed"}
+                    ? t("common.lastCheckSucceeded")
+                    : t("common.proxyCheckFailed")}
             </p>
             {check && (
               <span className="text-[11px] text-muted-foreground">
@@ -103,7 +105,7 @@ export function ProxyCheckCell({ proxy, onChecked }: ProxyCheckCellProps) {
           {check?.ok && (
             <dl className="divide-y divide-border rounded-md border border-border px-3 py-1">
               <div className="flex items-center justify-between gap-3 py-1">
-                <dt className="text-xs text-muted-foreground">Exit IP</dt>
+                <dt className="text-xs text-muted-foreground">{t("common.exitIp")}</dt>
                 <dd className="flex items-center gap-1">
                   <button
                     type="button"
@@ -111,7 +113,7 @@ export function ProxyCheckCell({ proxy, onChecked }: ProxyCheckCellProps) {
                     onClick={() => {
                       void navigator.clipboard
                         .writeText(check.ip ?? "")
-                        .then(() => toast.success("Exit IP copied"));
+                        .then(() => toast.success(t("common.exitIpCopied")));
                     }}
                   >
                     {check.ip}
@@ -121,14 +123,14 @@ export function ProxyCheckCell({ proxy, onChecked }: ProxyCheckCellProps) {
                   </span>
                 </dd>
               </div>
-              <Row label="Location" value={location || "—"} />
-              <Row label="Took" value={`${check.latency_ms} ms`} />
+              <Row label={t("common.location")} value={location || "—"} />
+              <Row label={t("common.took")} value={`${check.latency_ms} ms`} />
             </dl>
           )}
 
           {check && !check.ok && (
             <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {check.error || "The proxy did not reach an echo service."}
+              {check.error || t("common.proxyUnreachable")}
             </p>
           )}
 
@@ -143,7 +145,7 @@ export function ProxyCheckCell({ proxy, onChecked }: ProxyCheckCellProps) {
             }}
           >
             <LuRefreshCw className="size-3.5" />
-            {check ? "Check again" : "Check proxy"}
+            {check ? t("common.checkAgain") : t("common.checkProxy")}
           </Button>
         </div>
       </PopoverContent>

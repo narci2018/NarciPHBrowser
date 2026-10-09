@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   LuActivity,
@@ -33,6 +34,7 @@ import {
   listSubscriptionNodes,
   refreshSubscription,
   runPool,
+  testAllNodeDelays,
   testNodeDelay,
   testNodeExit,
   testNodeSpeed,
@@ -66,6 +68,7 @@ export function SubscriptionNodesDialog({
   onAssign,
   onRefreshed,
 }: SubscriptionNodesDialogProps) {
+  const { t } = useTranslation();
   const [nodes, setNodes] = useState<SubscriptionNode[]>([]);
   const [results, setResults] = useState<Record<string, NodeResult>>({});
   const [loading, setLoading] = useState(false);
@@ -74,6 +77,9 @@ export function SubscriptionNodesDialog({
   const [batchSpeed, setBatchSpeed] = useState(false);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Whether the list is ordered by measured delay. Reset whenever the results
+  // are, so a stale order never outlives the readings it came from.
+  const [sortedByDelay, setSortedByDelay] = useState(false);
 
   const id = subscription?.id ?? null;
 
@@ -95,6 +101,7 @@ export function SubscriptionNodesDialog({
     if (!open) return;
     setNodes([]);
     setResults({});
+    setSortedByDelay(false);
     setFilter("");
     setError(null);
     void load();
@@ -110,12 +117,13 @@ export function SubscriptionNodesDialog({
       patch(node, { testingDelay: true, delayError: null });
       try {
         const delay = await testNodeDelay(id, node);
-        patch(node, { delay, testingDelay: false, delayError: delay == null ? "timed out" : null });
+        patch(node, { delay, testingDelay: false, delayError: delay == null ? t("common.timedOut") : null });
+        setSortedByDelay(true);
       } catch (delayError) {
         patch(node, { testingDelay: false, delayError: String(delayError) });
       }
     },
-    [id, patch],
+    [id, patch, t],
   );
 
   const measureSpeed = useCallback(
@@ -155,15 +163,63 @@ export function SubscriptionNodesDialog({
     );
   }, [nodes, filter]);
 
+  // The delay test orders the list: rows with a reading float to the top
+  // sorted by that reading, everything else — failed, timed out, untested —
+  // keeps its current relative order below them.
+  const sorted = useMemo(() => {
+    if (!sortedByDelay) return filtered;
+    const delayOf = (node: SubscriptionNode): number | null => results[node.name]?.delay ?? null;
+    return [...filtered].sort((a, b) => {
+      const first = delayOf(a);
+      const second = delayOf(b);
+      if (first != null && second != null) return first - second;
+      if (first != null) return -1;
+      if (second != null) return 1;
+      return 0;
+    });
+  }, [filtered, results, sortedByDelay]);
+
+  // The batch is one core request that tests the whole provider concurrently,
+  // so it costs a single timeout window no matter the node count. Every row is
+  // part of it — the search box narrows the view, not the measurement — and a
+  // node the core could not measure shows as timed out.
   const testAllLatency = async () => {
-    if (batchLatency || filtered.length === 0) return;
+    if (batchLatency || !id || filtered.length === 0) return;
     setBatchLatency(true);
     try {
-      await runPool(filtered, 8, async (node) => {
-        await measureDelay(node.name);
+      setResults((current) => {
+        const next = { ...current };
+        for (const node of nodes) {
+          next[node.name] = { ...next[node.name], testingDelay: true, delayError: null };
+        }
+        return next;
       });
+      const delays = await testAllNodeDelays(id);
+      setResults((current) => {
+        const next = { ...current };
+        for (const node of nodes) {
+          const delay = delays[node.name] ?? null;
+          next[node.name] = {
+            ...next[node.name],
+            delay,
+            testingDelay: false,
+            delayError: delay == null ? t("common.timedOut") : null,
+          };
+        }
+        return next;
+      });
+    } catch (batchError) {
+      setResults((current) => {
+        const next = { ...current };
+        for (const node of nodes) {
+          next[node.name] = { ...next[node.name], testingDelay: false };
+        }
+        return next;
+      });
+      toast.error(String(batchError));
     } finally {
       setBatchLatency(false);
+      setSortedByDelay(true);
     }
   };
 
@@ -188,8 +244,9 @@ export function SubscriptionNodesDialog({
       const next = await refreshSubscription(id);
       setNodes(next);
       setResults({});
+      setSortedByDelay(false);
       toast.success(
-        `Updated — ${next.length} node${next.length === 1 ? "" : "s"}`,
+        t("common.updatedNodes", { count: next.length}),
       );
       onRefreshed();
     } catch (refreshError) {
@@ -205,10 +262,9 @@ export function SubscriptionNodesDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] max-w-4xl flex-col">
         <DialogHeader>
-          <DialogTitle>{subscription?.name ?? "Subscription"}</DialogTitle>
+          <DialogTitle>{subscription?.name ?? t("common.subscription")}</DialogTitle>
           <DialogDescription>
-            {nodes.length} node{nodes.length === 1 ? "" : "s"} from the provider. Latency is a real
-            request through the node; speed is a download measured through it.
+            {t("common.subscriptionNodesDescription", { count: nodes.length})}
           </DialogDescription>
         </DialogHeader>
 
@@ -217,7 +273,7 @@ export function SubscriptionNodesDialog({
             <LuSearch className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="h-8 pl-8 text-sm"
-              placeholder="Filter nodes…"
+              placeholder={t("common.filterNodes")}
               value={filter}
               onChange={(event) => {
                 setFilter(event.target.value);
@@ -236,7 +292,7 @@ export function SubscriptionNodesDialog({
             ) : (
               <LuActivity className="size-3.5" />
             )}
-            Test latency
+            {t("common.testLatency")}
           </Button>
           <Button
             type="button"
@@ -250,7 +306,7 @@ export function SubscriptionNodesDialog({
             ) : (
               <LuDownload className="size-3.5" />
             )}
-            Test speed
+            {t("common.testSpeed")}
           </Button>
           <Button
             type="button"
@@ -264,7 +320,7 @@ export function SubscriptionNodesDialog({
             ) : (
               <LuRefreshCw className="size-3.5" />
             )}
-            Update
+            {t("common.update")}
           </Button>
         </div>
 
@@ -272,12 +328,12 @@ export function SubscriptionNodesDialog({
           <Table className="table-fixed">
             <TableHeader className="sticky top-0 z-10 bg-background [&_tr]:border-0">
               <TableRow className="border-0! hover:bg-transparent">
-                <TableHead className="pl-3">Node</TableHead>
-                <TableHead className="w-[120px]">Protocol</TableHead>
-                <TableHead className="w-[110px]">Latency</TableHead>
-                <TableHead className="w-[120px]">Speed</TableHead>
-                <TableHead className="w-[90px]">Exit</TableHead>
-                <TableHead className="w-[96px] pr-3 text-right">Test</TableHead>
+                <TableHead className="pl-3">{t("common.node")}</TableHead>
+                <TableHead className="w-[120px]">{t("common.protocol")}</TableHead>
+                <TableHead className="w-[110px]">{t("common.latency")}</TableHead>
+                <TableHead className="w-[120px]">{t("common.speed")}</TableHead>
+                <TableHead className="w-[90px]">{t("common.exit")}</TableHead>
+                <TableHead className="w-[96px] pr-3 text-right">{t("common.test")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -299,12 +355,12 @@ export function SubscriptionNodesDialog({
                 <TableRow className="border-0! hover:bg-transparent">
                   <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
                     {nodes.length === 0
-                      ? "No nodes yet — press Update to fetch them from the provider."
-                      : "No nodes match the filter."}
+                      ? t("common.noNodesYet")
+                      : t("common.noNodesMatch")}
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((node) => {
+                sorted.map((node) => {
                   const result = results[node.name] ?? {};
                   const tone = delayTone(result.delay);
                   return (
@@ -322,7 +378,7 @@ export function SubscriptionNodesDialog({
                           <LuLoaderCircle className="size-3.5 animate-spin text-muted-foreground" />
                         ) : result.delayError ? (
                           <span className="text-destructive" title={result.delayError}>
-                            failed
+                            {t("common.failed")}
                           </span>
                         ) : result.delay != null ? (
                           <span className={cn("tabular-nums", DELAY_TONE[tone])}>
@@ -337,7 +393,7 @@ export function SubscriptionNodesDialog({
                           <LuLoaderCircle className="size-3.5 animate-spin text-muted-foreground" />
                         ) : result.speedError ? (
                           <span className="text-destructive" title={result.speedError}>
-                            failed
+                            {t("common.failed")}
                           </span>
                         ) : result.speed != null ? (
                           <span className="tabular-nums text-foreground">
@@ -352,14 +408,14 @@ export function SubscriptionNodesDialog({
                           <LuLoaderCircle className="size-3.5 animate-spin text-muted-foreground" />
                         ) : result.exitError ? (
                           <span className="text-destructive" title={result.exitError}>
-                            failed
+                            {t("common.failed")}
                           </span>
                         ) : result.exit ? (
                           <span
                             className="tabular-nums text-foreground"
                             title={result.exit.ip}
                           >
-                            {result.exit.country ?? "unknown"}
+                            {result.exit.country ?? t("common.unknown")}
                           </span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
@@ -369,7 +425,7 @@ export function SubscriptionNodesDialog({
                         <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
                           <button
                             type="button"
-                            aria-label={`Test latency for ${node.name}`}
+                            aria-label={t("common.testLatencyFor", { name: node.name })}
                             disabled={result.testingDelay || busy}
                             onClick={() => void measureDelay(node.name)}
                             className="grid size-6 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
@@ -378,7 +434,7 @@ export function SubscriptionNodesDialog({
                           </button>
                           <button
                             type="button"
-                            aria-label={`Test speed for ${node.name}`}
+                            aria-label={t("common.testSpeedFor", { name: node.name })}
                             disabled={result.testingSpeed || busy}
                             onClick={() => void measureSpeed(node.name)}
                             className="grid size-6 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
@@ -387,7 +443,7 @@ export function SubscriptionNodesDialog({
                           </button>
                           <button
                             type="button"
-                            aria-label={`Check exit country for ${node.name}`}
+                            aria-label={t("common.checkExitFor", { name: node.name })}
                             disabled={result.testingExit || busy}
                             onClick={() => void measureExit(node.name)}
                             className="grid size-6 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
@@ -396,7 +452,7 @@ export function SubscriptionNodesDialog({
                           </button>
                           <button
                             type="button"
-                            aria-label={`Assign ${node.name} to a profile`}
+                            aria-label={t("common.assignNodeToProfile", { name: node.name })}
                             onClick={() => onAssign(node.name)}
                             className="grid size-6 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                           >

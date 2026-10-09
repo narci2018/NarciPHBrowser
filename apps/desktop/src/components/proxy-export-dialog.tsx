@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { LuCopy } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ interface ProxyExportDialogProps {
 }
 
 export function ProxyExportDialog({ open, onOpenChange, proxies }: ProxyExportDialogProps) {
+  const { t } = useTranslation();
   const [format, setFormat] = useState<"txt" | "json">("txt");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -41,10 +43,10 @@ export function ProxyExportDialog({ open, onOpenChange, proxies }: ProxyExportDi
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(content);
-      toast.success("Copied to clipboard");
+      toast.success(t("common.copied"));
     } catch {
       selectAll();
-      toast.error("Clipboard unavailable — selected, press Ctrl+C");
+      toast.error(t("common.copyFailed"));
     }
   };
 
@@ -52,17 +54,16 @@ export function ProxyExportDialog({ open, onOpenChange, proxies }: ProxyExportDi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Export proxies</DialogTitle>
+          <DialogTitle>{t("common.exportProxies")}</DialogTitle>
           <DialogDescription>
-            {proxies.length} prox{proxies.length === 1 ? "y" : "ies"}. TXT is one URL per line;
-            JSON also carries the name and exit country for a round-trip import.
+            {t("common.exportProxiesDescription", { count: proxies.length})}
           </DialogDescription>
         </DialogHeader>
 
         <Tabs value={format} onValueChange={(value) => setFormat(value as "txt" | "json")}>
           <TabsList>
-            <TabsTrigger value="txt">TXT</TabsTrigger>
-            <TabsTrigger value="json">JSON</TabsTrigger>
+            <TabsTrigger value="txt">{t("common.txt")}</TabsTrigger>
+            <TabsTrigger value="json">{t("common.json")}</TabsTrigger>
           </TabsList>
         </Tabs>
 
@@ -86,11 +87,11 @@ export function ProxyExportDialog({ open, onOpenChange, proxies }: ProxyExportDi
               onOpenChange(false);
             }}
           >
-            Close
+            {t("common.close")}
           </Button>
           <Button type="button" size="sm" onClick={() => void copy()}>
             <LuCopy className="size-3.5" />
-            Copy
+            {t("common.copy")}
           </Button>
         </DialogFooter>
       </DialogContent>

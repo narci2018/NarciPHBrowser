@@ -1,5 +1,6 @@
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { FiWifi } from "react-icons/fi";
 import { GoGear, GoKebabHorizontal } from "react-icons/go";
 import {
@@ -11,6 +12,7 @@ import {
   LuPuzzle,
   LuTrash2,
   LuUser,
+  LuUsers,
 } from "react-icons/lu";
 import { useInputModality } from "@/hooks/use-input-modality";
 import { MOTION_SPRING_POSITION } from "@/lib/motion";
@@ -20,6 +22,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 export type AppPage =
   | "profiles"
+  | "groups"
   | "proxies"
   | "extensions"
   | "agent"
@@ -48,31 +51,32 @@ function ActiveIndicator() {
 interface RailItem {
   page: AppPage;
   Icon: React.ComponentType<{ className?: string }>;
-  label: string;
+  labelKey: string;
 }
 
 const TOP_ITEMS: RailItem[] = [
-  { page: "profiles", Icon: LuUser, label: "Profiles" },
-  { page: "proxies", Icon: FiWifi, label: "Network" },
-  { page: "extensions", Icon: LuPuzzle, label: "Extensions" },
-  { page: "agent", Icon: LuBot, label: "Agent" },
-  { page: "integrations", Icon: LuPlug, label: "Integrations" },
-  { page: "account", Icon: LuCloud, label: "Account" },
+  { page: "profiles", Icon: LuUser, labelKey: "common.profilesTitle" },
+  { page: "groups", Icon: LuUsers, labelKey: "common.groupsTitle" },
+  { page: "proxies", Icon: FiWifi, labelKey: "common.networkTitle" },
+  { page: "extensions", Icon: LuPuzzle, labelKey: "common.extensionsTitle" },
+  { page: "agent", Icon: LuBot, labelKey: "common.agentTitle" },
+  { page: "integrations", Icon: LuPlug, labelKey: "common.integrationsTitle" },
+  { page: "account", Icon: LuCloud, labelKey: "common.accountTitle" },
 ];
 
 interface MoreMenuItem {
   page: AppPage;
   Icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  hint: string;
+  labelKey: string;
+  hintKey: string;
 }
 
 const MORE_ITEMS: MoreMenuItem[] = [
   {
     page: "shortcuts",
     Icon: LuKeyboard,
-    label: "Keyboard shortcuts",
-    hint: "See every shortcut",
+    labelKey: "common.shortcutsTitle",
+    hintKey: "common.shortcutsHint",
   },
 ];
 
@@ -84,6 +88,7 @@ interface RailNavProps {
 }
 
 export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: RailNavProps) {
+  const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
@@ -101,7 +106,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
     <nav className="relative flex w-10 shrink-0 flex-col items-center gap-1 border-r border-border bg-background py-2">
       <button
         type="button"
-        aria-label="NarciPHBrowser"
+        aria-label={t("common.applicationName")}
         className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-md bg-transparent text-foreground select-none"
         onClick={() => onNavigate("profiles")}
       >
@@ -111,7 +116,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
       <div className="my-1 h-px w-5 shrink-0 bg-border" />
 
       <div className="flex min-h-0 w-full flex-col items-center gap-1 overflow-y-auto [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-        {TOP_ITEMS.map(({ page, Icon, label }) => {
+        {TOP_ITEMS.map(({ page, Icon, labelKey }) => {
           const active = currentPage === page;
           return (
             <Tooltip key={page} delayDuration={300}>
@@ -121,7 +126,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
                   onClick={() => {
                     onNavigate(page);
                   }}
-                  aria-label={label}
+                  aria-label={t(labelKey)}
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "relative grid size-7 shrink-0 cursor-pointer place-items-center rounded-md transition-colors duration-100",
@@ -134,7 +139,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
                   <Icon className="size-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">{label}</TooltipContent>
+              <TooltipContent side="right">{t(labelKey)}</TooltipContent>
             </Tooltip>
           );
         })}
@@ -149,7 +154,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
             onClick={() => {
               setMoreOpen((v) => !v);
             }}
-            aria-label="More"
+            aria-label={t("common.more")}
             aria-expanded={moreOpen}
             className={cn(
               "grid size-7 shrink-0 cursor-pointer place-items-center rounded-md transition-colors duration-100",
@@ -161,7 +166,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
             <GoKebabHorizontal className="size-3.5" />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right">More</TooltipContent>
+        <TooltipContent side="right">{t("common.more")}</TooltipContent>
       </Tooltip>
 
       <Tooltip delayDuration={300}>
@@ -171,7 +176,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
             onClick={() => {
               onNavigate("settings");
             }}
-            aria-label="Settings"
+            aria-label={t("common.settingsTitle")}
             aria-current={currentPage === "settings" ? "page" : undefined}
             className={cn(
               "relative grid size-7 shrink-0 cursor-pointer place-items-center rounded-md transition-colors duration-100",
@@ -184,14 +189,14 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
             <GoGear className="size-3.5" />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right">Settings</TooltipContent>
+        <TooltipContent side="right">{t("common.settingsTitle")}</TooltipContent>
       </Tooltip>
 
       {moreOpen && (
         <>
           <button
             type="button"
-            aria-label="Close menu"
+            aria-label={t("common.closeMenu")}
             className="fixed inset-0 z-30 cursor-default bg-transparent"
             onClick={() => {
               setMoreOpen(false);
@@ -199,10 +204,10 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
           />
           <div
             role="menu"
-            aria-label="More"
+            aria-label={t("common.more")}
             className="absolute bottom-14 left-11 z-40 w-56 rounded-lg bg-card p-1 text-card-foreground shadow-sm"
           >
-            {MORE_ITEMS.map(({ page, Icon, label, hint }) => (
+            {MORE_ITEMS.map(({ page, Icon, labelKey, hintKey }) => (
               <button
                 key={page}
                 type="button"
@@ -218,10 +223,10 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
                 </span>
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate text-xs font-medium text-foreground">
-                    {label}
+                    {t(labelKey)}
                   </span>
                   <span className="truncate text-[10px] text-muted-foreground">
-                    {hint}
+                    {t(hintKey)}
                   </span>
                 </span>
               </button>
@@ -239,9 +244,9 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
                 <LuTrash2 className="size-3" />
               </span>
               <span className="flex min-w-0 flex-col">
-                <span className="truncate text-xs font-medium text-foreground">Trash</span>
+                <span className="truncate text-xs font-medium text-foreground">{t("common.trash")}</span>
                 <span className="truncate text-[10px] text-muted-foreground">
-                  Restore or permanently delete
+                  {t("common.trashHint")}
                 </span>
               </span>
             </button>
@@ -259,10 +264,10 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
               </span>
               <span className="flex min-w-0 flex-col">
                 <span className="truncate text-xs font-medium text-foreground">
-                  About
+                  {t("common.about")}
                 </span>
                 <span className="truncate text-[10px] text-muted-foreground">
-                  Versions and build info
+                  {t("common.aboutHint")}
                 </span>
               </span>
             </button>

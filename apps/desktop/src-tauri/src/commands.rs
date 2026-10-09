@@ -2,6 +2,7 @@ use narrc_core::profile::ProfileStore;
 use narrc_core::ProxyConfig;
 use narrc_sidecar::protocol;
 use narrc_sidecar::store_path;
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tauri::{Emitter, Manager};
@@ -743,6 +744,124 @@ pub async fn bulk_set_group(
     Ok(serde_json::json!({ "updated": updated, "failed": failed }))
 }
 
+/// Every group, with how many profiles are filed under it, sorted by name.
+///
+/// The names come from the group store merged with what profiles still carry:
+/// a name only on profiles is still a group — the profiles say so — and
+/// listing it here is what lets it be renamed or deleted from the groups page
+/// instead of lingering where no list shows it.
+#[tauri::command]
+pub async fn list_groups(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let stored = open_group_store(&state)?;
+    let profiles = open_store(&state)?.list();
+    let carried = profiles
+        .iter()
+        .filter_map(|profile| profile.group.as_deref());
+    let groups: Vec<serde_json::Value> = group_counts(stored.list(), carried)
+        .into_iter()
+        .map(|(name, count)| serde_json::json!({ "name": name, "count": count }))
+        .collect();
+    Ok(serde_json::json!({ "groups": groups }))
+}
+
+/// The names to list and their member counts: both sides of the group, in
+/// name order, with a group that has no members still counted (as zero).
+fn group_counts<'a>(
+    stored: &[String],
+    carried: impl IntoIterator<Item = &'a str>,
+) -> Vec<(String, usize)> {
+    let mut counts: BTreeMap<String, usize> = stored.iter().map(|name| (name.clone(), 0)).collect();
+    for group in carried {
+        *counts.entry(group.to_owned()).or_default() += 1;
+    }
+    counts.into_iter().collect()
+}
+
+/// Whether any profile is already filed under `name`.
+fn profiles_carry_group(state: &tauri::State<'_, AppState>, name: &str) -> Result<bool, String> {
+    Ok(open_store(state)?
+        .list()
+        .iter()
+        .any(|profile| profile.group.as_deref() == Some(name)))
+}
+
+/// Creates a group under a name nothing else has.
+///
+/// The name may be typed straight into a profile's group field — that path
+/// needs no write here, because listing merges profile-carried names — so
+/// this exists for the groups page, where a group is created before it has a
+/// member. A name already in use is refused rather than treated as a join:
+/// the button says "new group".
+#[tauri::command]
+pub async fn create_group(
+    state: tauri::State<'_, AppState>,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("a group needs a name".to_owned());
+    }
+    let mut stored = open_group_store(&state)?;
+    if stored.contains(name) || profiles_carry_group(&state, name)? {
+        return Err(format!("a group named {name:?} already exists"));
+    }
+    let created = stored.create(name).map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({ "name": created }))
+}
+
+/// Renames a group, taking the profiles filed under it with it.
+#[tauri::command]
+pub async fn rename_group(
+    state: tauri::State<'_, AppState>,
+    from: String,
+    to: String,
+) -> Result<serde_json::Value, String> {
+    let from = from.trim();
+    let to = to.trim();
+    if from.is_empty() || to.is_empty() {
+        return Err("a group needs a name".to_owned());
+    }
+    // A rename to the same name is a save of an unchanged field, not an error.
+    if from == to {
+        return Ok(serde_json::json!({ "name": to, "profiles": 0 }));
+    }
+    let mut stored = open_group_store(&state)?;
+    if stored.contains(to) || profiles_carry_group(&state, to)? {
+        return Err(format!("a group named {to:?} already exists"));
+    }
+    let profiles = open_store(&state)?;
+    let in_store = stored.rename(from, to).map_err(|error| error.to_string())?;
+    let moved = profiles
+        .rename_group(from, to)
+        .map_err(|error| error.to_string())?;
+    if !in_store && moved == 0 {
+        return Err(format!("no group named {from:?}"));
+    }
+    Ok(serde_json::json!({ "name": to, "profiles": moved }))
+}
+
+/// Deletes a group; its profiles are kept and become ungrouped.
+#[tauri::command]
+pub async fn delete_group(
+    state: tauri::State<'_, AppState>,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("a group needs a name".to_owned());
+    }
+    let mut stored = open_group_store(&state)?;
+    let profiles = open_store(&state)?;
+    let removed = stored.remove(name).map_err(|error| error.to_string())?;
+    let cleared = profiles
+        .clear_group(name)
+        .map_err(|error| error.to_string())?;
+    if !removed && cleared == 0 {
+        return Err(format!("no group named {name:?}"));
+    }
+    Ok(serde_json::json!({ "name": name, "profiles": cleared }))
+}
+
 /// Moves many profiles to the trash in one go.
 ///
 /// Each profile's core instance stops and its proxy assignment drops, exactly
@@ -1045,6 +1164,31 @@ pub async fn launch_profile(
 
     // Use the ensured binary path, overriding any configured path.
     let prog = camoufox_path.to_string_lossy().to_string();
+
+    // The window a Firefox opens is titled after its active tab, which in a
+    // room of windows all on the same site makes the taskbar a row of
+    // identical entries. The title is pinned to the profile — name, and group
+    // behind a dash — for as long as the browser runs, so every window stays
+    // attributable to the profile it belongs to. The window itself draws in
+    // tabs-in-titlebar mode with no system titlebar row, so the same name is
+    // also written into the profile's narrc-title.css and drawn in the tab
+    // strip; one row then carries the name beside the tabs. Both writes land
+    // before the spawn — the loader reads the file the moment the window
+    // finishes starting up, and an engine without the loader block would
+    // simply never pick the file up.
+    let title = (!plan.headless)
+        .then(|| crate::window_title::label(&profile.name, profile.group.as_deref()));
+    if let Some(title) = &title {
+        if let Err(error) = crate::window_title::apply_display(&dir, title) {
+            crate::window_title::trace(format!("launch id={id} title css failed: {error}"));
+        }
+        if let Err(error) =
+            crate::window_title::ensure_loader(&narrc_core::engine::engine_install_dir())
+        {
+            crate::window_title::trace(format!("launch id={id} title loader failed: {error}"));
+        }
+    }
+
     let pid = protocol::spawn_with_program(&plan, &prog);
     if pid.is_err() {
         // The core instance was started for this launch and its browser will
@@ -1054,6 +1198,21 @@ pub async fn launch_profile(
         }
     }
     let pid = pid.map_err(|error| format!("could not start browser: {error}"))?;
+
+    if let Some(pid) = pid {
+        if let Some(title) = title {
+            crate::window_title::trace(format!(
+                "launch id={id} pid={pid} headless={} label={title:?} alive_now={}",
+                plan.headless,
+                crate::mihomo::process_alive(pid)
+            ));
+            crate::window_title::pin(pid, title);
+        } else {
+            crate::window_title::trace(format!("launch id={id} pid={pid} headless, no pin"));
+        }
+    } else {
+        crate::window_title::trace(format!("launch id={id} pid=none, no pin"));
+    }
 
     // The browser is detached, so its exit is learned by polling its pid. When
     // it goes, the profile's core instance goes with it — a core left running
@@ -1082,6 +1241,7 @@ pub async fn launch_profile(
 
     Ok(serde_json::json!({
         "pid": pid,
+        "plan": &plan,
         "discarded": discarded,
         "headless": plan.headless,
         "geo_gate": geo_gate,
@@ -1787,6 +1947,12 @@ fn open_assignment_store(
         .map_err(|error| error.to_string())
 }
 
+/// The group name list, which lives beside the profiles it files.
+fn open_group_store(state: &tauri::State<'_, AppState>) -> Result<narrc_core::group::GroupStore, String> {
+    narrc_core::group::GroupStore::open(store_root(state)?.join("groups.json"))
+        .map_err(|error| error.to_string())
+}
+
 /// The proxy core manager, locked.
 fn mihomo(
     state: &AppState,
@@ -2091,6 +2257,29 @@ pub async fn test_node_delay(
     .map_err(|error| error.to_string())?
 }
 
+/// Measures every node of the subscription's provider in one batch.
+///
+/// The batch is one core request that tests the whole group concurrently, so
+/// its cost is a single timeout window rather than the node count.
+#[tauri::command]
+pub async fn test_subscription_delays(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let (_provider, subs) = provider_of(&state, &id)?;
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app2.state::<AppState>();
+        let (api, secret, _speed) = network_handle(&app2, state.inner(), &subs)?;
+        let client = crate::mihomo::blocking_client(60);
+        let delays = crate::mihomo::group_delay(&client, api, &secret)?;
+        Ok(serde_json::json!({ "delays": delays }))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// Measures one node's download speed, in megabits per second.
 #[tauri::command]
 pub async fn test_node_speed(
@@ -2277,8 +2466,28 @@ mod tests {
         let (os, arch) = engine_asset_tokens();
         assert!(
             ["win", "mac", "lin"].contains(&os),
-            "unknown os token {os}"
+            "unexpected os token {os}"
         );
-        assert!(["x86_64", "arm64"].contains(&arch), "unknown arch {arch}");
+        assert!(["x86_64", "arm64"].contains(&arch), "unexpected arch {arch}");
+    }
+
+    #[test]
+    fn the_group_listing_merges_both_sides_of_every_group() {
+        // A name stored but with no members is a group and is listed, counted
+        // as zero; a name only profiles carry is a group too, counted from
+        // them; and the result is name-ordered whatever the input order was.
+        let counts = group_counts(&["Empty".to_owned()], ["Shop", "Accounts", "Shop", "Nope"]);
+        assert_eq!(
+            counts,
+            [
+                ("Accounts".to_owned(), 1),
+                ("Empty".to_owned(), 0),
+                ("Nope".to_owned(), 1),
+                ("Shop".to_owned(), 2),
+            ]
+        );
+
+        // With nothing on either side there is nothing to list.
+        assert!(group_counts(&[], std::iter::empty::<&str>()).is_empty());
     }
 }

@@ -91,6 +91,15 @@ const SPEED_TIMEOUT_SECS: u64 = 45;
 /// How long to wait for the controller to answer after a start.
 const READY_TIMEOUT_SECS: u64 = 20;
 
+/// How long a core may take to fetch a subscription before its nodes can be
+/// named.
+///
+/// The controller binds almost at once while the provider fetch — a whole
+/// subscription, hundreds of kilobytes — runs behind it, taking seconds. A
+/// `select` group lists only `DIRECT` until then, and naming a node before it
+/// arrives is refused with `proxy not exist`.
+const PROVIDER_TIMEOUT_SECS: u64 = 30;
+
 /// The user agent the provider fetch advertises. A Clash-style agent makes most
 /// providers serve the format their own client expects.
 const PROVIDER_USER_AGENT: &str = "clash-verge/v1.7.7";
@@ -551,6 +560,7 @@ impl NetworkCore {
         let dir = paths.dir.join("profiles").join(profile_id);
         std::fs::create_dir_all(&dir)
             .map_err(|error| format!("could not create {}: {error}", dir.display()))?;
+        seed_profile_provider(sub, &dir)?;
         let api_port = free_port()?;
         let speed_port = free_port()?;
         let secret = random_secret();
@@ -562,14 +572,56 @@ impl NetworkCore {
     }
 
     /// Points the instance's `select` group at a node.
+    ///
+    /// The core binds its controller before it has fetched the subscription,
+    /// so a node named inside that window is refused: the group still holds
+    /// only `DIRECT`. The fetch is what takes seconds, so the group is watched
+    /// until the subscription's nodes arrive and only then is the node
+    /// selected — otherwise every launch would lose the race the same way.
     pub fn select_node(&self, node: &str) -> Result<(), String> {
         let client = blocking_client(10);
+        let group = format!("/proxies/{PROFILE_GROUP}");
+        let deadline = Instant::now() + Duration::from_secs(PROVIDER_TIMEOUT_SECS);
+        loop {
+            if group_carries_nodes(&api_get(&client, self.api_port, &self.secret, &group)?) {
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "the nodes of this subscription did not arrive within {PROVIDER_TIMEOUT_SECS} seconds"
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
         api_put(
             &client,
             self.api_port,
             &self.secret,
-            &format!("/proxies/{PROFILE_GROUP}"),
+            &group,
             Some(json!({ "name": node })),
+        )
+        .map_err(|error| {
+            format!(
+                "the node {node:?} could not be selected: {error}; the node's name embeds a \
+                 latency the subscription re-measures, so pick the node again on the profile"
+            )
+        })
+    }
+
+    /// Asks the node itself whether it still answers.
+    ///
+    /// A node's *name* staying in the group says nothing about the node: a
+    /// subscription's server can go quiet while the name remains selectable,
+    /// and the core then accepts the browser's traffic and drops it on the far
+    /// side. The user's first sign of that is a browser with no connection at
+    /// all, so the launch measures the node here — with the same call the
+    /// profile's latency test uses — and refuses with a reason when it cannot
+    /// answer, instead of opening a browser that will not load a page.
+    pub fn check_node(&self, provider: &str, node: &str) -> Result<(), String> {
+        let client = blocking_client(DELAY_TIMEOUT_MS / 1000 + 5);
+        node_verdict(
+            node,
+            node_delay(&client, self.api_port, &self.secret, provider, node),
         )
     }
 
@@ -728,11 +780,22 @@ impl MihomoManager {
         sub: &StoredSubscription,
         node: &str,
     ) -> Result<u16, String> {
+        let provider = sub.provider_name();
         if let Some(core) = self.profiles.get(profile_id) {
+            // Measured before the selection moves: this instance may be serving
+            // a browser this launch does not own, and a node that turns out to
+            // be dead must not have repointed the traffic already flowing.
+            core.check_node(&provider, node)?;
+            core.select_node(node)?;
             return Ok(core.speed_port());
         }
         let core = NetworkCore::start_profile(app, profile_id, sub)?;
         core.select_node(node)?;
+        // Selecting proves the name is in the group; only this proves the node
+        // behind it answers. Refused here the instance is dropped — and its
+        // process with it — so a dead route costs a reason, never a browser
+        // that silently cannot reach anything.
+        core.check_node(&provider, node)?;
         let port = core.speed_port();
         self.profiles.insert(profile_id.to_owned(), core);
         Ok(port)
@@ -795,6 +858,50 @@ pub fn purge_provider_cache(subscription_id: &str) {
     }
 }
 
+/// Seeds a profile core's provider from the network core's cached copy of the
+/// subscription.
+///
+/// The subscription's node names embed the latency the provider measured when
+/// it generated them, and a profile core whose provider file is missing
+/// fetches its own — a newer download with newer names. A route stored against
+/// one download can then name no node in the next. Mihomo reuses a provider
+/// file that is already on disk instead of re-fetching it (verified: starting
+/// a core beside a seated file of any age does not rewrite it), and the
+/// picker's names come from the network core's cache. Copying that cache into
+/// the profile's directory pins the launched group to the very nodes people
+/// pick from.
+fn seed_profile_provider(sub: &StoredSubscription, dir: &Path) -> Result<(), String> {
+    let Some(home) = dirs_next::home_dir() else {
+        return Ok(());
+    };
+    let file = format!("{}.yaml", sub.id);
+    let source = home
+        .join(CORE_DIR)
+        .join("network")
+        .join("providers")
+        .join(&file);
+    if !source.is_file() {
+        return Ok(());
+    }
+    let target = dir.join("providers").join(&file);
+    let source_modified = source.metadata().and_then(|meta| meta.modified()).ok();
+    let target_modified = target.metadata().and_then(|meta| meta.modified()).ok();
+    match (source_modified, target_modified) {
+        // The profile already carries its own, at least as fresh, download.
+        // That download is the one its route was picked from, so keep it.
+        (Some(source), Some(target)) if source <= target => return Ok(()),
+        _ => {}
+    }
+    let providers = target
+        .parent()
+        .expect("a file path always names its directory");
+    std::fs::create_dir_all(providers)
+        .map_err(|error| format!("could not create {}: {error}", providers.display()))?;
+    std::fs::copy(&source, &target)
+        .map_err(|error| format!("could not seed {}: {error}", target.display()))?;
+    Ok(())
+}
+
 /// Spawns the core, with no console window.
 fn spawn_core(binary: &Path, dir: &Path, config: &Path) -> Result<Child, String> {
     let mut command = Command::new(binary);
@@ -817,6 +924,17 @@ fn spawn_core(binary: &Path, dir: &Path, config: &Path) -> Result<Child, String>
         .map_err(|error| format!("could not start the proxy core: {error}"))
 }
 
+/// The core's own resolver configuration.
+///
+/// Subscriptions routinely ship nodes with ECH enabled (`ech-opts`), and
+/// mihomo bootstraps ECH by resolving the query server's HTTPS (type 65) DNS
+/// record. Whatever resolver the OS hands it may not answer type 65 — Chinese
+/// ISP resolvers return an empty answer — and mihomo then aborts the dial
+/// outright instead of falling back to plain TLS, failing every node in the
+/// subscription. These public resolvers do answer type 65, so the dials the
+/// nodes were built for actually happen.
+const DNS_BLOCK: &str = "dns:\n  enable: true\n  ipv6: false\n  nameserver:\n    - 223.5.5.5\n    - 119.29.29.29\n";
+
 /// The configuration for the Network page's core.
 fn network_config(subs: &[StoredSubscription], api_port: u16, secret: &str, speed_port: u16) -> String {
     let mut out = String::new();
@@ -827,6 +945,7 @@ fn network_config(subs: &[StoredSubscription], api_port: u16, secret: &str, spee
     out.push_str("ipv6: false\n");
     out.push_str(&format!("external-controller: 127.0.0.1:{api_port}\n"));
     out.push_str(&format!("secret: {}\n", quote(secret)));
+    out.push_str(DNS_BLOCK);
 
     // Mihomo refuses an empty provider mapping, and there is nothing to
     // provide when the list is empty, so the whole block is omitted.
@@ -881,6 +1000,7 @@ fn profile_config(sub: &StoredSubscription, api_port: u16, secret: &str, speed_p
     out.push_str("ipv6: false\n");
     out.push_str(&format!("external-controller: 127.0.0.1:{api_port}\n"));
     out.push_str(&format!("secret: {}\n", quote(secret)));
+    out.push_str(DNS_BLOCK);
 
     out.push_str("proxy-providers:\n");
     out.push_str(&format!("  {}:\n", sub.provider_name()));
@@ -940,6 +1060,28 @@ pub fn blocking_client(timeout_secs: u64) -> reqwest::blocking::Client {
         .unwrap_or_else(|_| reqwest::blocking::Client::new())
 }
 
+/// Whether a `select` group lists anything beyond `DIRECT`, which is how a
+/// group whose subscription has not been fetched yet looks.
+fn group_carries_nodes(group: &Value) -> bool {
+    match group.get("all") {
+        Some(Value::Array(all)) => all.len() > 1,
+        _ => false,
+    }
+}
+
+/// A non-success answer from the controller, carrying the reason.
+///
+/// The body is where the core says what went wrong — `proxy not exist`, for
+/// one — and a bare status would hand the user a number they cannot act on.
+fn core_answered(status: reqwest::StatusCode, body: String) -> String {
+    let body: String = body.trim().chars().take(200).collect();
+    if body.is_empty() {
+        format!("the proxy core answered {status}")
+    } else {
+        format!("the proxy core answered {status}: {body}")
+    }
+}
+
 /// A `GET` against the controller.
 fn api_get(
     client: &reqwest::blocking::Client,
@@ -952,8 +1094,9 @@ fn api_get(
         .header("Authorization", format!("Bearer {secret}"))
         .send()
         .map_err(|error| format!("the proxy core did not answer: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!("the proxy core answered {}", response.status()));
+    let status = response.status();
+    if !status.is_success() {
+        return Err(core_answered(status, response.text().unwrap_or_default()));
     }
     response
         .json::<Value>()
@@ -977,8 +1120,9 @@ fn api_put(
     let response = request
         .send()
         .map_err(|error| format!("the proxy core did not answer: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!("the proxy core answered {}", response.status()));
+    let status = response.status();
+    if !status.is_success() {
+        return Err(core_answered(status, response.text().unwrap_or_default()));
     }
     Ok(())
 }
@@ -1077,6 +1221,57 @@ pub fn node_delay(
     );
     let value = api_get(client, port, secret, &path)?;
     Ok(value["delay"].as_u64().and_then(|delay| u32::try_from(delay).ok()))
+}
+
+/// What a node's measured answer means for a launch about to route through it.
+///
+/// The core answers a node that timed out with no `delay` field at all — the
+/// `None` [`node_delay`] reads — and a request it cannot serve as an `Err`.
+/// Neither is a node a browser can browse through, so both are refused with the
+/// node named, which is the part the user needs to go and replace.
+fn node_verdict(node: &str, delay: Result<Option<u32>, String>) -> Result<(), String> {
+    match delay {
+        Ok(Some(measured)) if measured > 0 => Ok(()),
+        Ok(_) => Err(format!(
+            "the node {node:?} did not answer within {DELAY_TIMEOUT_MS} ms, so the browser \
+             would open with no connection; pick a live node on the profile (edit it and run \
+             a latency test)"
+        )),
+        Err(error) => Err(format!("the node {node:?} could not be measured: {error}")),
+    }
+}
+
+/// Reads the group batch answer: node name to milliseconds, keeping only the
+/// entries the core measured — a failed node is simply absent.
+fn parse_group_delays(value: Value) -> HashMap<String, u32> {
+    value
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(name, delay)| {
+            let delay = delay.as_u64().and_then(|delay| u32::try_from(delay).ok())?;
+            Some((name.clone(), delay))
+        })
+        .collect()
+}
+
+/// Measures every node in the speed group in one request, name to milliseconds.
+///
+/// The core runs the whole membership's tests concurrently, so a full
+/// subscription answers within a single timeout window — the same batch run
+/// as per-node healthchecks takes nodes ÷ concurrency × timeout. A node whose
+/// test failed is simply absent from the answer.
+pub fn group_delay(
+    client: &reqwest::blocking::Client,
+    port: u16,
+    secret: &str,
+) -> Result<HashMap<String, u32>, String> {
+    let path = format!(
+        "/group/{SPEED_GROUP}/delay?url={}&timeout={DELAY_TIMEOUT_MS}",
+        percent_encode(DELAY_URL),
+    );
+    let value = api_get(client, port, secret, &path)?;
+    Ok(parse_group_delays(value))
 }
 
 /// Measures one node's download speed, in megabits per second.
@@ -1461,6 +1656,41 @@ mod tests {
     }
 
     #[test]
+    fn the_core_gets_resolvers_that_answer_https_records() {
+        // Without this block the core falls back to the OS resolver, and a
+        // resolver that stays silent on type 65 kills every ECH-enabled dial.
+        let network = network_config(&[], 19090, "s", 19091);
+        assert!(network.contains("dns:"));
+        assert!(network.contains("- 223.5.5.5"));
+        assert!(network.contains("- 119.29.29.29"));
+        let profile = profile_config(
+            &subscription("abc123", "https://example.example/sub"),
+            19090,
+            "s3cret",
+            19091,
+        );
+        assert!(profile.contains("dns:"));
+        assert!(profile.contains("- 223.5.5.5"));
+        assert!(profile.contains("- 119.29.29.29"));
+    }
+
+    #[test]
+    fn a_group_delay_answer_keeps_only_measured_nodes() {
+        let parsed = parse_group_delays(json!({
+            "fast": 120,
+            "broken": "an error message",
+            "zero": 0,
+            "DIRECT": 55,
+        }));
+        assert_eq!(parsed.get("fast"), Some(&120));
+        assert_eq!(parsed.get("zero"), Some(&0));
+        assert!(!parsed.contains_key("broken"));
+        // The caller matches names against its own node list, so the group's
+        // DIRECT entry passes through harmlessly.
+        assert_eq!(parsed.get("DIRECT"), Some(&55));
+    }
+
+    #[test]
     fn the_provider_name_cannot_collide_with_a_node_or_group() {
         let sub = subscription("abc123", "https://example.example/sub");
         assert_eq!(sub.provider_name(), "sub-abc123");
@@ -1548,6 +1778,65 @@ mod tests {
         gunzip_to(&archive_path, &binary_path).unwrap();
         assert_eq!(std::fs::read(&binary_path).unwrap(), original);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_group_still_without_its_subscription_reads_as_not_ready() {
+        // Before the provider fetch lands, the core exposes the group with
+        // only DIRECT in it — and naming a node then is refused. This is the
+        // signal select_node waits on.
+        assert!(!group_carries_nodes(&json!({
+            "all": ["DIRECT"],
+            "now": "DIRECT"
+        })));
+        assert!(group_carries_nodes(&json!({
+            "all": ["DIRECT", "[US 美国 302.39ms]"],
+            "now": "DIRECT"
+        })));
+        // Anything that is not the group shape we expect reads as not ready
+        // rather than as an answer we could act on.
+        assert!(!group_carries_nodes(&json!({})));
+        assert!(!group_carries_nodes(&json!({ "all": "DIRECT" })));
+    }
+
+    #[test]
+    fn a_refusal_from_the_core_carries_the_reason_it_gave() {
+        let status = reqwest::StatusCode::BAD_REQUEST;
+        let text = core_answered(
+            status,
+            "{\"message\":\"Selector update error: proxy not exist\"}\n".to_owned(),
+        );
+        assert!(text.contains("400 Bad Request"), "{text}");
+        assert!(text.contains("proxy not exist"), "{text}");
+
+        // A refusal with an empty body still names the status.
+        assert_eq!(
+            core_answered(status, String::new()),
+            "the proxy core answered 400 Bad Request"
+        );
+
+        // A chatty refusal is cut short instead of dumped whole.
+        let text = core_answered(status, "x".repeat(5_000));
+        assert!(text.len() < 300, "the body was not truncated: {}", text.len());
+    }
+
+    #[test]
+    fn a_node_that_does_not_answer_is_refused_with_the_node_named() {
+        // The shape a timed-out node comes back in: no delay field at all. The
+        // launch is stopped rather than handed a browser with no connection,
+        // and the refusal names the node to go and replace.
+        let refused = node_verdict("[US 美国 299.17ms]", Ok(None)).unwrap_err();
+        assert!(refused.contains("299.17ms"), "{refused}");
+        assert!(refused.contains("no connection"), "{refused}");
+
+        // A measured answer lets the launch through…
+        assert!(node_verdict("[US 美国 302.39ms]", Ok(Some(563))).is_ok());
+        // …a zero, which reads as unmeasured everywhere else, does not…
+        assert!(node_verdict("[US 美国 302.39ms]", Ok(Some(0))).is_err());
+        // …and neither does a request the core would not serve at all.
+        assert!(
+            node_verdict("[US 美国 302.39ms]", Err("500 Internal Server Error".to_owned())).is_err()
+        );
     }
 }
 

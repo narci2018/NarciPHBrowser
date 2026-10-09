@@ -37,6 +37,11 @@ can be, and stay, a different machine.
   the whole time. See [Driving a profile with Playwright](#driving-a-profile-with-playwright).
 - **Deterministic identity** — the same seed always draws the same machine, from named
   RNG sub-streams so new fields never shift the values existing fields draw.
+- **Languages** — the interface ships in English and Simplified Chinese. The switcher
+  lives under Settings → Appearance, the choice is cached locally and restored on the
+  next launch, and a first run follows the system language (`zh-CN`, `zh-TW` and
+  `zh-Hans` all resolve to Simplified Chinese). Relative timestamps and counts are
+  formatted for the active language rather than translated word-for-word.
 
 ## Architecture
 
@@ -304,10 +309,15 @@ under the platform data directory, overridable with `NARCI_STORE`.
 - Integrations and Account remain placeholders. Groups, the cookie-bot warm-up,
   import/export and the trash are implemented — groups and bulk actions live on the
   profiles page, the warm-up on the Agent page.
+- **Only the interface is translated.** The Rust backend returns its error and status
+  strings in English, and those reach the UI verbatim (via the error path, not the
+  translation catalog), so a Chinese-language session still shows English text when a
+  backend operation fails. Translating the backend needs a locale plumbed through
+  `invoke`, which is not wired up.
 
 ## Provenance and licensing
 
-NarciPHBrowser is MPL-2.0. It ships no browser engine: fingerprints are applied by
+NarciPHBrowser is MPL-2.0 — the full text is in [`LICENSE`](LICENSE). It ships no browser engine: fingerprints are applied by
 [Camoufox](https://github.com/daijro/camoufox) (MPL-2.0), whose property list is
 vendored byte-for-byte under `crates/narrc-core/resources/` with its provenance
 recorded in `crates/narrc-core/resources/UPSTREAM.md`. The same directory holds

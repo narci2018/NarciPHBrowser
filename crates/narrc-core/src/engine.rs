@@ -214,6 +214,20 @@ pub struct EngineConfig {
     pub extra_args: Vec<String>,
     /// Variables to set alongside the identity, e.g. a proxy.
     pub extra_env: BTreeMap<String, String>,
+    /// Preferences pinned on top of the identity's own, e.g. a proxy's
+    /// `network.proxy.*`.
+    ///
+    /// Applied after [`Identity::to_prefs_json`], so a caller's value wins
+    /// rather than being overwritten by the identity's default. The identity
+    /// pins `network.proxy.type` to `0` — "no proxy" — which is right for a
+    /// profile with none and would silently disconnect a profile that has one.
+    pub extra_prefs: BTreeMap<String, serde_json::Value>,
+    /// Warnings the caller already knows, carried into the plan's own.
+    ///
+    /// The launcher has facts the identity does not — a proxy that cannot be
+    /// fully expressed, a scheme the engine dials differently — and a warning
+    /// only helps if it reaches the user in the same list as every other one.
+    pub extra_warnings: Vec<String>,
     /// Launch without a window.
     pub headless: bool,
     /// Suppress the first-run pages and the update check.
@@ -228,6 +242,8 @@ impl EngineConfig {
             profile_dir: profile_dir.into(),
             extra_args: Vec::new(),
             extra_env: BTreeMap::new(),
+            extra_prefs: BTreeMap::new(),
+            extra_warnings: Vec::new(),
             headless: false,
             suppress_noise: true,
         }
@@ -360,6 +376,29 @@ fn unapplied_property_warnings(identity: &Identity) -> Vec<String> {
     warnings
 }
 
+/// The identity's preferences with the config's own pinned over them.
+///
+/// Two writers decide `network.proxy.type`: the identity, which writes `0`
+/// because a profile with no proxy should say so, and the caller that knows
+/// the profile has one. Whichever wrote second used to win by *being second in
+/// nothing at all* — the identity's value was the only one written, and the
+/// browser read "no proxy" for a profile the user had configured one for. This
+/// is the merge that gives the caller the last word.
+fn pinned_prefs(identity: &Identity, config: &EngineConfig) -> Result<String> {
+    if config.extra_prefs.is_empty() {
+        return Ok(identity.to_prefs_json());
+    }
+    let mut prefs: serde_json::Map<String, serde_json::Value> = serde_json::from_str(
+        &identity.to_prefs_json(),
+    )
+    .map_err(|error| Error::identity(format!("identity prefs are not JSON: {error}")))?;
+    for (name, value) in &config.extra_prefs {
+        prefs.insert(name.clone(), value.clone());
+    }
+    serde_json::to_string(&prefs)
+        .map_err(|error| Error::identity(format!("could not serialize prefs: {error}")))
+}
+
 /// Turns an identity into a launch plan.
 ///
 /// The returned plan is *not* executed. Executing it is the sidecar's job, and
@@ -390,10 +429,11 @@ pub fn build_plan(identity: &Identity, config: &EngineConfig) -> Result<LaunchPl
 
     warnings.extend(webgl_coverage_warnings(identity));
     warnings.extend(unapplied_property_warnings(identity));
+    warnings.extend(config.extra_warnings.iter().cloned());
 
     let payload = identity.to_config_json();
     let config_vars = chunked_vars(CONFIG_PREFIX, &payload);
-    let prefs_vars = chunked_vars(PREFS_PREFIX, &identity.to_prefs_json());
+    let prefs_vars = chunked_vars(PREFS_PREFIX, &pinned_prefs(identity, config)?);
 
     let total: usize = config_vars
         .values()
@@ -802,6 +842,64 @@ mod tests {
             .insert("HTTP_PROXY".to_owned(), "http://127.0.0.1:8080".to_owned());
         let plan = build_plan(&Identity::new(), &config).unwrap();
         assert_eq!(plan.env["HTTP_PROXY"], "http://127.0.0.1:8080");
+    }
+
+    /// The preferences a plan hands the browser, reassembled from its chunks.
+    fn plan_prefs(plan: &LaunchPlan) -> serde_json::Value {
+        let chunks = numbered_chunks(&plan.env, PREFS_PREFIX);
+        serde_json::from_str(&rejoin_chunks(&chunks)).expect("the prefs are JSON")
+    }
+
+    #[test]
+    fn a_pinned_preference_beats_the_identity_default() {
+        // Two writers decide `network.proxy.type`, and the one that knows the
+        // profile has a proxy has to be the one that lands last. Without the
+        // merge the identity's `0` was the only value written, and a browser
+        // reading it connected direct for a profile configured to proxy.
+        let mut config = config("C:/profiles/x");
+        config
+            .extra_prefs
+            .insert("network.proxy.type".to_owned(), serde_json::json!(1));
+        config
+            .extra_prefs
+            .insert("network.proxy.http".to_owned(), serde_json::json!("proxy.example"));
+
+        let plan = build_plan(&Identity::new(), &config).unwrap();
+        let prefs = plan_prefs(&plan);
+        assert_eq!(prefs["network.proxy.type"], serde_json::json!(1));
+        assert_eq!(
+            prefs["network.proxy.http"],
+            serde_json::json!("proxy.example")
+        );
+        // The merge replaces keys, never the payload: everything else the
+        // identity pinned is still there.
+        assert!(
+            prefs.get("privacy.partition.network_state").is_some(),
+            "{prefs:?}"
+        );
+    }
+
+    #[test]
+    fn no_pinned_preference_leaves_the_identity_untouched() {
+        let plan = build_plan(&Identity::new(), &config("C:/profiles/x")).unwrap();
+        assert_eq!(
+            plan_prefs(&plan)["network.proxy.type"],
+            serde_json::json!(0)
+        );
+    }
+
+    #[test]
+    fn the_callers_own_warnings_reach_the_plan() {
+        let mut config = config("C:/profiles/x");
+        config
+            .extra_warnings
+            .push("a proxy cannot be told this".to_owned());
+
+        let plan = build_plan(&Identity::new(), &config).unwrap();
+        assert!(plan
+            .warnings
+            .iter()
+            .any(|warning| warning == "a proxy cannot be told this"));
     }
 
     #[test]

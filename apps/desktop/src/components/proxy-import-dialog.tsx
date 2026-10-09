@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ interface ProxyImportDialogProps {
 }
 
 export function ProxyImportDialog({ open, onOpenChange, onImported }: ProxyImportDialogProps) {
+  const { t } = useTranslation();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -72,12 +74,12 @@ export function ProxyImportDialog({ open, onOpenChange, onImported }: ProxyImpor
         });
         done += 1;
       }
-      toast.success(`Imported ${done} prox${done === 1 ? "y" : "ies"}`);
+      toast.success(t("common.importedCount", { count: done}));
       onImported();
       onOpenChange(false);
     } catch (error) {
       if (done > 0) {
-        toast.error(`Imported ${done}, then failed: ${String(error)}`);
+        toast.error(t("common.importFailed", { count: done, error: String(error) }));
         onImported();
       } else {
         toast.error(String(error));
@@ -91,13 +93,9 @@ export function ProxyImportDialog({ open, onOpenChange, onImported }: ProxyImpor
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Import proxies</DialogTitle>
+          <DialogTitle>{t("common.importProxies")}</DialogTitle>
           <DialogDescription>
-            One per line: <span className="font-mono">scheme://host:port</span>,{" "}
-            <span className="font-mono">host:port</span>, or{" "}
-            <span className="font-mono">host:port:user:pass</span> — or a JSON array of{" "}
-            <span className="font-mono">{"{name, url, exit_country}"}</span> objects. Blank lines
-            and <span className="font-mono">#</span> comments are skipped.
+            {t("common.importProxiesDescription")}
           </DialogDescription>
         </DialogHeader>
 
@@ -105,7 +103,7 @@ export function ProxyImportDialog({ open, onOpenChange, onImported }: ProxyImpor
           <Textarea
             autoFocus
             rows={7}
-            placeholder={"http://1.2.3.4:8080\nsocks5://user:pass@5.6.7.8:1080 # Berlin"}
+            placeholder={t("common.importProxiesPlaceholder")}
             value={text}
             onChange={(event) => {
               setText(event.target.value);
@@ -115,8 +113,7 @@ export function ProxyImportDialog({ open, onOpenChange, onImported }: ProxyImpor
           {candidates.length > 0 && (
             <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border px-3 py-2">
               <p className="text-[11px] text-muted-foreground">
-                {ready.length} ready · {ambiguous.length} ambiguous (host:port:user:pass reading) ·{" "}
-                {invalid.length} invalid
+                {t("common.readyCount", { ready: ready.length, ambiguous: ambiguous.length, invalid: invalid.length })}
               </p>
               {ready.map((candidate, index) => (
                 <p key={`r-${index}`} className="truncate font-mono text-[11px] text-success-text">
@@ -146,7 +143,7 @@ export function ProxyImportDialog({ open, onOpenChange, onImported }: ProxyImpor
               onOpenChange(false);
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
@@ -156,7 +153,7 @@ export function ProxyImportDialog({ open, onOpenChange, onImported }: ProxyImpor
               void submit();
             }}
           >
-            {busy ? "Importing…" : `Import ${total} prox${total === 1 ? "y" : "ies"}`}
+            {busy ? t("common.importing") : t("common.importCount", { count: total})}
           </Button>
         </DialogFooter>
       </DialogContent>

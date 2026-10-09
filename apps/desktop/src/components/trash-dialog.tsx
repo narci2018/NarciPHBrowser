@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { LuRotateCcw, LuTrash2 } from "react-icons/lu";
@@ -39,6 +40,7 @@ const dayOf = (unixSeconds: number): string =>
  * app makes for no one. Assign it again after restoring.
  */
 export function TrashDialog({ open, onOpenChange, onChanged }: TrashDialogProps) {
+  const { t } = useTranslation();
   const [entries, setEntries] = useState<TrashedProfile[] | null>(null);
 
   const refresh = async () => {
@@ -60,8 +62,8 @@ export function TrashDialog({ open, onOpenChange, onChanged }: TrashDialogProps)
   const restore = async (id: string) => {
     try {
       const result = await invoke<{ id: string; name: string }>("restore_profile", { id });
-      toast.success(`Restored ${result.name}`, {
-        description: "Its proxy assignment did not follow it into the trash — assign one again.",
+      toast.success(t("common.restoredProfile", { name: result.name }), {
+        description: t("common.restoredProfileHint"),
       });
       await refresh();
       onChanged();
@@ -73,7 +75,7 @@ export function TrashDialog({ open, onOpenChange, onChanged }: TrashDialogProps)
   const purge = async (id: string, name: string) => {
     try {
       await invoke("purge_trash", { id });
-      toast.success(`Purged ${name} for good`);
+      toast.success(t("common.purgedProfile", { name }));
       await refresh();
       onChanged();
     } catch (error) {
@@ -84,7 +86,7 @@ export function TrashDialog({ open, onOpenChange, onChanged }: TrashDialogProps)
   const empty = async () => {
     try {
       const result = await invoke<{ purged: number }>("purge_all_trash", {});
-      toast.success(`Emptied the trash (${result.purged})`);
+      toast.success(t("common.emptiedTrash", { count: result.purged }));
       await refresh();
       onChanged();
     } catch (error) {
@@ -96,19 +98,18 @@ export function TrashDialog({ open, onOpenChange, onChanged }: TrashDialogProps)
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[70vh] max-w-lg flex-col gap-0 overflow-hidden">
         <DialogHeader>
-          <DialogTitle>Trash</DialogTitle>
+          <DialogTitle>{t("common.trashTitle")}</DialogTitle>
           <DialogDescription>
-            Deleted profiles wait here with their browser data. Restore brings one back; purging
-            removes it for good.
+            {t("common.trashDescription")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-auto py-2">
           {entries === null ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">{t("common.trashLoading")}</p>
           ) : entries.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              Nothing here. Deleted profiles appear in this list.
+              {t("common.trashEmpty")}
             </p>
           ) : (
             <ul className="flex flex-col gap-1.5">
@@ -122,12 +123,12 @@ export function TrashDialog({ open, onOpenChange, onChanged }: TrashDialogProps)
                       <p className="truncate text-sm font-medium text-foreground">{entry.name}</p>
                       {!entry.readable && (
                         <Badge variant="outline" className="text-[10px]">
-                          unreadable
+                          {t("common.unreadable")}
                         </Badge>
                       )}
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      seed {entry.seed} · trashed {dayOf(entry.trashed_at)}
+                      {t("common.seedLabel", { seed: entry.seed })} · {t("common.trashedLabel", { date: dayOf(entry.trashed_at) })}
                     </p>
                   </div>
                   <Button
@@ -139,7 +140,7 @@ export function TrashDialog({ open, onOpenChange, onChanged }: TrashDialogProps)
                     onClick={() => void restore(entry.id)}
                   >
                     <LuRotateCcw className="size-3" />
-                    Restore
+                    {t("common.restore")}
                   </Button>
                   <Button
                     type="button"
@@ -149,7 +150,7 @@ export function TrashDialog({ open, onOpenChange, onChanged }: TrashDialogProps)
                     onClick={() => void purge(entry.id, entry.name)}
                   >
                     <LuTrash2 className="size-3" />
-                    Purge
+                    {t("common.purge")}
                   </Button>
                 </li>
               ))}
@@ -160,7 +161,7 @@ export function TrashDialog({ open, onOpenChange, onChanged }: TrashDialogProps)
         {entries !== null && entries.length > 0 && (
           <div className="flex justify-end border-t border-border py-2">
             <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground hover:text-destructive" onClick={() => void empty()}>
-              Empty trash
+              {t("common.emptyTrash")}
             </Button>
           </div>
         )}

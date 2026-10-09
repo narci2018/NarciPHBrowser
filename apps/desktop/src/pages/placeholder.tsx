@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 
 interface PlaceholderPageProps {
@@ -8,6 +9,7 @@ interface PlaceholderPageProps {
 }
 
 export function PlaceholderPage({ title, description, Icon }: PlaceholderPageProps) {
+  const { t } = useTranslation();
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
       <div className="grid size-11 place-items-center rounded-lg border border-border bg-muted/50 text-muted-foreground">
@@ -20,7 +22,7 @@ export function PlaceholderPage({ title, description, Icon }: PlaceholderPagePro
         </p>
       </div>
       <Badge variant="outline" className="text-muted-foreground">
-        Coming soon
+        {t("common.comingSoon")}
       </Badge>
     </div>
   );

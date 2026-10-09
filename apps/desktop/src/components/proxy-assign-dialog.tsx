@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ export function ProxyAssignDialog({
   preselected,
   onAssigned,
 }: ProxyAssignDialogProps) {
+  const { t } = useTranslation();
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -91,13 +93,13 @@ export function ProxyAssignDialog({
       const failed = result?.failed ?? [];
       if (failed.length > 0) {
         toast.error(
-          `${failed.length} profile${failed.length === 1 ? "" : "s"} could not be assigned`,
+          t("common.assignFailed", { count: failed.length}),
         );
       } else {
         toast.success(
           proxy
-            ? `Assigned to ${updated} profile${updated === 1 ? "" : "s"}`
-            : `Removed the proxy from ${updated} profile${updated === 1 ? "" : "s"}`,
+            ? t("common.assignedTo", { count: updated})
+            : t("common.removedProxyFrom", { count: updated}),
         );
       }
       onAssigned(updated, failed);
@@ -114,21 +116,17 @@ export function ProxyAssignDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {proxy ? `Assign “${proxy.name}”` : "Remove proxy"}
+            {proxy ? t("common.assignProxyTitle", { name: proxy.name }) : t("common.removeProxy")}
           </DialogTitle>
           <DialogDescription>
-            {proxy ? (
-              <>
-                Profiles that route through{" "}
-                <span className="font-mono">{maskPassword(proxy.url)}</span>
-                {proxy.exit_country
-                  ? ` · exit ${proxy.exit_country}`
-                  : " · exit country not pinned"}
-                . Profiles whose claimed country differs from the proxy exit are marked.
-              </>
-            ) : (
-              "Selected profiles go back to a direct connection."
-            )}
+            {proxy
+              ? t("common.assignProxyDescription", {
+                  url: maskPassword(proxy.url),
+                  exitInfo: proxy.exit_country
+                    ? t("common.assignProxyExit", { country: proxy.exit_country })
+                    : t("common.assignProxyNoExit"),
+                })
+              : t("common.removeProxyDescription")}
           </DialogDescription>
         </DialogHeader>
 
@@ -141,10 +139,10 @@ export function ProxyAssignDialog({
                   setSelected(state === true ? [...allIds] : []);
                 }}
               />
-              Select all
+              {t("common.selectAll")}
             </label>
             <span className="text-xs text-muted-foreground">
-              {selected.length} of {allIds.length} selected
+              {t("common.selectedOf", { selected: selected.length, total: allIds.length })}
             </span>
           </div>
 
@@ -170,11 +168,11 @@ export function ProxyAssignDialog({
                       {profile.name}
                     </span>
                     {profile.proxied && !proxy && (
-                      <span className="text-[11px] text-muted-foreground">proxied</span>
+                      <span className="text-[11px] text-muted-foreground">{t("common.proxied")}</span>
                     )}
                     {geoMismatch && (
                       <span className="shrink-0 rounded-sm border border-warning/50 bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning-text">
-                        country differs
+                        {t("common.countryDiffers")}
                       </span>
                     )}
                   </div>
@@ -185,9 +183,7 @@ export function ProxyAssignDialog({
 
           {selectedMismatch > 0 && (
             <p className="text-[11px] text-warning-text">
-              {selectedMismatch} selected profile
-              {selectedMismatch === 1 ? " claims a country" : "s claim countries"} that this proxy
-              does not exit from — the geo gate may refuse those launches.
+              {t("common.geoMismatchWarning", { count: selectedMismatch})}
             </p>
           )}
         </div>
@@ -201,7 +197,7 @@ export function ProxyAssignDialog({
               onOpenChange(false);
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
@@ -212,10 +208,10 @@ export function ProxyAssignDialog({
             }}
           >
             {busy
-              ? "Assigning…"
+              ? t("common.assigning")
               : proxy
-                ? `Assign to ${selected.length} profile${selected.length === 1 ? "" : "s"}`
-                : `Remove from ${selected.length} profile${selected.length === 1 ? "" : "s"}`}
+                ? t("common.assignTo", { count: selected.length})
+                : t("common.removeFrom", { count: selected.length})}
           </Button>
         </DialogFooter>
       </DialogContent>

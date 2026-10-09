@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { LuBot, LuCopy, LuFlaskConical, LuPlay, LuSquare } from "react-icons/lu";
@@ -61,6 +62,7 @@ interface StartForm {
  * session belongs to the app: closing it closes the server and the browser.
  */
 export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
+  const { t } = useTranslation();
   const [sessions, setSessions] = useState<AgentSessionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [target, setTarget] = useState<ProfileSummary | null>(null);
@@ -117,7 +119,7 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
         headless: form.headless,
       });
       await navigator.clipboard.writeText(result.wsEndpoint).catch(() => {});
-      toast.success(`Session running — endpoint copied to the clipboard`);
+      toast.success(t("common.sessionRunning"));
       setTarget(null);
       await refresh();
     } catch (error) {
@@ -130,7 +132,7 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
   const stop = async (session: AgentSessionRow) => {
     try {
       await invoke("stop_automation", { id: session.id });
-      toast.success(`Stopped the session for “${session.id}”`);
+      toast.success(t("common.stoppedSession", { id: session.id }));
       await refresh();
     } catch (error) {
       toast.error(String(error));
@@ -144,7 +146,7 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
       .map((site) => site.trim())
       .filter((site) => site !== "");
     if (sites.length === 0) {
-      toast.error("The warm-up route has no sites");
+      toast.error(t("common.warmupNoSites"));
       return;
     }
     setWarming(true);
@@ -162,15 +164,15 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
       const visited = result.results.filter((entry) => entry.ok).length;
       const failed = result.results.length - visited;
       if (failed > 0) {
-        toast.warning(`Warmed ${visited} of ${result.results.length} sites`, {
+        toast.warning(t("common.warmedSites", { visited, total: result.results.length }), {
           description: result.results
             .filter((entry) => !entry.ok)
             .map((entry) => `${entry.url}: ${entry.error ?? "failed"}`)
             .join("\n"),
         });
       } else {
-        toast.success(`Warmed up ${visited} sites for “${warmTarget.name}”`, {
-          description: "Cookies and history are in the profile's browser data.",
+        toast.success(t("common.warmedUp", { count: visited, name: warmTarget.name }), {
+          description: t("common.warmedUpHint"),
         });
       }
       setWarmTarget(null);
@@ -187,7 +189,7 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex items-center border-b border-border px-4 py-2.5">
         <span className="text-xs text-muted-foreground">
-          {sessions.length} running session{sessions.length === 1 ? "" : "s"}
+          {t("common.runningSessions", { count: sessions.length })}
         </span>
         <div className="flex-1" />
       </div>
@@ -196,17 +198,17 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
         <Table className="table-fixed" containerClassName="overflow-visible">
           <TableHeader className="sticky top-0 z-10 bg-background [&_tr]:border-0">
             <TableRow className="border-0! hover:bg-transparent">
-              <TableHead className="pl-3">Profile</TableHead>
-              <TableHead>WebSocket endpoint</TableHead>
-              <TableHead className="w-[90px]">PID</TableHead>
-              <TableHead className="w-[110px] pr-3 text-right">Actions</TableHead>
+              <TableHead className="pl-3">{t("common.profileColumn")}</TableHead>
+              <TableHead>{t("common.websocketEndpoint")}</TableHead>
+              <TableHead className="w-[90px]">{t("common.pid")}</TableHead>
+              <TableHead className="w-[110px] pr-3 text-right">{t("common.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody className="overflow-visible">
             {loading ? (
               <TableRow className="border-0! hover:bg-transparent">
                 <TableCell colSpan={4} className="py-16 text-center text-sm text-muted-foreground">
-                  Loading…
+                  {t("common.loadingAgent")}
                 </TableCell>
               </TableRow>
             ) : profiles.length === 0 ? (
@@ -215,9 +217,9 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
                   <div className="flex flex-col items-center gap-3 text-center">
                     <LuBot className="size-12 text-muted-foreground" />
                     <div>
-                      <p className="text-sm font-medium text-foreground">No profiles yet</p>
+                      <p className="text-sm font-medium text-foreground">{t("common.noProfilesYet")}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Create a profile first, then start an automation session for it here.
+                        {t("common.noProfilesForAgent")}
                       </p>
                     </div>
                   </div>
@@ -243,7 +245,7 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
                           title={session.wsEndpoint}
                           onClick={() => {
                             void navigator.clipboard.writeText(session.wsEndpoint);
-                            toast.success("Endpoint copied");
+                            toast.success(t("common.endpointCopied"));
                           }}
                           className="flex w-full items-center gap-1.5 text-left"
                         >
@@ -271,7 +273,7 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
                             }}
                           >
                             <LuFlaskConical className="size-3.5" />
-                            Warm up
+                            {t("common.warmup")}
                           </Button>
                         )}
                         {session ? (
@@ -283,12 +285,12 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
                             }}
                           >
                             <LuSquare className="size-3.5" />
-                            Stop
+                            {t("common.stop")}
                           </Button>
                         ) : (
                           <Button size="sm" variant="outline" onClick={() => openStart(profile)}>
                             <LuPlay className="size-3.5" />
-                            Start
+                            {t("common.start")}
                           </Button>
                         )}
                       </div>
@@ -309,46 +311,40 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Start automation — {target?.name}</DialogTitle>
+            <DialogTitle>{t("common.startAutomation", { name: target?.name })}</DialogTitle>
             <DialogDescription>
-              The profile's browser starts behind a Playwright server; connect from any
-              Playwright client with <span className="font-mono">firefox.connect</span>. The
-              endpoint is copied to the clipboard when the session is up.
+              {t("common.startAutomationDescription")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="agent-driver">Playwright driver path</Label>
+              <Label htmlFor="agent-driver">{t("common.playwrightDriverPath")}</Label>
               <Input
                 id="agent-driver"
                 value={form.driverPath}
-                placeholder="…\\node_modules\\playwright-core"
+                placeholder={t("common.playwrightDriverPathPlaceholder")}
                 onChange={(event) => {
                   setForm((current) => ({ ...current, driverPath: event.target.value }));
                 }}
                 className="font-mono text-xs"
               />
               <p className="text-xs text-muted-foreground">
-                The <span className="font-mono">playwright-core</span> package directory. Python
-                Playwright bundles one at <span className="font-mono">…\\playwright\\driver\\package</span>.
+                {t("common.playwrightDriverPathHint")}
               </p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="agent-node">Node runtime (optional)</Label>
+              <Label htmlFor="agent-node">{t("common.nodeRuntime")}</Label>
               <Input
                 id="agent-node"
                 value={form.nodePath}
-                placeholder="node"
+                placeholder={t("common.nodeRuntimePlaceholder")}
                 onChange={(event) => {
                   setForm((current) => ({ ...current, nodePath: event.target.value }));
                 }}
                 className="font-mono text-xs"
               />
-              <p className="text-xs text-muted-foreground">
-                Leave empty to use <span className="font-mono">node</span> from PATH. Python
-                Playwright ships one at <span className="font-mono">…\\playwright\\driver\\node</span>.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("common.nodeRuntimeHint")}</p>
             </div>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -360,17 +356,17 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
                   }}
                 />
                 <Label htmlFor="agent-headless" className="text-sm">
-                  Headless
+                  {t("common.headless")}
                 </Label>
               </div>
               <div className="flex flex-1 items-center gap-2">
                 <Label htmlFor="agent-port" className="shrink-0 text-sm">
-                  Port
+                  {t("common.port")}
                 </Label>
                 <Input
                   id="agent-port"
                   value={form.port}
-                  placeholder="auto"
+                  placeholder={t("common.portPlaceholder")}
                   onChange={(event) => {
                     setForm((current) => ({ ...current, port: event.target.value }));
                   }}
@@ -390,7 +386,7 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
               }}
             >
               <LuPlay className="size-3.5" />
-              {busy ? "Starting…" : "Start session"}
+              {busy ? t("common.starting") : t("common.startSession")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -404,22 +400,17 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Warm up — {warmTarget?.name}</DialogTitle>
-            <DialogDescription>
-              The browser starts headless behind the profile's proxy and dwells on each site
-              below, so cookies, cache and history accumulate in its real browser data. A
-              profile with no history is itself a tell. This takes minutes; the window closes
-              itself when the route is done.
-            </DialogDescription>
+            <DialogTitle>{t("common.warmupTitle", { name: warmTarget?.name })}</DialogTitle>
+            <DialogDescription>{t("common.warmupDescription")}</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="warmup-driver">Playwright driver path</Label>
+              <Label htmlFor="warmup-driver">{t("common.playwrightDriverPath")}</Label>
               <Input
                 id="warmup-driver"
                 value={form.driverPath}
-                placeholder="…\node_modules\playwright-core"
+                placeholder={t("common.playwrightDriverPathPlaceholder")}
                 onChange={(event) => {
                   setForm((current) => ({ ...current, driverPath: event.target.value }));
                 }}
@@ -427,7 +418,7 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="warmup-sites">Sites, one per line</Label>
+              <Label htmlFor="warmup-sites">{t("common.warmupSites")}</Label>
               <textarea
                 id="warmup-sites"
                 value={warmForm.sites}
@@ -441,7 +432,7 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
             </div>
             <div className="flex items-center gap-2">
               <Label htmlFor="warmup-seconds" className="shrink-0 text-sm">
-                Dwell per site (seconds)
+                {t("common.warmupDwell")}
               </Label>
               <Input
                 id="warmup-seconds"
@@ -465,7 +456,7 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
                 setWarmTarget(null);
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="button"
@@ -476,7 +467,7 @@ export function AgentPage({ profiles }: { profiles: ProfileSummary[] }) {
               }}
             >
               <LuFlaskConical className="size-3.5" />
-              {warming ? "Warming up…" : "Start warm-up"}
+              {warming ? t("common.warmingUp") : t("common.startWarmup")}
             </Button>
           </DialogFooter>
         </DialogContent>
