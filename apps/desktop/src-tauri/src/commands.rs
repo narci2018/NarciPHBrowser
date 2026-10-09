@@ -2236,18 +2236,30 @@ pub async fn list_subscription_nodes(
     .map_err(|error| error.to_string())?
 }
 
-/// Folds a stored latency run into a freshly read node list.
+/// Folds stored latency, speed, and exit runs into a freshly read node list.
 ///
-/// Once the app has tested a subscription, that run is what the list shows —
-/// nodes it failed read back as no measurement rather than the core's older
-/// history — and the core's own history only speaks before the first test.
+/// Once the app has tested a subscription, those runs are what the list shows
+/// — nodes they failed read back as no measurement rather than the core's
+/// older history — and the core's own history only speaks before the first test.
 fn apply_stored_delays(
     sub: Option<&narrc_core::StoredSubscription>,
     nodes: &mut [crate::mihomo::NodeInfo],
 ) {
-    if let Some(delays) = sub.and_then(|sub| sub.delays.as_ref()) {
-        for node in nodes {
-            node.delay = delays.get(&node.name).cloned().flatten();
+    if let Some(sub) = sub {
+        if let Some(delays) = sub.delays.as_ref() {
+            for node in &mut *nodes {
+                node.delay = delays.get(&node.name).cloned().flatten();
+            }
+        }
+        if let Some(speeds) = sub.speeds.as_ref() {
+            for node in &mut *nodes {
+                node.speed = speeds.get(&node.name).cloned().flatten();
+            }
+        }
+        if let Some(exits) = sub.exits.as_ref() {
+            for node in &mut *nodes {
+                node.exit_country = exits.get(&node.name).cloned().flatten();
+            }
         }
     }
 }
@@ -2403,6 +2415,7 @@ pub async fn test_node_speed(
         serde_json::from_value(payload).map_err(|error| format!("invalid node: {error}"))?;
     let subs = open_subscription_store(&state)?.list().to_vec();
     let node = spec.node.clone();
+    let sub_id = spec.subscription_id.clone();
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app2.state::<AppState>();
@@ -2413,6 +2426,11 @@ pub async fn test_node_speed(
         let (api, secret, speed) = network_handle(&app2, state.inner(), &subs)?;
         let client = crate::mihomo::blocking_client(20);
         let mbps = crate::mihomo::node_speed(&client, api, &secret, speed, &node)?;
+        // Persist so reopening the dialog shows the latest run instead of —.
+        let mut store = open_subscription_store(&state)?;
+        store
+            .set_speed(&sub_id, &node, mbps)
+            .map_err(|error| error.to_string())?;
         Ok(serde_json::json!({ "mbps": mbps }))
     })
     .await
@@ -2434,6 +2452,7 @@ pub async fn test_node_exit(
         serde_json::from_value(payload).map_err(|error| format!("invalid node: {error}"))?;
     let subs = open_subscription_store(&state)?.list().to_vec();
     let node = spec.node.clone();
+    let sub_id = spec.subscription_id.clone();
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app2.state::<AppState>();
@@ -2442,6 +2461,11 @@ pub async fn test_node_exit(
         let client = crate::mihomo::blocking_client(20);
         let started = std::time::Instant::now();
         let echo = crate::mihomo::node_exit(&client, api, &secret, speed, &node)?;
+        // Persist so reopening the dialog shows the latest run instead of —.
+        let mut store = open_subscription_store(&state)?;
+        store
+            .set_exit(&sub_id, &node, echo.country.clone())
+            .map_err(|error| error.to_string())?;
         Ok(serde_json::json!({
             "ip": echo.ip,
             "country": echo.country,

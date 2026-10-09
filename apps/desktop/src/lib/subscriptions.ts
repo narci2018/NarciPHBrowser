@@ -15,6 +15,8 @@ export interface SubscriptionNode {
   kind: string;
   alive: boolean;
   delay?: number | null;
+  speed?: number | null;
+  exit_country?: string | null;
 }
 
 /** A profile's route through a subscription node, as stored. */

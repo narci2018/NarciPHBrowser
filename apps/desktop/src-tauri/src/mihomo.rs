@@ -1184,6 +1184,16 @@ pub struct NodeInfo {
     /// The last measured delay, when one was recorded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delay: Option<u32>,
+    /// The last measured speed, when one was recorded.
+    ///
+    /// `null` means the exit is alive but bandwidth could not be measured
+    /// (e.g. a VLESS-WSS node whose websocket path only accepts the origin
+    /// site). `None` means no speed test has been run yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed: Option<f64>,
+    /// The last measured exit country, when one was recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_country: Option<String>,
 }
 
 /// Lists the nodes a subscription's provider currently holds.
@@ -1215,6 +1225,8 @@ pub fn provider_nodes(
             kind: entry["type"].as_str().unwrap_or("Unknown").to_string(),
             alive: entry["alive"].as_bool().unwrap_or(false),
             delay: latest_delay(&entry),
+            speed: None,
+            exit_country: None,
         });
     }
     Ok(nodes)
@@ -1477,6 +1489,11 @@ pub const ECHO_ENDPOINTS: &[&str] = &[
     "https://api.ipify.org?format=json",
     "https://checkip.amazonaws.com",
     "https://icanhazip.com",
+    // Fallbacks for nodes whose websocket path only accepts the origin site
+    // (common with VLESS-WSS proxies). These HTTP endpoints tend to bypass
+    // the SNI/domain gate that rejects the HTTPS ones above.
+    "http://ipinfo.io/json",
+    "http://ifconfig.co/json",
 ];
 
 /// Reads one endpoint's answer: JSON first, a bare IP second.
@@ -1732,6 +1749,8 @@ mod tests {
             url: url.to_owned(),
             updated_at: None,
             delays: None,
+            speeds: None,
+            exits: None,
         }
     }
 

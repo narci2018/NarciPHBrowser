@@ -4,9 +4,11 @@
 //!
 //! A subscription is a URL a proxy core fetches and turns into a set of nodes.
 //! This module stores what the user typed — a name and a URL — when it was
-//! last refreshed, and the newest latency run's outcome for each of its nodes.
-//! It is a small JSON file beside the profile store (`subscriptions.json`),
-//! written atomically and read whole on open.
+//! last refreshed, and the newest run's outcome for each of its nodes: latency
+//! (milliseconds), download speed (megabits per second, or `null` when the
+//! exit is alive but bandwidth-capped), and exit country (when the echo probe
+//! could resolve one). Only the latest run of each kind is kept — a new test
+//! replaces the map wholesale, so the dialog always shows one number per node.
 //!
 //! # What is deliberately not here
 //!
@@ -29,7 +31,7 @@ use crate::proxy_store::slug_with;
 use crate::seal;
 
 /// The on-disk format version of the subscription file.
-const SUBSCRIPTION_FORMAT: u32 = 1;
+const SUBSCRIPTION_FORMAT: u32 = 2;
 
 /// The longest name a subscription may have, mirroring a profile's bound.
 const MAX_NAME: usize = 120;
@@ -55,6 +57,20 @@ pub struct StoredSubscription {
     /// changes every run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delays: Option<HashMap<String, Option<u32>>>,
+    /// The newest speed run's outcome per node name, in megabits per second.
+    ///
+    /// `Some(0.0)` is a measured rate; `None` means the exit is alive but
+    /// bandwidth could not be measured (e.g. a VLESS-WSS node whose websocket
+    /// path only accepts the origin site). A missing name was not part of the
+    /// run. Only the latest run is kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speeds: Option<HashMap<String, Option<f64>>>,
+    /// The newest exit run's outcome per node name.
+    ///
+    /// `null` marks a node the echo probe could not resolve; a missing name
+    /// was not part of the run. Only the latest run is kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exits: Option<HashMap<String, Option<String>>>,
 }
 
 impl StoredSubscription {
@@ -142,6 +158,8 @@ impl SubscriptionStore {
             url,
             updated_at: None,
             delays: None,
+            speeds: None,
+            exits: None,
         };
         self.subscriptions.push(stored.clone());
         self.save()?;
@@ -170,6 +188,8 @@ impl SubscriptionStore {
             url,
             updated_at: previous.updated_at,
             delays,
+            speeds: None,
+            exits: None,
         };
         self.subscriptions[index] = stored.clone();
         self.save()?;
@@ -224,6 +244,72 @@ impl SubscriptionStore {
             None
         } else {
             Some(delays)
+        };
+        self.save()
+    }
+
+    /// Records one node's speed in the latest run, and writes the list.
+    ///
+    /// `Some(mbps)` is a measurement; `None` is a run that could not measure
+    /// bandwidth through the exit (alive but capped). The failure is recorded
+    /// rather than dropped so reopening the dialog shows it instead of a number
+    /// an older run left behind.
+    pub fn set_speed(&mut self, id: &str, node: &str, speed: Option<f64>) -> Result<()> {
+        let index = self
+            .subscriptions
+            .iter()
+            .position(|entry| entry.id == id)
+            .ok_or_else(|| Error::identity(format!("no subscription with the id {id:?}")))?;
+        let entry = self.subscriptions[index]
+            .speeds
+            .get_or_insert_with(HashMap::new);
+        entry.insert(node.to_owned(), speed);
+        self.save()
+    }
+
+    /// Replaces the latest speed run wholesale, and writes the list.
+    pub fn set_speeds(&mut self, id: &str, speeds: HashMap<String, Option<f64>>) -> Result<()> {
+        let index = self
+            .subscriptions
+            .iter()
+            .position(|entry| entry.id == id)
+            .ok_or_else(|| Error::identity(format!("no subscription with the id {id:?}")))?;
+        self.subscriptions[index].speeds = if speeds.is_empty() {
+            None
+        } else {
+            Some(speeds)
+        };
+        self.save()
+    }
+
+    /// Records one node's exit country in the latest run, and writes the list.
+    ///
+    /// `Some(country)` is a two-letter code; `None` means the echo probe could
+    /// not resolve a country. A missing name was not part of the run.
+    pub fn set_exit(&mut self, id: &str, node: &str, country: Option<String>) -> Result<()> {
+        let index = self
+            .subscriptions
+            .iter()
+            .position(|entry| entry.id == id)
+            .ok_or_else(|| Error::identity(format!("no subscription with the id {id:?}")))?;
+        let entry = self.subscriptions[index]
+            .exits
+            .get_or_insert_with(HashMap::new);
+        entry.insert(node.to_owned(), country);
+        self.save()
+    }
+
+    /// Replaces the latest exit run wholesale, and writes the list.
+    pub fn set_exits(&mut self, id: &str, exits: HashMap<String, Option<String>>) -> Result<()> {
+        let index = self
+            .subscriptions
+            .iter()
+            .position(|entry| entry.id == id)
+            .ok_or_else(|| Error::identity(format!("no subscription with the id {id:?}")))?;
+        self.subscriptions[index].exits = if exits.is_empty() {
+            None
+        } else {
+            Some(exits)
         };
         self.save()
     }

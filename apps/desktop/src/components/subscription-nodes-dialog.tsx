@@ -60,7 +60,11 @@ const RETRY_LIMIT = 8;
 const seedResults = (list: SubscriptionNode[]): Record<string, NodeResult> => {
   const seeded: Record<string, NodeResult> = {};
   for (const node of list) {
-    if (node.delay != null) seeded[node.name] = { delay: node.delay };
+    const entry: NodeResult = {};
+    if (node.delay != null) entry.delay = node.delay;
+    if (node.speed != null) entry.speed = node.speed;
+    if (node.exit_country != null) entry.exit = { ip: "", country: node.exit_country };
+    if (Object.keys(entry).length > 0) seeded[node.name] = entry;
   }
   return seeded;
 };
