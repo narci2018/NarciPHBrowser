@@ -93,6 +93,12 @@ const DELAY_TIMEOUT_MS: u64 = 7000;
 /// bandwidth and reachable from most exits.
 const SPEED_URL: &str = "https://speed.cloudflare.com/__down?bytes=5000000";
 
+/// Fallback URL used when the primary speed endpoint is rejected by a node's
+/// WebSocket path (some VLESS-WSS nodes only accept traffic addressed to the
+/// origin site they were provisioned for). generate_204 always returns 204 so
+/// it cannot produce a rate, but it confirms the exit is alive.
+const SPEED_FALLBACK_URL: &str = "http://www.gstatic.com/generate_204";
+
 /// How long a speed test may take from request to last byte, in seconds.
 ///
 /// A dead exit never answers the socks connect at all, so without this bound
@@ -108,6 +114,10 @@ const SPEED_TIMEOUT_SECS: u64 = 10;
 /// node reports a slow speed instead of failing, and a stalled body ends
 /// with the window instead of the whole download.
 const SPEED_WINDOW_SECS: u64 = 8;
+
+/// How many times the fallback generate_204 is retried to confirm the exit
+/// is reachable when the primary endpoint is rejected.
+const SPEED_FALLBACK_PINGS: u32 = 5;
 
 /// How long to wait for the controller to answer after a start.
 const READY_TIMEOUT_SECS: u64 = 20;
@@ -1334,13 +1344,19 @@ pub fn group_delay(
 }
 
 /// Measures one node's download speed, in megabits per second.
+///
+/// Returns `Ok(None)` when the primary endpoint is reachable but returns no
+/// body (the exit is alive but bandwidth cannot be measured through it — this
+/// happens with VLESS-WSS nodes whose websocket path only accepts the origin
+/// site's traffic). The caller should treat `None` as "limited" rather than
+/// "failed".
 pub fn node_speed(
     client: &reqwest::blocking::Client,
     port: u16,
     secret: &str,
     speed_port: u16,
     node: &str,
-) -> Result<f64, String> {
+) -> Result<Option<f64>, String> {
     // Point the speed group at the node under test, then let it settle before
     // the download: the switch is applied asynchronously.
     api_put(
@@ -1366,7 +1382,10 @@ pub fn node_speed(
         .send()
         .map_err(|error| format!("the speed test did not connect: {error}"))?;
     if !response.status().is_success() {
-        return Err(format!("the speed test answered {}", response.status()));
+        // The primary endpoint was rejected (common with VLESS-WSS nodes whose
+        // websocket path only accepts the origin site). Fall back to pinging
+        // gstatic to confirm the exit is alive but bandwidth is unmeasurable.
+        return Ok(check_fallback(client, port, secret, speed_port, node)?);
     }
 
     let mut buffer = vec![0u8; 16 * 1024];
@@ -1394,10 +1413,46 @@ pub fn node_speed(
     }
     let start = match reading {
         Some(start) => start,
-        None => return Err("the speed test received no data".to_owned()),
+        None => return Ok(None), // 204 or similar: alive but no body to measure
     };
     let seconds = start.elapsed().as_secs_f64().max(0.1);
-    Ok(bytes as f64 * 8.0 / seconds / 1_000_000.0)
+    Ok(Some(bytes as f64 * 8.0 / seconds / 1_000_000.0))
+}
+
+fn check_fallback(
+    client: &reqwest::blocking::Client,
+    port: u16,
+    secret: &str,
+    speed_port: u16,
+    node: &str,
+) -> Result<Option<f64>, String> {
+    // Repoint the group again: the previous PUT may have been consumed by the
+    // failed request, and some nodes need a fresh select to clear state.
+    api_put(
+        client,
+        port,
+        secret,
+        &format!("/proxies/{SPEED_GROUP}"),
+        Some(json!({ "name": node })),
+    )?;
+    std::thread::sleep(Duration::from_millis(200));
+
+    let downloader = reqwest::blocking::Client::builder()
+        .proxy(
+            reqwest::Proxy::all(format!("socks5h://127.0.0.1:{speed_port}"))
+                .map_err(|error| format!("could not route through the core: {error}"))?,
+        )
+        .timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|error| format!("could not build the fallback client: {error}"))?;
+
+    for _ in 0..SPEED_FALLBACK_PINGS {
+        match downloader.get(SPEED_FALLBACK_URL).send() {
+            Ok(resp) if resp.status().is_success() => return Ok(None),
+            _ => {}
+        }
+    }
+    Err("the speed test could not reach the fallback endpoint".to_owned())
 }
 
 /// What an echo service reported about an exit.

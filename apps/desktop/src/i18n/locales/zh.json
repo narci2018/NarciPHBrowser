@@ -479,6 +479,8 @@
     "testSpeed": "测试速度",
     "testSpeedFor": "测试 {{name}} 的速度",
     "testingSpeed": "测速 {{done}}/{{total}}",
+    "speedSkippedLatency": "延迟测试失败，未测速",
+    "speedLimited": "带宽受限",
     "theme": "主题",
     "themeDark": "深色",
     "themeLight": "浅色",

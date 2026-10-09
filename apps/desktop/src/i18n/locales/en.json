@@ -506,6 +506,8 @@
     "testSpeed": "Test speed",
     "testSpeedFor": "Test speed for {{name}}",
     "testingSpeed": "Speed {{done}}/{{total}}",
+    "speedSkippedLatency": "Latency test failed, skipped",
+    "speedLimited": "Bandwidth limited",
     "theme": "Theme",
     "themeDark": "Dark",
     "themeLight": "Light",

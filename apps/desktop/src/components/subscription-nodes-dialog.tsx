@@ -95,6 +95,8 @@ export function SubscriptionNodesDialog({
   // switching subscriptions — so the pool stops picking up new nodes instead
   // of quietly measuring a list nobody is watching any more.
   const runIdRef = useRef(0);
+  // Latency sort direction: false = ascending, true = descending.
+  const [sortAsc, setSortAsc] = useState(false);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Whether the list is ordered by measured delay. Reset whenever the results
@@ -152,15 +154,27 @@ export function SubscriptionNodesDialog({
   const measureSpeed = useCallback(
     async (node: string) => {
       if (!id) return;
+      // If latency test already failed, the node's exit is unreachable — no point running speed.
+      if (results[node]?.delayError) {
+        patch(node, {
+          testingSpeed: false,
+          speedError: t("common.speedSkippedLatency"),
+        });
+        return;
+      }
       patch(node, { testingSpeed: true, speedError: null });
       try {
         const speed = await testNodeSpeed(id, node);
-        patch(node, { speed, testingSpeed: false });
+        patch(node, {
+          speed,
+          testingSpeed: false,
+          speedError: speed == null ? t("common.speedLimited") : null,
+        });
       } catch (speedError) {
         patch(node, { testingSpeed: false, speedError: String(speedError) });
       }
     },
-    [id, patch],
+    [id, patch, results, t],
   );
 
   const measureExit = useCallback(
@@ -186,9 +200,8 @@ export function SubscriptionNodesDialog({
     );
   }, [nodes, filter]);
 
-  // A node whose latency test failed cannot answer a download either — the
-  // exit is unreachable, and testing it would only wait out the speed bound
-  // again — so the speed batch attempts the rest.
+  // A node whose latency test failed cannot answer a download
+  // either — the exit is unreachable, so skip it in the batch but mark it visible.
   const speedTargets = useMemo(
     () => filtered.filter((node) => !results[node.name]?.delayError),
     [filtered, results],
@@ -205,18 +218,19 @@ export function SubscriptionNodesDialog({
   // The delay test orders the list: rows with a reading float to the top
   // sorted by that reading, everything else — failed, timed out, untested —
   // keeps its current relative order below them.
+  // Clicking the header toggles between ascending and descending.
   const sorted = useMemo(() => {
     if (!sortedByDelay) return filtered;
     const delayOf = (node: SubscriptionNode): number | null => results[node.name]?.delay ?? null;
     return [...filtered].sort((a, b) => {
       const first = delayOf(a);
       const second = delayOf(b);
-      if (first != null && second != null) return first - second;
-      if (first != null) return -1;
-      if (second != null) return 1;
+      if (first != null && second != null) return sortAsc ? first - second : second - first;
+      if (first != null) return sortAsc ? -1 : 1;
+      if (second != null) return sortAsc ? 1 : -1;
       return 0;
     });
-  }, [filtered, results, sortedByDelay]);
+  }, [filtered, results, sortedByDelay, sortAsc]);
 
   // The batch is one core request that tests the whole provider concurrently,
   // so it costs a single timeout window no matter the node count. Every row is
@@ -385,7 +399,24 @@ export function SubscriptionNodesDialog({
                 <TableHead className="w-[52px] pl-3">#</TableHead>
                 <TableHead>{t("common.node")}</TableHead>
                 <TableHead className="w-[120px]">{t("common.protocol")}</TableHead>
-                <TableHead className="w-[110px]">{t("common.latency")}</TableHead>
+                <TableHead
+                  className="w-[110px] cursor-pointer select-none hover:bg-accent/50"
+                  onClick={() => {
+                    if (!sortedByDelay) {
+                      setSortedByDelay(true);
+                      setSortAsc(true);
+                    } else {
+                      setSortAsc((v) => !v);
+                    }
+                  }}
+                >
+                  <span className="flex items-center gap-0.5">
+                    {t("common.latency")}
+                    {sortedByDelay && (
+                      <span className="text-xs">{sortAsc ? " ↑" : " ↓"}</span>
+                    )}
+                  </span>
+                </TableHead>
                 <TableHead className="w-[120px]">{t("common.speed")}</TableHead>
                 <TableHead className="w-[90px]">{t("common.exit")}</TableHead>
                 <TableHead className="w-[96px] pr-3 text-right">{t("common.test")}</TableHead>
@@ -456,6 +487,10 @@ export function SubscriptionNodesDialog({
                         ) : result.speed != null ? (
                           <span className="tabular-nums text-foreground">
                             {result.speed.toFixed(1)} Mbps
+                          </span>
+                        ) : result.speed === null && result.delay != null ? (
+                          <span className="text-warning-text" title={t("common.speedLimited")}>
+                            {t("common.speedLimited")}
                           </span>
                         ) : (
                           <span className="text-muted-foreground">—</span>

@@ -121,12 +121,13 @@ export async function testAllNodeDelays(id: string): Promise<Record<string, numb
   return result.delays;
 }
 
-/** Measures one node's download speed, in megabits per second. */
-export async function testNodeSpeed(id: string, node: string): Promise<number> {
-  const result = await invoke<{ mbps: number }>("test_node_speed", {
+/** Measures one node's download speed, in megabits per second.
+ * Returns null if the node is alive but speed cannot be measured (e.g. bandwidth-capped exits). */
+export async function testNodeSpeed(id: string, node: string): Promise<number | null> {
+  const result = await invoke<{ mbps: number | null }>("test_node_speed", {
     payload: { subscription_id: id, node },
   });
-  return result.mbps;
+  return result.mbps ?? null;
 }
 
 /** Reports which country a node's traffic really exits from. */
