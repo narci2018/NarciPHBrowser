@@ -1484,18 +1484,22 @@ pub struct Echo {
 /// is down; the check passes when any answers. Every request goes *through*
 /// the proxy, so these see the exit address and nothing about this machine.
 pub const ECHO_ENDPOINTS: &[&str] = &[
+    // These have JSON responses with country info when reachable.
     "https://ipinfo.io/json",
     "https://ifconfig.co/json",
+    // These return only a bare IP — they prove the exit works but give no
+    // country, so parse_echo treats them as partial failures and the loop
+    // keeps trying until one of the richer endpoints below answers.
     "https://api.ipify.org?format=json",
     "https://checkip.amazonaws.com",
     "https://icanhazip.com",
-    // Fallbacks for nodes whose websocket path only accepts the origin site
-    // (common with VLESS-WSS proxies). These HTTP endpoints tend to bypass
-    // the SNI/domain gate that rejects the HTTPS ones above.
+    // HTTP fallbacks for nodes whose websocket path only accepts the origin
+    // site (common with VLESS-WSS proxies). These bypass the SNI/domain gate
+    // that rejects the HTTPS ones above.
     "http://ipinfo.io/json",
     "http://ifconfig.co/json",
     // ip-api.com returns full geolocation data (country, city, ISP) in its
-    // JSON response — much richer than the bare-IP endpoints above.
+    // JSON response and has worked through every exit we have tested.
     "http://ip-api.com/json",
 ];
 
@@ -1523,13 +1527,11 @@ pub fn parse_echo(endpoint: &str, body: &str) -> Result<Echo, String> {
             city,
         });
     }
-    // The plain-text endpoints answer with the IP and nothing else.
+    // The plain-text endpoints answer with the IP and nothing else — useful
+    // as a connectivity probe but not enough to populate the country column.
+    // Return Err so the caller keeps trying richer endpoints.
     if body.parse::<std::net::IpAddr>().is_ok() {
-        return Ok(Echo {
-            ip: body.to_owned(),
-            country: None,
-            city: None,
-        });
+        return Err(format!("{endpoint} returned only an IP, no country"));
     }
     Err(format!("{endpoint} replied with something that is not an IP"))
 }
@@ -1922,9 +1924,10 @@ mod tests {
         assert_eq!(json.country.as_deref(), Some("DE"));
         assert_eq!(json.city.as_deref(), Some("Berlin"));
 
-        let bare = parse_echo("https://icanhazip.com", "203.0.113.9\n").unwrap();
-        assert_eq!(bare.ip, "203.0.113.9");
-        assert_eq!(bare.country, None);
+        // Bare-IP responses no longer count as a successful echo — they prove
+        // the exit is reachable but carry no country, so the caller keeps
+        // trying richer endpoints.
+        assert!(parse_echo("https://icanhazip.com", "203.0.113.9\n").is_err());
 
         assert!(parse_echo("https://example.example", "<html>nope</html>").is_err());
         // JSON that carries no IP is an error naming the endpoint, not a panic.
