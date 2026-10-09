@@ -1484,23 +1484,18 @@ pub struct Echo {
 /// is down; the check passes when any answers. Every request goes *through*
 /// the proxy, so these see the exit address and nothing about this machine.
 pub const ECHO_ENDPOINTS: &[&str] = &[
-    // These have JSON responses with country info when reachable.
+    // ip-api.com is the most reliable source of country data for exits that
+    // only accept their own origin path (VLESS-WSS). Put it first so we get
+    // a real country as soon as possible.
+    "http://ip-api.com/json",
+    // If ip-api.com is rate-limited (403), fall back to these.
     "https://ipinfo.io/json",
     "https://ifconfig.co/json",
-    // These return only a bare IP — they prove the exit works but give no
-    // country, so parse_echo treats them as partial failures and the loop
-    // keeps trying until one of the richer endpoints below answers.
     "https://api.ipify.org?format=json",
     "https://checkip.amazonaws.com",
     "https://icanhazip.com",
-    // HTTP fallbacks for nodes whose websocket path only accepts the origin
-    // site (common with VLESS-WSS proxies). These bypass the SNI/domain gate
-    // that rejects the HTTPS ones above.
     "http://ipinfo.io/json",
     "http://ifconfig.co/json",
-    // ip-api.com returns full geolocation data (country, city, ISP) in its
-    // JSON response and has worked through every exit we have tested.
-    "http://ip-api.com/json",
 ];
 
 /// Reads one endpoint's answer: JSON first, a bare IP second.
