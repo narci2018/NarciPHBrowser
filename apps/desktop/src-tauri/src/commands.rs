@@ -2458,7 +2458,7 @@ pub async fn test_node_exit(
         let state = app2.state::<AppState>();
         let _speed_guard = state.speed_lock.lock();
         let (api, secret, speed) = network_handle(&app2, state.inner(), &subs)?;
-        let client = crate::mihomo::blocking_client(20);
+        let client = crate::mihomo::blocking_client(120);
         let started = std::time::Instant::now();
         let echo = crate::mihomo::node_exit(&client, api, &secret, speed, &node)?;
         // Persist so reopening the dialog shows the latest run instead of —.

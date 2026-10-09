@@ -1582,6 +1582,7 @@ pub fn node_exit(
         .map_err(|error| format!("could not build the exit client: {error}"))?;
 
     let mut last = "no echo service answered".to_string();
+    let mut all_errors: Vec<String> = Vec::new();
     for endpoint in ECHO_ENDPOINTS {
         match routed
             .get(*endpoint)
@@ -1599,7 +1600,10 @@ pub fn node_exit(
             .and_then(|body| parse_echo(endpoint, &body))
         {
             Ok(echo) => return Ok(echo),
-            Err(error) => last = error,
+            Err(error) => {
+                all_errors.push(error.clone());
+                last = format!("{}; last: {}", last, error);
+            }
         }
     }
     Err(last)
