@@ -72,7 +72,8 @@ pub use generator::{generate, FontProfile, GeneratedIdentity, GeneratorOptions};
 pub use identity::Identity;
 pub use os::TargetOs;
 pub use profile::{
-    GeoGate, Profile, ProfileExport, ProfileStore, ProxyConfig, TrashedProfile,
+    read_profiles_export, GeoGate, Profile, ProfileExport, ProfileExportBundle, ProfileStore,
+    ProxyConfig, TrashedProfile,
 };
 pub use proxy_store::{ProxyCheck, ProxyStore, StoredProxy};
 pub use rng::Rng;

@@ -1128,6 +1128,116 @@ impl ProfileExport {
     }
 }
 
+/// Many profiles in one export file — the batch the toolbar's 导出 writes
+/// and the 导入 button reads back in one go.
+///
+/// The envelope mirrors [`ProfileExport`] field for field so a reader can
+/// sniff `kind` and dispatch without parsing either payload twice; the
+/// profiles ride in the store's own shape, exactly as in a single export,
+/// and so carry the same deliberate omission — browser data never travels.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileExportBundle {
+    /// What file this is, so a reader refuses the wrong file politely.
+    pub kind: String,
+    /// The export format version, shared with [`ProfileExport`].
+    pub version: u32,
+    /// Unix seconds at which the file was written.
+    pub exported_at: u64,
+    /// The profiles themselves, in the store's own shape.
+    pub profiles: Vec<Profile>,
+}
+
+impl ProfileExportBundle {
+    /// What a bundle export file calls itself.
+    pub const KIND: &str = "narciphbrowser-profiles";
+
+    /// Packages the profiles, as they stand.
+    pub fn new(profiles: Vec<Profile>) -> Self {
+        Self {
+            kind: Self::KIND.to_owned(),
+            version: EXPORT_FORMAT,
+            exported_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|since| since.as_secs())
+                .unwrap_or(0),
+            profiles,
+        }
+    }
+
+    /// The same bundle with every proxy login removed.
+    ///
+    /// Each profile gets exactly the rewrite a single export gives it —
+    /// the same proxy, minus `user:pass` — so a bundle with no credentials
+    /// in it needs no per-profile decision from the caller.
+    pub fn without_credentials(mut self) -> Self {
+        self.profiles = std::mem::take(&mut self.profiles)
+            .into_iter()
+            .map(|profile| ProfileExport::new(profile).without_credentials().profile)
+            .collect();
+        self
+    }
+
+    /// The bundle as pretty JSON, for a file a user can read and keep.
+    pub fn to_json(&self) -> Result<String> {
+        serde_json::to_string_pretty(self)
+            .map_err(|error| Error::identity(format!("could not serialize the export: {error}")))
+    }
+
+    /// Parses a bundle file, refusing files that are not this format.
+    pub fn from_json(bytes: &[u8]) -> Result<Self> {
+        let bundle: Self = serde_json::from_slice(bytes).map_err(|error| {
+            Error::identity(format!(
+                "that file is not a NarciPHBrowser profile bundle: {error}"
+            ))
+        })?;
+        if bundle.kind != Self::KIND {
+            return Err(Error::identity(format!(
+                "that file is a {:?} export, not a {:?} one",
+                bundle.kind,
+                Self::KIND
+            )));
+        }
+        if bundle.version > EXPORT_FORMAT {
+            return Err(Error::identity(format!(
+                "that export was written by a newer version of NarciPHBrowser (format {}, this \
+                 build understands {}); upgrade before importing",
+                bundle.version, EXPORT_FORMAT
+            )));
+        }
+        Ok(bundle)
+    }
+}
+
+/// Reads a profile export of either shape: a single [`ProfileExport`] file
+/// or a [`ProfileExportBundle`], as a list ready for [`ProfileStore::import`].
+///
+/// The `kind` field decides — sniffed from one parse, then the chosen
+/// reader parses its own payload and applies its own kind and version
+/// checks — so a foreign file fails with the wording of the shape it
+/// most pretends to be, and a bundle never has to be unwrapped to discover
+/// it was a single all along. Older single files keep reading untouched.
+pub fn read_profiles_export(bytes: &[u8]) -> Result<Vec<ProfileExport>> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|error| {
+        Error::identity(format!(
+            "that file is not a NarciPHBrowser profile export: {error}"
+        ))
+    })?;
+    let kind = value
+        .get("kind")
+        .and_then(|kind| kind.as_str())
+        .unwrap_or("");
+    if kind == ProfileExportBundle::KIND {
+        let bundle = ProfileExportBundle::from_json(bytes)?;
+        Ok(bundle
+            .profiles
+            .into_iter()
+            .map(ProfileExport::new)
+            .collect())
+    } else {
+        Ok(vec![ProfileExport::from_json(bytes)?])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2123,5 +2233,95 @@ mod tests {
             "only {} distinct identities",
             digests.len()
         );
+    }
+
+    #[test]
+    fn a_bundle_carries_every_profile_and_scrubs_each_login() {
+        let mut with_login = sample("Alpha", 3);
+        with_login.proxy = Some(ProxyConfig::new("http://user:pass@10.0.0.1:8080"));
+        let without = sample("Beta", 4);
+
+        let bundle = ProfileExportBundle::new(vec![with_login, without]).without_credentials();
+        assert_eq!(bundle.profiles.len(), 2);
+        let proxy = bundle.profiles[0].proxy.as_ref().expect("the proxy stayed");
+        assert_eq!(proxy.url, "http://10.0.0.1:8080");
+        assert!(proxy.parts().unwrap().credentials.is_none());
+        assert!(bundle.profiles[1].proxy.is_none());
+
+        let parsed = ProfileExportBundle::from_json(bundle.to_json().unwrap().as_bytes()).unwrap();
+        assert_eq!(parsed.kind, ProfileExportBundle::KIND);
+        assert_eq!(parsed.version, EXPORT_FORMAT);
+        assert_eq!(parsed.profiles.len(), 2);
+        assert_eq!(parsed.profiles[0].name, "Alpha");
+        assert_eq!(parsed.profiles[1].name, "Beta");
+    }
+
+    #[test]
+    fn a_bundle_refuses_foreign_and_newer_files() {
+        let mut value =
+            serde_json::to_value(ProfileExportBundle::new(vec![sample("Work", 7)])).unwrap();
+        value["kind"] = serde_json::json!("some-other-app");
+        let error = ProfileExportBundle::from_json(value.to_string().as_bytes()).unwrap_err();
+        assert!(error.to_string().contains("some-other-app"), "{error}");
+
+        let mut value =
+            serde_json::to_value(ProfileExportBundle::new(vec![sample("Work", 7)])).unwrap();
+        value["version"] = serde_json::json!(EXPORT_FORMAT + 1);
+        let error = ProfileExportBundle::from_json(value.to_string().as_bytes()).unwrap_err();
+        assert!(error.to_string().contains("newer version"), "{error}");
+    }
+
+    #[test]
+    fn the_reader_accepts_both_shapes_and_refuses_foreign_files() {
+        // Single: the shape every file written by older builds has.
+        let single = ProfileExport::new(sample("Solo", 7)).to_json().unwrap();
+        let read = read_profiles_export(single.as_bytes()).unwrap();
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].profile.name, "Solo");
+
+        // Bundle: many profiles, one file.
+        let bundle = ProfileExportBundle::new(vec![sample("Alpha", 3), sample("Beta", 4)])
+            .to_json()
+            .unwrap();
+        let read = read_profiles_export(bundle.as_bytes()).unwrap();
+        assert_eq!(read.len(), 2);
+        assert_eq!(read[0].profile.name, "Alpha");
+        assert_eq!(read[1].profile.name, "Beta");
+
+        // Neither shape: the single reader's refusal carries the wrong kind.
+        let mut value = serde_json::to_value(ProfileExport::new(sample("Solo", 7))).unwrap();
+        value["kind"] = serde_json::json!("some-other-app");
+        let error = read_profiles_export(value.to_string().as_bytes()).unwrap_err();
+        assert!(error.to_string().contains("some-other-app"), "{error}");
+
+        // A bundle from a future build is this build's problem to refuse.
+        let mut value =
+            serde_json::to_value(ProfileExportBundle::new(vec![sample("Alpha", 3)])).unwrap();
+        value["version"] = serde_json::json!(EXPORT_FORMAT + 1);
+        let error = read_profiles_export(value.to_string().as_bytes()).unwrap_err();
+        assert!(error.to_string().contains("newer version"), "{error}");
+    }
+
+    #[test]
+    fn a_read_bundle_imports_into_a_store_that_already_has_the_profile() {
+        let store = temp_store("bundle-import");
+        let taken = store
+            .import(&ProfileExport::new(sample("Alpha", 3)))
+            .unwrap();
+
+        let bundle = ProfileExportBundle::new(vec![sample("Alpha", 3), sample("Beta", 4)])
+            .to_json()
+            .unwrap();
+        let mut imported = Vec::new();
+        for export in read_profiles_export(bundle.as_bytes()).unwrap() {
+            imported.push(store.import(&export).unwrap());
+        }
+        assert_eq!(imported.len(), 2);
+        // The name the store already held keeps its id; the arriving Alpha
+        // moves beside it, and Beta takes the free id its name implies.
+        assert_eq!(taken.name, "Alpha");
+        assert_ne!(imported[0].id, taken.id);
+        assert!(store.load(&imported[0].id).unwrap().is_some());
+        assert!(store.load(&imported[1].id).unwrap().is_some());
     }
 }
