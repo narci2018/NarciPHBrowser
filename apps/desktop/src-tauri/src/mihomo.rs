@@ -75,11 +75,19 @@ const PROFILE_GROUP: &str = "SELECTED";
 const PROFILE_LISTENER: &str = "profile-in";
 
 /// The URL a latency check fetches. A `204` endpoint is the convention: small,
-/// cacheable and served from anywhere.
-const DELAY_URL: &str = "https://www.gstatic.com/generate_204";
+/// cacheable and served from anywhere. Plain `http` is deliberate — the check
+/// already travels *through* the node, and an inner TLS handshake on top of
+/// that path would tax every reading: measured on this machine, the same
+/// request through the same node answers in ~1.3 s over http and ~1.9 s over
+/// https, and both are equally real requests through the exit.
+const DELAY_URL: &str = "http://www.gstatic.com/generate_204";
 
 /// How long a latency check waits, in milliseconds.
-const DELAY_TIMEOUT_MS: u64 = 5000;
+///
+/// The check is a real request through the node's exit, not a ping, so the
+/// window is generous: measurements sit in the low seconds, and the limit
+/// exists only to stop a dead node from holding the whole test hostage.
+const DELAY_TIMEOUT_MS: u64 = 7000;
 
 /// The file a speed test downloads. Cloudflare's endpoint is generous with
 /// bandwidth and reachable from most exits.
@@ -977,6 +985,20 @@ fn network_config(subs: &[StoredSubscription], api_port: u16, secret: &str, spee
         }
     }
 
+    // A latency group per subscription: a batch must measure the dialog's own
+    // nodes and nothing else. The shared group above spans every
+    // subscription, and testing it would race hundreds of unrelated dials and
+    // DNS lookups against the same reading — inflated numbers, and live nodes
+    // pushed past the timeout.
+    for sub in subs {
+        out.push_str(&format!("  - name: {}\n", sub.node_group_name()));
+        out.push_str("    type: select\n");
+        out.push_str("    proxies:\n");
+        out.push_str("      - DIRECT\n");
+        out.push_str("    use:\n");
+        out.push_str(&format!("      - {}\n", sub.provider_name()));
+    }
+
     out.push_str("listeners:\n");
     out.push_str(&format!("  - name: {SPEED_LISTENER}\n"));
     out.push_str("    type: socks\n");
@@ -1203,9 +1225,11 @@ pub fn refresh_provider(
 
 /// Measures one node's latency, in milliseconds.
 ///
-/// `None` means the core reached the node but the delay was not a number —
-/// which is what a timeout looks like — and an `Err` means the request itself
-/// could not be made.
+/// `None` means the core reached the node but the answer did not arrive
+/// within the window — the core says so with a `504` and no delay at all,
+/// which is a failed *measurement*, not a failed call — and an `Err` means
+/// the request itself could not be made, or the core refused it for any
+/// other reason.
 pub fn node_delay(
     client: &reqwest::blocking::Client,
     port: u16,
@@ -1219,8 +1243,24 @@ pub fn node_delay(
         percent_encode(node),
         percent_encode(DELAY_URL),
     );
-    let value = api_get(client, port, secret, &path)?;
-    Ok(value["delay"].as_u64().and_then(|delay| u32::try_from(delay).ok()))
+    let response = client
+        .get(format!("http://127.0.0.1:{port}{path}"))
+        .header("Authorization", format!("Bearer {secret}"))
+        .send()
+        .map_err(|error| format!("the proxy core did not answer: {error}"))?;
+    let status = response.status();
+    if status == reqwest::StatusCode::GATEWAY_TIMEOUT {
+        return Ok(None);
+    }
+    if !status.is_success() {
+        return Err(core_answered(status, response.text().unwrap_or_default()));
+    }
+    let value = response
+        .json::<Value>()
+        .map_err(|error| format!("the proxy core sent unreadable json: {error}"))?;
+    Ok(value["delay"]
+        .as_u64()
+        .and_then(|delay| u32::try_from(delay).ok()))
 }
 
 /// What a node's measured answer means for a launch about to route through it.
@@ -1255,19 +1295,25 @@ fn parse_group_delays(value: Value) -> HashMap<String, u32> {
         .collect()
 }
 
-/// Measures every node in the speed group in one request, name to milliseconds.
+/// Measures every node of one group in one request, name to milliseconds.
 ///
 /// The core runs the whole membership's tests concurrently, so a full
 /// subscription answers within a single timeout window — the same batch run
 /// as per-node healthchecks takes nodes ÷ concurrency × timeout. A node whose
 /// test failed is simply absent from the answer.
+///
+/// The group is the caller's to scope: a group spanning every subscription
+/// would measure them all at once, and that contention would show up in the
+/// numbers rather than in any visible error.
 pub fn group_delay(
     client: &reqwest::blocking::Client,
     port: u16,
     secret: &str,
+    group: &str,
 ) -> Result<HashMap<String, u32>, String> {
     let path = format!(
-        "/group/{SPEED_GROUP}/delay?url={}&timeout={DELAY_TIMEOUT_MS}",
+        "/group/{}/delay?url={}&timeout={DELAY_TIMEOUT_MS}",
+        percent_encode(group),
         percent_encode(DELAY_URL),
     );
     let value = api_get(client, port, secret, &path)?;
@@ -1594,6 +1640,7 @@ mod tests {
             name: "Test".to_owned(),
             url: url.to_owned(),
             updated_at: None,
+            delays: None,
         }
     }
 
@@ -1638,6 +1685,45 @@ mod tests {
         assert!(!config.contains("proxy-providers"));
         assert!(config.contains("- DIRECT"));
         assert!(config.contains("MATCH,SPEEDTEST"));
+    }
+
+    /// The block of config lines belonging to one named group.
+    fn group_block<'a>(config: &'a str, group: &str) -> &'a str {
+        let start = config
+            .find(&format!("- name: {group}\n"))
+            .unwrap_or_else(|| panic!("no group named {group} in the config"));
+        let next = config[start + 1..]
+            .find("\n  - name:")
+            .map(|offset| start + 1 + offset)
+            .unwrap_or(config.len());
+        &config[start..next]
+    }
+
+    #[test]
+    fn each_subscription_gets_a_latency_group_of_its_own() {
+        let config = network_config(
+            &[
+                subscription("fs", "https://a.example/sub"),
+                subscription("ilyou", "https://b.example/sub"),
+            ],
+            19090,
+            "s",
+            19091,
+        );
+
+        let fs = group_block(&config, "nodes-fs");
+        assert!(fs.contains("- sub-fs"), "{fs}");
+        assert!(!fs.contains("- sub-ilyou"), "{fs}");
+
+        let ilyou = group_block(&config, "nodes-ilyou");
+        assert!(ilyou.contains("- sub-ilyou"), "{ilyou}");
+        assert!(!ilyou.contains("- sub-fs"), "{ilyou}");
+
+        // The shared speed group still spans everything, so speed tests and
+        // exit checks keep their reach.
+        let speed = group_block(&config, "SPEEDTEST");
+        assert!(speed.contains("- sub-fs"), "{speed}");
+        assert!(speed.contains("- sub-ilyou"), "{speed}");
     }
 
     #[test]

@@ -2227,11 +2227,29 @@ pub async fn list_subscription_nodes(
         let state = app2.state::<AppState>();
         let (api, secret, _speed) = network_handle(&app2, state.inner(), &subs)?;
         let client = crate::mihomo::blocking_client(30);
-        let nodes = read_nodes(&client, api, &secret, &provider, false, 25)?;
+        let mut nodes = read_nodes(&client, api, &secret, &provider, false, 25)?;
+        let sub = open_subscription_store(&state)?.get(&id).cloned();
+        apply_stored_delays(sub.as_ref(), &mut nodes);
         Ok(serde_json::json!({ "nodes": nodes }))
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// Folds a stored latency run into a freshly read node list.
+///
+/// Once the app has tested a subscription, that run is what the list shows —
+/// nodes it failed read back as no measurement rather than the core's older
+/// history — and the core's own history only speaks before the first test.
+fn apply_stored_delays(
+    sub: Option<&narrc_core::StoredSubscription>,
+    nodes: &mut [crate::mihomo::NodeInfo],
+) {
+    if let Some(delays) = sub.and_then(|sub| sub.delays.as_ref()) {
+        for node in nodes {
+            node.delay = delays.get(&node.name).cloned().flatten();
+        }
+    }
 }
 
 /// Reads a provider's nodes, waiting briefly for a fetch that is still running.
@@ -2278,7 +2296,7 @@ pub async fn refresh_subscription(
         // and a server that drops an idle connection makes it fail with an EOF
         // the core does not retry. When that happens, restarting re-fetches
         // through the startup path, which always opens a fresh connection.
-        let nodes = match read_nodes(&client, api, &secret, &provider, true, 25) {
+        let mut nodes = match read_nodes(&client, api, &secret, &provider, true, 25) {
             Ok(nodes) => nodes,
             Err(_) => {
                 reload_network(&app2, state.inner(), &subs)?;
@@ -2288,6 +2306,8 @@ pub async fn refresh_subscription(
             }
         };
         let mut store = open_subscription_store(&state)?;
+        let sub = store.get(&id).cloned();
+        apply_stored_delays(sub.as_ref(), &mut nodes);
         store.touch(&id, now_secs()).map_err(|error| error.to_string())?;
         Ok(serde_json::json!({ "nodes": nodes }))
     })
@@ -2305,6 +2325,7 @@ pub async fn test_node_delay(
     let spec: NodeRef =
         serde_json::from_value(payload).map_err(|error| format!("invalid node: {error}"))?;
     let (provider, subs) = provider_of(&state, &spec.subscription_id)?;
+    let sub_id = spec.subscription_id.clone();
     let node = spec.node.clone();
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -2312,6 +2333,14 @@ pub async fn test_node_delay(
         let (api, secret, _speed) = network_handle(&app2, state.inner(), &subs)?;
         let client = crate::mihomo::blocking_client(20);
         let delay = crate::mihomo::node_delay(&client, api, &secret, &provider, &node)?;
+        // Recorded whichever way it went — a `None` is this run's failure to
+        // measure, and shows as such instead of leaving an older number to
+        // pass for a fresh one. A request the core refused to make at all
+        // (`Err`, already propagated) says nothing about the node.
+        let mut store = open_subscription_store(&state)?;
+        store
+            .set_delay(&sub_id, &node, delay)
+            .map_err(|error| error.to_string())?;
         Ok(serde_json::json!({ "delay": delay }))
     })
     .await
@@ -2321,20 +2350,42 @@ pub async fn test_node_delay(
 /// Measures every node of the subscription's provider in one batch.
 ///
 /// The batch is one core request that tests the whole group concurrently, so
-/// its cost is a single timeout window rather than the node count.
+/// its cost is a single timeout window rather than the node count. The group
+/// is the subscription's own — testing the shared one would measure every
+/// subscription at once, and that contention would show up as inflated
+/// readings and live nodes pushed past the timeout.
 #[tauri::command]
 pub async fn test_subscription_delays(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let (_provider, subs) = provider_of(&state, &id)?;
+    let (provider, subs) = provider_of(&state, &id)?;
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = app2.state::<AppState>();
         let (api, secret, _speed) = network_handle(&app2, state.inner(), &subs)?;
+        let sub = subs
+            .iter()
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| format!("no subscription with the id {id:?}"))?;
         let client = crate::mihomo::blocking_client(60);
-        let delays = crate::mihomo::group_delay(&client, api, &secret)?;
+        let nodes = read_nodes(&client, api, &secret, &provider, false, 10)?;
+        if nodes.is_empty() {
+            return Err("the subscription has no nodes to test yet".to_owned());
+        }
+        let delays = crate::mihomo::group_delay(&client, api, &secret, &sub.node_group_name())?;
+        // Stored as this run's full snapshot — milliseconds for what
+        // answered, `null` for what did not — so a later dialog shows the
+        // newest test and nothing older.
+        let snapshot: std::collections::HashMap<String, Option<u32>> = nodes
+            .iter()
+            .map(|node| (node.name.clone(), delays.get(&node.name).copied()))
+            .collect();
+        let mut store = open_subscription_store(&state)?;
+        store
+            .set_delays(&id, snapshot)
+            .map_err(|error| error.to_string())?;
         Ok(serde_json::json!({ "delays": delays }))
     })
     .await

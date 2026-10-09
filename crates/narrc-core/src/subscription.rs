@@ -3,9 +3,10 @@
 //! # What lives here
 //!
 //! A subscription is a URL a proxy core fetches and turns into a set of nodes.
-//! This module stores only what the user typed — a name and a URL — and when it
-//! was last refreshed. It is a small JSON file beside the profile store
-//! (`subscriptions.json`), written atomically and read whole on open.
+//! This module stores what the user typed — a name and a URL — when it was
+//! last refreshed, and the newest latency run's outcome for each of its nodes.
+//! It is a small JSON file beside the profile store (`subscriptions.json`),
+//! written atomically and read whole on open.
 //!
 //! # What is deliberately not here
 //!
@@ -13,8 +14,12 @@
 //! only thing that can actually use them, and a stored copy would be a second
 //! source of truth that goes stale the moment the provider changes a node. The
 //! list is read live from the core, and this module never parses a share link,
-//! never speaks a protocol, and never touches the network.
+//! never speaks a protocol, and never touches the network. What is stored is
+//! only the measured delay per node name — a number the dialog would otherwise
+//! lose whenever the core restarts — and only the latest run of them, never a
+//! history.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -41,6 +46,15 @@ pub struct StoredSubscription {
     /// Unix seconds of the last successful refresh, when one has run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<u64>,
+    /// The newest latency run's outcome per node name, in milliseconds.
+    ///
+    /// `null` marks a node that run failed to measure; a name absent from the
+    /// map was not part of it. Only the latest run is kept — a test replaces
+    /// the map wholesale — because the dialog shows one number per node, and a
+    /// history of them would be a second source of truth for a value that
+    /// changes every run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delays: Option<HashMap<String, Option<u32>>>,
 }
 
 impl StoredSubscription {
@@ -50,6 +64,17 @@ impl StoredSubscription {
     /// in the generated configuration.
     pub fn provider_name(&self) -> String {
         format!("sub-{}", self.id)
+    }
+
+    /// The select group holding exactly this subscription's nodes.
+    ///
+    /// A latency batch tests one group at a time, and the group must be this
+    /// narrow: testing the shared speed group would measure every
+    /// subscription's nodes at once, and that contention — hundreds of dials
+    /// and DNS lookups racing each other — would show up in the numbers as
+    /// inflated delays and spurious timeouts.
+    pub fn node_group_name(&self) -> String {
+        format!("nodes-{}", self.id)
     }
 }
 
@@ -116,6 +141,7 @@ impl SubscriptionStore {
             name,
             url,
             updated_at: None,
+            delays: None,
         };
         self.subscriptions.push(stored.clone());
         self.save()?;
@@ -130,11 +156,20 @@ impl SubscriptionStore {
             .iter()
             .position(|entry| entry.id == id)
             .ok_or_else(|| Error::identity(format!("no subscription with the id {id:?}")))?;
+        let previous = &self.subscriptions[index];
+        // A new URL is a new list of nodes: measurements kept across it would
+        // claim to describe names that happen to repeat.
+        let delays = if previous.url == url {
+            previous.delays.clone()
+        } else {
+            None
+        };
         let stored = StoredSubscription {
             id: id.to_owned(),
             name,
             url,
-            updated_at: self.subscriptions[index].updated_at,
+            updated_at: previous.updated_at,
+            delays,
         };
         self.subscriptions[index] = stored.clone();
         self.save()?;
@@ -153,6 +188,44 @@ impl SubscriptionStore {
         self.subscriptions[index] = stored.clone();
         self.save()?;
         Ok(stored)
+    }
+
+    /// Records one node's outcome in the latest latency run, and writes the
+    /// list.
+    ///
+    /// `Some(ms)` is a measurement; `None` is a run that failed to measure the
+    /// node. The failure is recorded rather than dropped, so reopening the
+    /// dialog shows it instead of a number an older run left behind.
+    pub fn set_delay(&mut self, id: &str, node: &str, delay: Option<u32>) -> Result<()> {
+        let index = self
+            .subscriptions
+            .iter()
+            .position(|entry| entry.id == id)
+            .ok_or_else(|| Error::identity(format!("no subscription with the id {id:?}")))?;
+        let entry = self.subscriptions[index]
+            .delays
+            .get_or_insert_with(HashMap::new);
+        entry.insert(node.to_owned(), delay);
+        self.save()
+    }
+
+    /// Replaces the latest latency run wholesale, and writes the list.
+    ///
+    /// One test stores its whole snapshot at once — successes as milliseconds,
+    /// failures as `null` — so nothing from a previous run survives it: what
+    /// the dialog shows is always the newest test, and only that.
+    pub fn set_delays(&mut self, id: &str, delays: HashMap<String, Option<u32>>) -> Result<()> {
+        let index = self
+            .subscriptions
+            .iter()
+            .position(|entry| entry.id == id)
+            .ok_or_else(|| Error::identity(format!("no subscription with the id {id:?}")))?;
+        self.subscriptions[index].delays = if delays.is_empty() {
+            None
+        } else {
+            Some(delays)
+        };
+        self.save()
     }
 
     /// Removes a subscription, reporting whether one was there.
@@ -316,6 +389,88 @@ mod tests {
         assert_eq!(touched.updated_at, Some(1_700_000_000));
         let reloaded = SubscriptionStore::open(&file.0).unwrap();
         assert_eq!(reloaded.get(&created.id).unwrap().updated_at, Some(1_700_000_000));
+    }
+
+    #[test]
+    fn a_latency_run_replaces_the_previous_one_wholesale() {
+        let file = TempFile::new("latency-run");
+        let mut store = SubscriptionStore::open(&file.0).unwrap();
+        let created = store.create("Airport", "https://example.com/sub").unwrap();
+        let first: HashMap<String, Option<u32>> =
+            HashMap::from([("a".to_owned(), Some(120)), ("b".to_owned(), None)]);
+        store.set_delays(&created.id, first).unwrap();
+        let second: HashMap<String, Option<u32>> = HashMap::from([("a".to_owned(), Some(90))]);
+        store.set_delays(&created.id, second).unwrap();
+
+        let reloaded = SubscriptionStore::open(&file.0).unwrap();
+        let delays = reloaded.get(&created.id).unwrap().delays.as_ref().unwrap();
+        assert_eq!(delays.get("a").copied(), Some(Some(90)));
+        // The node the newer run did not measure is gone, not left over.
+        assert_eq!(delays.get("b"), None);
+    }
+
+    #[test]
+    fn one_node_measured_keeps_the_rest_of_the_run() {
+        let file = TempFile::new("latency-one");
+        let mut store = SubscriptionStore::open(&file.0).unwrap();
+        let created = store.create("Airport", "https://example.com/sub").unwrap();
+        let run: HashMap<String, Option<u32>> = HashMap::from([
+            ("a".to_owned(), Some(100)),
+            ("b".to_owned(), None),
+            ("c".to_owned(), None),
+        ]);
+        store.set_delays(&created.id, run).unwrap();
+
+        store.set_delay(&created.id, "c", Some(55)).unwrap();
+        store.set_delay(&created.id, "a", None).unwrap();
+
+        let reloaded = SubscriptionStore::open(&file.0).unwrap();
+        let delays = reloaded.get(&created.id).unwrap().delays.as_ref().unwrap();
+        assert_eq!(delays.get("c").copied(), Some(Some(55)));
+        // A node whose run failed is recorded as such, not silently dropped.
+        assert_eq!(delays.get("a").copied(), Some(None));
+        assert_eq!(delays.get("b").copied(), Some(None));
+    }
+
+    #[test]
+    fn a_rename_keeps_measurements_and_a_new_url_forgets_them() {
+        let file = TempFile::new("latency-url");
+        let mut store = SubscriptionStore::open(&file.0).unwrap();
+        let created = store.create("Airport", "https://a.example/sub").unwrap();
+        store.set_delay(&created.id, "node", Some(120)).unwrap();
+
+        store
+            .update(&created.id, "Renamed", "https://a.example/sub")
+            .unwrap();
+        assert_eq!(
+            store
+                .get(&created.id)
+                .unwrap()
+                .delays
+                .as_ref()
+                .unwrap()
+                .get("node")
+                .copied(),
+            Some(Some(120))
+        );
+
+        store
+            .update(&created.id, "Renamed", "https://b.example/other")
+            .unwrap();
+        assert_eq!(store.get(&created.id).unwrap().delays, None);
+    }
+
+    #[test]
+    fn a_list_written_before_measurements_existed_still_opens() {
+        let file = TempFile::new("latency-old");
+        std::fs::write(
+            &file.0,
+            br#"{"format":1,"subscriptions":[{"id":"a","name":"A","url":"https://e.example/s"}]}"#,
+        )
+        .unwrap();
+        let store = SubscriptionStore::open(&file.0).unwrap();
+        assert_eq!(store.list().len(), 1);
+        assert_eq!(store.list()[0].delays, None);
     }
 
     #[test]

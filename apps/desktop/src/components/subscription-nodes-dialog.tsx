@@ -51,6 +51,20 @@ const DELAY_TONE: Record<"fast" | "ok" | "slow" | "none", string> = {
   none: "text-muted-foreground",
 };
 
+// A few absences from a batch are worth one more try each — a first dial can
+// miss on a slow exit — but a wave of them is the subscription itself being
+// down, and retrying would only delay the verdict.
+const RETRY_LIMIT = 8;
+
+/** The stored latency run, as an already-open dialog shows it. */
+const seedResults = (list: SubscriptionNode[]): Record<string, NodeResult> => {
+  const seeded: Record<string, NodeResult> = {};
+  for (const node of list) {
+    if (node.delay != null) seeded[node.name] = { delay: node.delay };
+  }
+  return seeded;
+};
+
 interface SubscriptionNodesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -90,6 +104,7 @@ export function SubscriptionNodesDialog({
     try {
       const next = await listSubscriptionNodes(id);
       setNodes(next);
+      setResults(seedResults(next));
     } catch (loadError) {
       setError(String(loadError));
     } finally {
@@ -163,6 +178,14 @@ export function SubscriptionNodesDialog({
     );
   }, [nodes, filter]);
 
+  // A node's row number: its place in the subscription, stable across the
+  // filter and the delay sort — the way a client numbers its configs.
+  const order = useMemo(() => {
+    const map = new Map<string, number>();
+    nodes.forEach((node, index) => map.set(node.name, index));
+    return map;
+  }, [nodes]);
+
   // The delay test orders the list: rows with a reading float to the top
   // sorted by that reading, everything else — failed, timed out, untested —
   // keeps its current relative order below them.
@@ -208,6 +231,14 @@ export function SubscriptionNodesDialog({
         }
         return next;
       });
+      // One more try for each absence, while the absences are few: the same
+      // single-node measurement, which also records what it finds.
+      const missing = nodes.filter((node) => (delays[node.name] ?? null) == null);
+      if (missing.length > 0 && missing.length <= RETRY_LIMIT) {
+        await runPool(missing, 4, async (node) => {
+          await measureDelay(node.name);
+        });
+      }
     } catch (batchError) {
       setResults((current) => {
         const next = { ...current };
@@ -243,7 +274,7 @@ export function SubscriptionNodesDialog({
     try {
       const next = await refreshSubscription(id);
       setNodes(next);
-      setResults({});
+      setResults(seedResults(next));
       setSortedByDelay(false);
       toast.success(
         t("common.updatedNodes", { count: next.length}),
@@ -328,7 +359,8 @@ export function SubscriptionNodesDialog({
           <Table className="table-fixed">
             <TableHeader className="sticky top-0 z-10 bg-background [&_tr]:border-0">
               <TableRow className="border-0! hover:bg-transparent">
-                <TableHead className="pl-3">{t("common.node")}</TableHead>
+                <TableHead className="w-[52px] pl-3">#</TableHead>
+                <TableHead>{t("common.node")}</TableHead>
                 <TableHead className="w-[120px]">{t("common.protocol")}</TableHead>
                 <TableHead className="w-[110px]">{t("common.latency")}</TableHead>
                 <TableHead className="w-[120px]">{t("common.speed")}</TableHead>
@@ -340,20 +372,20 @@ export function SubscriptionNodesDialog({
               {loading ? (
                 Array.from({ length: 6 }, (_, index) => (
                   <TableRow key={`skeleton-${index}`} className="border-0!">
-                    <TableCell colSpan={6} className="py-2 pl-3">
+                    <TableCell colSpan={7} className="py-2 pl-3">
                       <Skeleton className="h-3" style={{ width: `${40 + ((index * 13) % 40)}%` }} />
                     </TableCell>
                   </TableRow>
                 ))
               ) : error ? (
                 <TableRow className="border-0! hover:bg-transparent">
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-destructive">
+                  <TableCell colSpan={7} className="py-10 text-center text-sm text-destructive">
                     {error}
                   </TableCell>
                 </TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow className="border-0! hover:bg-transparent">
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
                     {nodes.length === 0
                       ? t("common.noNodesYet")
                       : t("common.noNodesMatch")}
@@ -365,7 +397,10 @@ export function SubscriptionNodesDialog({
                   const tone = delayTone(result.delay);
                   return (
                     <TableRow key={node.name} className="group/row border-0! hover:bg-muted">
-                      <TableCell className="min-w-0 pl-3">
+                      <TableCell className="pl-3 text-xs tabular-nums text-muted-foreground">
+                        {(order.get(node.name) ?? 0) + 1}
+                      </TableCell>
+                      <TableCell className="min-w-0 pl-2">
                         <span className="block truncate text-sm text-foreground">{node.name}</span>
                       </TableCell>
                       <TableCell>
