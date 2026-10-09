@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LuChevronDown, LuChevronUp, LuInfo, LuPlay, LuTrash2 } from "react-icons/lu";
 import type { ProfileSummary, TargetOs } from "@narc/sdk";
@@ -65,6 +65,8 @@ interface ProfilesPageProps {
   onDelete: (profile: ProfileSummary) => void;
   onBulkSetGroup: (ids: string[], group: string) => void;
   onBulkTrash: (ids: string[]) => void;
+  /** Reports the visible selection upward (for the header's export), [] on unmount. */
+  onSelectionChange?: (ids: string[]) => void;
   launchingId: string | null;
 }
 
@@ -80,6 +82,7 @@ export function ProfilesPage({
   onDelete,
   onBulkSetGroup,
   onBulkTrash,
+  onSelectionChange,
   launchingId,
 }: ProfilesPageProps) {
   const { t } = useTranslation();
@@ -118,6 +121,14 @@ export function ProfilesPage({
     [rows, selected],
   );
   const allSelected = rows.length > 0 && selectedIds.length === rows.length;
+
+  // The header exports whatever is checked here, so the selection is
+  // mirrored upward. Unmount reports [] — leaving the page clears it, or a
+  // stale selection would export rows nobody can see.
+  useEffect(() => {
+    onSelectionChange?.(selectedIds);
+    return () => onSelectionChange?.([]);
+  }, [selectedIds, onSelectionChange]);
 
   const toggleOne = (id: string) => {
     setSelected((prev) => {

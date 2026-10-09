@@ -128,7 +128,8 @@ export function App() {
   const [deleteTarget, setDeleteTarget] = useState<ProfileSummary | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [bulkTrashIds, setBulkTrashIds] = useState<string[] | null>(null);
-  const [exportTarget, setExportTarget] = useState<ExportTarget | null>(null);
+  const [exportTargets, setExportTargets] = useState<ExportTarget[] | null>(null);
+  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
   const [trashOpen, setTrashOpen] = useState(false);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const [verification, setVerification] = useState<VerifyReport | null>(null);
@@ -586,19 +587,40 @@ export function App() {
   // dialog is showing, so its login warning describes the real proxy.
   const handleExportRequest = useCallback(() => {
     if (!inspection || !infoProfileId) return;
-    setExportTarget({
-      id: infoProfileId,
-      name: inspection.profile.name,
-      proxyUrl: inspection.profile.proxy?.url ?? null,
-    });
+    const proxyUrl = inspection.profile.proxy?.url ?? null;
+    setExportTargets([
+      { id: infoProfileId, name: inspection.profile.name, proxied: proxyUrl !== null, proxyUrl },
+    ]);
   }, [inspection, infoProfileId]);
+
+  // The toolbar exports what is checked, or everything when nothing is —
+  // the backup path. Bulk targets carry only `proxied`; the dialog's login
+  // checkbox treats that as "may carry a login", never as "has none".
+  const handleExportProfiles = useCallback(() => {
+    const chosen =
+      selectedProfileIds.length > 0 ? selectedProfileIds : profiles.map((profile) => profile.id);
+    const targets = chosen.flatMap((id) => {
+      const profile = profiles.find((candidate) => candidate.id === id);
+      return profile ? [{ id: profile.id, name: profile.name, proxied: profile.proxied }] : [];
+    });
+    if (targets.length === 0) return;
+    setExportTargets(targets);
+  }, [profiles, selectedProfileIds]);
 
   const handleImportProfile = useCallback(async () => {
     try {
-      const result = await invoke<{ cancelled?: boolean; name?: string }>("import_profile", {});
+      const result = await invoke<{ cancelled?: boolean; count?: number; names?: string[] }>(
+        "import_profile",
+        {},
+      );
       if (result.cancelled) return;
       await refreshProfiles();
-      toast.success(t("common.importedProfile", { name: result.name }));
+      const count = result.count ?? 1;
+      toast.success(
+        count === 1
+          ? t("common.importedProfile", { name: result.names?.[0] ?? "" })
+          : t("common.importedProfilesCount", { count }),
+      );
     } catch (error) {
       toast.error(String(error));
     }
@@ -673,6 +695,7 @@ export function App() {
           onImportProfiles={() => {
             void handleImportProfile();
           }}
+          onExportProfiles={handleExportProfiles}
           onOpenTrash={() => {
             setTrashOpen(true);
           }}
@@ -711,6 +734,7 @@ export function App() {
                   setBulkTrashIds(ids);
                   setDeleteTarget(null);
                 }}
+                onSelectionChange={setSelectedProfileIds}
                 groupNames={groups.map((group) => group.name)}
               />
             ) : page === "groups" ? (
@@ -803,9 +827,9 @@ export function App() {
       />
 
       <ProfileExportDialog
-        target={exportTarget}
+        targets={exportTargets}
         onOpenChange={(open) => {
-          if (!open) setExportTarget(null);
+          if (!open) setExportTargets(null);
         }}
         onExported={() => {
           void refreshProfiles();

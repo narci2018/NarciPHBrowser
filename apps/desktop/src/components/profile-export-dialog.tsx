@@ -15,11 +15,18 @@ import {
 export interface ExportTarget {
   id: string;
   name: string;
-  proxyUrl: string | null;
+  /** Whether the profile has a proxy at all — what a bulk target knows. */
+  proxied: boolean;
+  /**
+   * The proxy URL when the caller knows it exactly (the info dialog reads
+   * it off its inspection); absent for bulk targets, which fall back to
+   * `proxied` — coarse, but never wrongly excluding a login that exists.
+   */
+  proxyUrl?: string | null;
 }
 
 interface ProfileExportDialogProps {
-  target: ExportTarget | null;
+  targets: ExportTarget[] | null;
   onOpenChange: (open: boolean) => void;
   onExported: () => void;
 }
@@ -27,6 +34,14 @@ interface ProfileExportDialogProps {
 /** Whether a proxy URL carries a login, the way the engine splits it. */
 const hasProxyLogin = (url: string): boolean =>
   url.includes("://") && url.slice(url.indexOf("://") + 3).includes("@");
+
+/** Whether any target in the set can carry a login worth asking about. */
+const someLogin = (targets: ExportTarget[]): boolean =>
+  targets.some((target) =>
+    target.proxyUrl === undefined
+      ? target.proxied
+      : target.proxyUrl !== null && hasProxyLogin(target.proxyUrl),
+  );
 
 /**
  * The export dialog: what the file will contain, and one decision about it.
@@ -39,7 +54,7 @@ const hasProxyLogin = (url: string): boolean =>
  * it behind a format detail.
  */
 export function ProfileExportDialog({
-  target,
+  targets,
   onOpenChange,
   onExported,
 }: ProfileExportDialogProps) {
@@ -48,30 +63,46 @@ export function ProfileExportDialog({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (target) return;
+    if (targets) return;
     setIncludeLogin(false);
     setBusy(false);
-  }, [target]);
+  }, [targets]);
 
-  if (!target) return null;
+  if (!targets || targets.length === 0) return null;
 
-  const loginInUse = target.proxyUrl !== null && hasProxyLogin(target.proxyUrl);
+  const single = targets.length === 1 ? targets[0] : null;
+  const loginInUse = someLogin(targets);
 
   const confirm = async () => {
     if (busy) return;
     setBusy(true);
     try {
-      const result = await invoke<{ cancelled?: boolean; path?: string }>("export_profile", {
-        id: target.id,
-        includeProxyLogin: includeLogin,
-      });
+      const result = single
+        ? await invoke<{ cancelled?: boolean; path?: string; count?: number }>(
+            "export_profile",
+            {
+              id: single.id,
+              includeProxyLogin: includeLogin,
+            },
+          )
+        : await invoke<{ cancelled?: boolean; path?: string; count?: number }>(
+            "export_profiles",
+            { ids: targets.map((target) => target.id), includeProxyLogin: includeLogin },
+          );
       if (result.cancelled) {
         onOpenChange(false);
         return;
       }
-      toast.success(t("common.exportedProfile", { name: target.name }), {
-        description: result.path,
-      });
+      if (single) {
+        toast.success(t("common.exportedProfile", { name: single.name }), {
+          description: result.path,
+        });
+      } else {
+        toast.success(
+          t("common.exportedProfilesCount", { count: result.count ?? targets.length }),
+          { description: result.path },
+        );
+      }
       onExported();
       onOpenChange(false);
     } catch (error) {
@@ -85,9 +116,15 @@ export function ProfileExportDialog({
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{t("common.exportProfile", { name: target.name })}</DialogTitle>
+          <DialogTitle>
+            {single
+              ? t("common.exportProfile", { name: single.name })
+              : t("common.exportProfilesCount", { count: targets.length })}
+          </DialogTitle>
           <DialogDescription>
-            {t("common.exportProfileDescription")}
+            {single
+              ? t("common.exportProfileDescription")
+              : t("common.exportProfilesDescription", { count: targets.length })}
           </DialogDescription>
         </DialogHeader>
 

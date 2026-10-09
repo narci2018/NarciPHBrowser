@@ -2,7 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { GoPlus } from "react-icons/go";
-import { LuCircleHelp, LuDownload, LuSearch, LuTrash2, LuX } from "react-icons/lu";
+import { LuCircleHelp, LuDownload, LuSearch, LuTrash2, LuUpload, LuX } from "react-icons/lu";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -77,6 +77,7 @@ const SearchSyntaxHelp = () => {
 interface Props {
   onCreateProfileDialogOpen: (open: boolean) => void;
   onImportProfiles: () => void;
+  onExportProfiles: () => void;
   onOpenTrash: () => void;
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
@@ -87,6 +88,7 @@ interface Props {
 const HomeHeader = ({
   onCreateProfileDialogOpen,
   onImportProfiles,
+  onExportProfiles,
   onOpenTrash,
   searchQuery,
   onSearchQueryChange,
@@ -268,6 +270,26 @@ const HomeHeader = ({
             </span>
           </TooltipTrigger>
           <TooltipContent>{t("common.importTooltip")}</TooltipContent>
+        </Tooltip>
+      )}
+
+      {showProfileToolbar && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="shrink-0">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onExportProfiles}
+                disabled={totalProfiles === 0}
+                className="flex h-7 items-center gap-1.5 px-2.5 text-xs"
+              >
+                <LuUpload className="size-3.5" />
+                {t("common.export")}
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{t("common.exportTooltip")}</TooltipContent>
         </Tooltip>
       )}
 
