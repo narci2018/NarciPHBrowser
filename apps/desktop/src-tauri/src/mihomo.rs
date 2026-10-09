@@ -1494,6 +1494,9 @@ pub const ECHO_ENDPOINTS: &[&str] = &[
     // the SNI/domain gate that rejects the HTTPS ones above.
     "http://ipinfo.io/json",
     "http://ifconfig.co/json",
+    // ip-api.com returns full geolocation data (country, city, ISP) in its
+    // JSON response — much richer than the bare-IP endpoints above.
+    "http://ip-api.com/json",
 ];
 
 /// Reads one endpoint's answer: JSON first, a bare IP second.
