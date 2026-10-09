@@ -1500,6 +1500,9 @@ pub const ECHO_ENDPOINTS: &[&str] = &[
 ];
 
 /// Reads one endpoint's answer: JSON first, a bare IP second.
+///
+/// Returns `Err` when the endpoint answered but carried no country field, so
+/// the caller keeps trying the next one instead of returning a blank result.
 pub fn parse_echo(endpoint: &str, body: &str) -> Result<Echo, String> {
     let body = body.trim();
     if let Ok(value) = serde_json::from_str::<Value>(body) {
@@ -1508,10 +1511,16 @@ pub fn parse_echo(endpoint: &str, body: &str) -> Result<Echo, String> {
             .and_then(Value::as_str)
             .filter(|ip| !ip.is_empty())
             .ok_or_else(|| format!("{endpoint} reported no IP"))?;
+        // Some endpoints return an IP but no country (e.g. ipify, ifconfig.co
+        // on certain exits). Treat that as a partial failure so the loop keeps
+        // trying the next endpoint instead of handing back an empty result.
+        let country = text_field(&value, "country")
+            .ok_or_else(|| format!("{endpoint} returned no country"))?;
+        let city = text_field(&value, "city");
         return Ok(Echo {
             ip: ip.to_owned(),
-            country: text_field(&value, "country"),
-            city: text_field(&value, "city"),
+            country: Some(country),
+            city,
         });
     }
     // The plain-text endpoints answer with the IP and nothing else.
