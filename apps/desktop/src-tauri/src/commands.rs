@@ -1020,11 +1020,66 @@ pub fn export_profile(
     Ok(serde_json::json!({ "path": path.display().to_string() }))
 }
 
-/// Reads a profile from a file the user picks and adds it to the store.
+/// Writes the profiles the ids name into one bundle file the user picks.
+///
+/// Same rationale as [`export_profile`] for being sync, and the same rule
+/// about credentials: the file is plain JSON the user may share, so proxy
+/// logins leave it unless `include_proxy_login` says otherwise — now for
+/// every profile in the file at once. A missing id stops the export before
+/// the dialog opens: a bundle silently missing one of its members is worse
+/// than no bundle.
+#[tauri::command]
+pub fn export_profiles(
+    state: tauri::State<'_, AppState>,
+    ids: Vec<String>,
+    include_proxy_login: bool,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let mut profiles = Vec::with_capacity(ids.len());
+    for id in &ids {
+        let profile = store
+            .load(id)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("no profile with the id {id:?}"))?;
+        profiles.push(profile);
+    }
+    if profiles.is_empty() {
+        return Err("there is nothing to export".to_string());
+    }
+
+    let count = profiles.len();
+    let export = narrc_core::ProfileExportBundle::new(profiles);
+    let export = if include_proxy_login {
+        export
+    } else {
+        export.without_credentials()
+    };
+
+    let Some(path) = rfd::FileDialog::new()
+        .set_file_name("profiles.narci.json")
+        .add_filter("NarciPHBrowser profile export", &["json"])
+        .save_file()
+    else {
+        // The user closed the dialog; that is a decision, not an error.
+        return Ok(serde_json::json!({ "cancelled": true }));
+    };
+
+    std::fs::write(&path, export.to_json().map_err(|error| error.to_string())?)
+        .map_err(|error| format!("could not write {}: {error}", path.display()))?;
+    Ok(serde_json::json!({
+        "path": path.display().to_string(),
+        "count": count,
+    }))
+}
+
+/// Reads a profile file the user picks and adds every profile it holds to
+/// the store.
 ///
 /// Same rationale as [`export_profile`] for being sync. An import never
-/// overwrites: the store resolves an id collision by moving aside, exactly as
-/// a second create of the same name does.
+/// overwrites: the store resolves an id collision by moving aside, exactly
+/// as a second create of the same name does — and that holds per entry in
+/// a bundle, where a failure part-way leaves what imported already in
+/// place rather than rolling it back.
 #[tauri::command]
 pub fn import_profile(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     let Some(path) = rfd::FileDialog::new()
@@ -1036,13 +1091,19 @@ pub fn import_profile(state: tauri::State<'_, AppState>) -> Result<serde_json::V
 
     let bytes = std::fs::read(&path)
         .map_err(|error| format!("could not read {}: {error}", path.display()))?;
-    let export = narrc_core::ProfileExport::from_json(&bytes).map_err(|error| error.to_string())?;
+    let exports = narrc_core::read_profiles_export(&bytes).map_err(|error| error.to_string())?;
 
     let store = open_store(&state)?;
-    let profile = store.import(&export).map_err(|error| error.to_string())?;
+    let mut names = Vec::with_capacity(exports.len());
+    for export in &exports {
+        let profile = store
+            .import(export)
+            .map_err(|error| format!("could not import {:?}: {error}", export.profile.name))?;
+        names.push(profile.name);
+    }
     Ok(serde_json::json!({
-        "id": profile.id,
-        "name": profile.name,
+        "count": names.len(),
+        "names": names,
         "path": path.display().to_string(),
     }))
 }
