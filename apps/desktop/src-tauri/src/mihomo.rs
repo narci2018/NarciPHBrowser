@@ -91,10 +91,23 @@ const DELAY_TIMEOUT_MS: u64 = 7000;
 
 /// The file a speed test downloads. Cloudflare's endpoint is generous with
 /// bandwidth and reachable from most exits.
-const SPEED_URL: &str = "https://speed.cloudflare.com/__down?bytes=10000000";
+const SPEED_URL: &str = "https://speed.cloudflare.com/__down?bytes=5000000";
 
-/// How long a speed test may take before it is abandoned.
-const SPEED_TIMEOUT_SECS: u64 = 45;
+/// How long a speed test may take from request to last byte, in seconds.
+///
+/// A dead exit never answers the socks connect at all, so without this bound
+/// one dead node holds a batch for as long as the client is willing to wait.
+/// Ten seconds is a ceiling, not a target: a healthy node finishes well
+/// inside it, and a node that cannot finish reports the rate of the bytes
+/// that did arrive.
+const SPEED_TIMEOUT_SECS: u64 = 10;
+
+/// How long of arriving bytes the rate is measured over, in seconds.
+///
+/// The rate is bytes over the time they actually took, so a slow-but-live
+/// node reports a slow speed instead of failing, and a stalled body ends
+/// with the window instead of the whole download.
+const SPEED_WINDOW_SECS: u64 = 8;
 
 /// How long to wait for the controller to answer after a start.
 const READY_TIMEOUT_SECS: u64 = 20;
@@ -1348,7 +1361,6 @@ pub fn node_speed(
         .build()
         .map_err(|error| format!("could not build the speed client: {error}"))?;
 
-    let started = Instant::now();
     let mut response = downloader
         .get(SPEED_URL)
         .send()
@@ -1356,11 +1368,35 @@ pub fn node_speed(
     if !response.status().is_success() {
         return Err(format!("the speed test answered {}", response.status()));
     }
-    let mut sink = std::io::sink();
-    let bytes = response
-        .copy_to(&mut sink)
-        .map_err(|error| format!("the speed test did not finish: {error}"))?;
-    let seconds = started.elapsed().as_secs_f64().max(0.001);
+
+    let mut buffer = vec![0u8; 16 * 1024];
+    let mut bytes: u64 = 0;
+    let mut reading: Option<Instant> = None;
+    loop {
+        if let Some(start) = reading {
+            if start.elapsed() >= Duration::from_secs(SPEED_WINDOW_SECS) {
+                break;
+            }
+        }
+        match std::io::Read::read(&mut response, &mut buffer) {
+            Ok(0) => break,
+            Ok(got) => {
+                if reading.is_none() {
+                    reading = Some(Instant::now());
+                }
+                bytes += got as u64;
+            }
+            // The bound cut the body short: the bytes that arrived already
+            // tell the truth about this exit's rate.
+            Err(_) if reading.is_some() => break,
+            Err(error) => return Err(format!("the speed test did not finish: {error}")),
+        }
+    }
+    let start = match reading {
+        Some(start) => start,
+        None => return Err("the speed test received no data".to_owned()),
+    };
+    let seconds = start.elapsed().as_secs_f64().max(0.1);
     Ok(bytes as f64 * 8.0 / seconds / 1_000_000.0)
 }
 

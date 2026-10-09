@@ -478,6 +478,7 @@
     "testLatencyFor": "测试 {{name}} 的延迟",
     "testSpeed": "测试速度",
     "testSpeedFor": "测试 {{name}} 的速度",
+    "testingSpeed": "测速 {{done}}/{{total}}",
     "theme": "主题",
     "themeDark": "深色",
     "themeLight": "浅色",

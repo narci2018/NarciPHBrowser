@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -89,6 +89,12 @@ export function SubscriptionNodesDialog({
   const [refreshing, setRefreshing] = useState(false);
   const [batchLatency, setBatchLatency] = useState(false);
   const [batchSpeed, setBatchSpeed] = useState(false);
+  // How far the speed batch has got, for the button's counter.
+  const [speedDone, setSpeedDone] = useState(0);
+  // Bumped when the batch's context is torn down — closing the dialog or
+  // switching subscriptions — so the pool stops picking up new nodes instead
+  // of quietly measuring a list nobody is watching any more.
+  const runIdRef = useRef(0);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Whether the list is ordered by measured delay. Reset whenever the results
@@ -113,12 +119,14 @@ export function SubscriptionNodesDialog({
   }, [id]);
 
   useEffect(() => {
+    runIdRef.current += 1;
     if (!open) return;
     setNodes([]);
     setResults({});
     setSortedByDelay(false);
     setFilter("");
     setError(null);
+    setSpeedDone(0);
     void load();
   }, [open, id, load]);
 
@@ -177,6 +185,14 @@ export function SubscriptionNodesDialog({
         node.name.toLowerCase().includes(query) || node.kind.toLowerCase().includes(query),
     );
   }, [nodes, filter]);
+
+  // A node whose latency test failed cannot answer a download either — the
+  // exit is unreachable, and testing it would only wait out the speed bound
+  // again — so the speed batch attempts the rest.
+  const speedTargets = useMemo(
+    () => filtered.filter((node) => !results[node.name]?.delayError),
+    [filtered, results],
+  );
 
   // A node's row number: its place in the subscription, stable across the
   // filter and the delay sort — the way a client numbers its configs.
@@ -255,13 +271,18 @@ export function SubscriptionNodesDialog({
   };
 
   const testAllSpeed = async () => {
-    if (batchSpeed || filtered.length === 0) return;
+    if (batchSpeed || speedTargets.length === 0) return;
     setBatchSpeed(true);
+    setSpeedDone(0);
+    const runId = ++runIdRef.current;
     try {
       // One at a time: parallel downloads share the same uplink and every
-      // reading would be wrong in the same direction.
-      await runPool(filtered, 1, async (node) => {
+      // reading would be wrong in the same direction. The core bounds each
+      // test, so a row takes seconds, not the length of the batch.
+      await runPool(speedTargets, 1, async (node) => {
+        if (runIdRef.current !== runId) return;
         await measureSpeed(node.name);
+        setSpeedDone((done) => done + 1);
       });
     } finally {
       setBatchSpeed(false);
@@ -329,7 +350,7 @@ export function SubscriptionNodesDialog({
             type="button"
             variant="outline"
             size="sm"
-            disabled={busy || filtered.length === 0}
+            disabled={busy || speedTargets.length === 0}
             onClick={() => void testAllSpeed()}
           >
             {batchSpeed ? (
@@ -337,7 +358,9 @@ export function SubscriptionNodesDialog({
             ) : (
               <LuDownload className="size-3.5" />
             )}
-            {t("common.testSpeed")}
+            {batchSpeed
+              ? t("common.testingSpeed", { done: speedDone, total: speedTargets.length })
+              : t("common.testSpeed")}
           </Button>
           <Button
             type="button"

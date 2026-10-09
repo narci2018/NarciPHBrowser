@@ -505,6 +505,7 @@
     "testLatencyFor": "Test latency for {{name}}",
     "testSpeed": "Test speed",
     "testSpeedFor": "Test speed for {{name}}",
+    "testingSpeed": "Speed {{done}}/{{total}}",
     "theme": "Theme",
     "themeDark": "Dark",
     "themeLight": "Light",
