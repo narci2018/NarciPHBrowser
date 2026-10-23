@@ -2,12 +2,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { GoPlus } from "react-icons/go";
-import { LuCircleHelp, LuDownload, LuSearch, LuTrash2, LuUpload, LuX } from "react-icons/lu";
+import { LuCircleHelp, LuCircleStop, LuDownload, LuSearch, LuTrash2, LuUpload, LuX } from "react-icons/lu";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { PermissionGuard } from "./permission-guard";
 
 const HOLD_MS = 150;
 const DRAG_THRESHOLD_PX = 3;
@@ -76,6 +77,7 @@ const SearchSyntaxHelp = () => {
 
 interface Props {
   onCreateProfileDialogOpen: (open: boolean) => void;
+  onStopAllBrowsers?: () => void;
   onImportProfiles: () => void;
   onExportProfiles: () => void;
   onOpenTrash: () => void;
@@ -87,6 +89,7 @@ interface Props {
 
 const HomeHeader = ({
   onCreateProfileDialogOpen,
+  onStopAllBrowsers,
   onImportProfiles,
   onExportProfiles,
   onOpenTrash,
@@ -255,61 +258,86 @@ const HomeHeader = ({
       )}
 
       {showProfileToolbar && (
+        <PermissionGuard permission="profile:import" mode="disable" disabledReason="当前角色无导入环境权限">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onImportProfiles}
+                  className="flex h-7 items-center gap-1.5 px-2.5 text-xs"
+                >
+                  <LuDownload className="size-3.5" />
+                  {t("common.import")}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{t("common.importTooltip")}</TooltipContent>
+          </Tooltip>
+        </PermissionGuard>
+      )}
+
+      {showProfileToolbar && (
+        <PermissionGuard permission="profile:export" mode="disable" disabledReason="企业安全策略：当前角色禁止导出环境配置与凭证">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onExportProfiles}
+                  disabled={totalProfiles === 0}
+                  className="flex h-7 items-center gap-1.5 px-2.5 text-xs"
+                >
+                  <LuUpload className="size-3.5" />
+                  {t("common.export")}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{t("common.exportTooltip")}</TooltipContent>
+          </Tooltip>
+        </PermissionGuard>
+      )}
+
+      {showProfileToolbar && (
+        <PermissionGuard permission="profile:create" mode="disable" disabledReason="当前角色无新建环境权限或配额已达上限">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="shrink-0">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    onCreateProfileDialogOpen(true);
+                  }}
+                  className="flex h-7 items-center gap-1.5 px-2.5 text-xs"
+                >
+                  <GoPlus className="size-3.5" />
+                  {t("common.new")}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{t("common.newTooltip")}</TooltipContent>
+          </Tooltip>
+        </PermissionGuard>
+      )}
+
+      {showProfileToolbar && onStopAllBrowsers && (
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="shrink-0">
               <Button
                 size="sm"
                 variant="outline"
-                onClick={onImportProfiles}
-                className="flex h-7 items-center gap-1.5 px-2.5 text-xs"
+                onClick={onStopAllBrowsers}
+                className="flex h-7 items-center gap-1.5 px-2.5 text-xs border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive dark:border-destructive/40 dark:text-destructive-foreground dark:hover:bg-destructive/20"
               >
-                <LuDownload className="size-3.5" />
-                {t("common.import")}
+                <LuCircleStop className="size-3.5" />
+                {t("common.stopAll")}
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent>{t("common.importTooltip")}</TooltipContent>
-        </Tooltip>
-      )}
-
-      {showProfileToolbar && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="shrink-0">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onExportProfiles}
-                disabled={totalProfiles === 0}
-                className="flex h-7 items-center gap-1.5 px-2.5 text-xs"
-              >
-                <LuUpload className="size-3.5" />
-                {t("common.export")}
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{t("common.exportTooltip")}</TooltipContent>
-        </Tooltip>
-      )}
-
-      {showProfileToolbar && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="shrink-0">
-              <Button
-                size="sm"
-                onClick={() => {
-                  onCreateProfileDialogOpen(true);
-                }}
-                className="flex h-7 items-center gap-1.5 px-2.5 text-xs"
-              >
-                <GoPlus className="size-3.5" />
-                {t("common.new")}
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{t("common.newTooltip")}</TooltipContent>
+          <TooltipContent>{t("common.stopAllTooltip")}</TooltipContent>
         </Tooltip>
       )}
     </div>

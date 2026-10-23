@@ -50,7 +50,7 @@ export function SubscriptionsPage() {
   const refresh = useCallback(async () => {
     try {
       const next = await listSubscriptions();
-      setRows(next);
+      setRows(next.filter((sub) => !sub.id.startsWith("builtin-")));
     } catch (error) {
       toast.error(String(error));
     } finally {

@@ -1,0 +1,338 @@
+{
+  "version": "260508_01",
+  "compatible_app_version": "1.0.0",
+  "upload_config": {
+    "baijiahao": {
+      "video": {
+        "upload_page_url": "https://baijiahao.baidu.com/builder/rc/edit?type=videoV2&is_from_cms=1",
+        "upload_page_wait_url": "**/builder/rc/edit**",
+        "resource_upload_locator": "div[class*='video-main-container'] input",
+        "resource_upload_wait_locator": "div[class*= 'upload-step-uploadSuccess']",
+        "set_thumbnail_locator": "div[class*='cheetah-upload'] div:has-text('编辑封面')",
+        "thumbnail_modal_locator": "div.cheetah-modal-body",
+        "thumbnail_locator": "div.cheetah-modal-body div.cheetah-tabs-tabpane-active input[name='media'][type='file']",
+        "thumbnail_submit_locator": "div[role='tabpanel'] button:has-text('确定')",
+        "title_locator": "div[class*='title-input'] input",
+        "tag_locator": "input[class*='edit-video-topic-input']",
+        "tag_item_locator": "ul[class*='topic-list'] span[class*='topic-text']:text-is('{}')",
+        "poi_locator": "#my-position",
+        "poi_wait_locator": "div.BMap_mask",
+        "poi_name_locator": "#suggestId",
+        "poi_item_locator": "div.tangram-suggestion-main",
+        "more_info_locator": "div[class*='more-information']",
+        "extra_tag_locator": "input[class*='edit-video-topic-input']",
+        "summary_locator": "div[class*='video-desc'] textarea",
+        "publish_button_locator": "div.op-btn-outter-content",
+        "scheduled_publish_locator": "div.cheetah-modal-confirm-btns button:has(span:text-is('定时发布'))",
+        "publish_wait_url": "**/builder/rc/clue**"
+      },
+      "image": {
+        "upload_page_url": "https://baijiahao.baidu.com/builder/rc/edit?type=events&is_from_cms=1",
+        "upload_page_wait_url": "**/builder/rc/edit**",
+        "resource_upload_button_locator": "div.img-uploader div.uploader",
+        "resource_upload_locator": "span.cheetah-upload:has(p:text('本地上传')) input",
+        "resource_confirm_locator": "div.cheetah-modal-footer button:has(span:text('确认'))",
+        "content_locator": "div[class*='content-wrap'] textarea#content",
+        "poi_locator": ".events-type-item-position",
+        "poi_wait_locator": "div.BMap_mask",
+        "poi_name_locator": "#suggestId",
+        "poi_item_locator": "div.tangram-suggestion-main",
+        "to_article_locator": "input#event2news",
+        "scheduled_publish_locator": "div.cheetah-modal-footer button:has(span:text-is('定时发布'))",
+        "publish_wait_url": "**/builder/rc/content**"
+      },
+      "article": {
+        "upload_page_url": "https://baijiahao.baidu.com/builder/rc/edit?type=news&is_from_cms=1",
+        "upload_page_wait_url": "**/builder/rc/edit**",
+        "tour_locator": "div.cheetah-tour-content",
+        "tour_close_locator": "button.cheetah-tour-close",
+        "content_locator": "#ueditor_0",
+        "resource_upload_button_locator": "div[data-function='insertimage']",
+        "resource_upload_locator": "span.cheetah-upload:has(p:text('本地上传')) input",
+        "resource_confirm_locator": "div.cheetah-modal-footer button:has(span:text('确认'))",
+        "title_locator": "div.input-box:has(div:has-text('请输入标题'))",
+        "summary_locator": "textarea[placeholder='请输入摘要']",
+        "set_thumbnail_locator": "div.cheetah-spin-container:has(div:has-text('选择封面'))",
+        "thumbnail_selected_locator": "div[class*='selectedItem']",
+        "thumbnail_modal_locator": "div.cheetah-modal-body",
+        "thumbnail_locator": "div.cheetah-modal-body div.cheetah-tabs-tabpane-active input[name='media'][type='file']",
+        "thumbnail_submit_locator": "div[role='tabpanel'] button:has-text('确定')",
+        "scheduled_publish_locator": "div.cheetah-modal-confirm-btns button:has(span:text-is('定时发布'))",
+        "publish_wait_url": "**/builder/rc/clue**"
+      }
+    },
+    "bilibili": {
+      "video": {
+        "upload_page_url": "https://member.bilibili.com/platform/upload/video/frame",
+        "upload_page_wait_url": "https://member.bilibili.com/platform/upload/video/frame",
+        "resource_wait_locator": "div[class^='bcc-upload']",
+        "resource_upload_locator": "div[class='bcc-upload-wrapper'] input",
+        "resource_upload_wait_locator": "div[class='file-item-content-status']:has-text('上传完成')",
+        "title_locator": ".video-title input.input-val",
+        "summary_locator": ".ql-editor[contenteditable='true']",
+        "tag_locator": "#tag-container input[type='text'][placeholder='按回车键Enter创建标签']",
+        "tag_item_locator": ".label-item-v2-content",
+        "zone_locator": ".video-human-type .select-controller",
+        "zone_wait_locator": "div.drop-list-v2-content-wrp",
+        "zone_item_locator": "div.drop-list-v2-item[title='{0}']:has(p.item-cont-main:text-is('{0}'))",
+        "thumbnail_locator": "div.cover-main-img",
+        "thumbnail_upload_locator": ".cover-upload .bcc-upload-wrapper",
+        "thumbnail_submit_locator": "div.cover-editor-button div.submit:has-text('完成')",
+        "publish_locator": "xpath=//span[@class='submit-add' and text()='立即投稿']",
+        "publish_wait_locator": "text=稿件投递成功"
+      }
+    },
+    "douyin": {
+      "video": {
+        "upload_page_url": "https://creator.douyin.com/creator-micro/content/upload",
+        "upload_page_wait_url": "https://creator.douyin.com/creator-micro/content/upload",
+        "resource_upload_tab_locator": "div[class*='tab-item']",
+        "resource_upload_wait_locator": "div[class*='container-drag-title']:has-text('视频文件')",
+        "resource_upload_locator": "div[class^='container'] input",
+        "resource_upload_wait_url": "https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page",
+        "resource_upload_wait_url_2": "https://creator.douyin.com/creator-micro/content/post/video?enter_from=publish_page",
+        "title_locator": "input.semi-input[placeholder*='填写作品标题']",
+        "summary_locator": ".zone-container",
+        "disclaimer_locator": "div[class*='selectText']:has-text('请选择自主声明')",
+        "disclaimer_option_locator": "div.semi-radioGroup div:has(span.semi-radio-addon:has-text('{}'))",
+        "publish_wait_url": "https://creator.douyin.com/creator-micro/content/manage**",
+        "publish_wait_locator": "text=发布成功"
+      },
+      "image": {
+        "upload_page_url": "https://creator.douyin.com/creator-micro/content/upload",
+        "upload_page_wait_url": "https://creator.douyin.com/creator-micro/content/upload",
+        "resource_upload_tab_locator": "div[class*='tab-item']",
+        "resource_upload_wait_locator": "div[class*='container-drag-title']:has-text('图片文件')",
+        "resource_upload_locator": "div[class^='container'] input[multiple]",
+        "resource_upload_wait_url": "https://creator.douyin.com/creator-micro/content/publish-media/image-text?enter_from=publish_page&media_type=image&type=new",
+        "resource_upload_wait_url_2": "https://creator.douyin.com/creator-micro/content/post/image?enter_from=publish_page&media_type=image&type=new",
+        "title_locator": "input.semi-input[placeholder*='添加作品标题']",
+        "summary_locator": ".zone-container",
+        "music_locator": "[class^='action-']:has-text('选择音乐')",
+        "music_name_locator": "input[placeholder='搜索音乐']",
+        "music_list_locator": "div[class*='music-collection-container']",
+        "music_item_locator": "div[class*='card-container-tmocjc']",
+        "music_confirm_locator": "button.semi-button:has-text('使用')",
+        "disclaimer_locator": "div[class*='selectText']:has-text('请选择自主声明')",
+        "disclaimer_option_locator": "div.semi-radioGroup div:has(span.semi-radio-addon:has-text('{}'))",
+        "publish_wait_url": "https://creator.douyin.com/creator-micro/content/manage**",
+        "publish_wait_locator": "text=发布成功"
+      }
+    },
+    "kuaishou": {
+      "video": {
+        "upload_page_url": "https://cp.kuaishou.com/article/publish/video?tabType=1",
+        "upload_page_wait_url": "https://cp.kuaishou.com/article/publish/video?tabType=1",
+        "resource_upload_wait_locator": "text=拖拽视频到此或点击上传",
+        "resource_upload_locator": "button[class^='_upload-btn']",
+        "resource_upload_wait_url": "https://cp.kuaishou.com/article/publish/video?tabType=1",
+        "resource_upload_wait_url_2": "https://cp.kuaishou.com/article/publish/video?tabType=1",
+        "resource_uploading_locator": "text=上传中",
+        "new_feat_button_locator": "button[type='button'] span:text('我知道了')",
+        "next_button_locator": "[class^='_button'] >> text=下一步",
+        "right_now_button_locator": "[class^='_button'] >> text=立刻体验",
+        "summary_locator": "#work-description-edit[contenteditable='true']",
+        "publish_wait_url": "https://cp.kuaishou.com/article/manage/video?status=2&from=publish"
+      },
+      "image": {
+        "upload_page_url": "https://cp.kuaishou.com/article/publish/video?tabType=2",
+        "upload_page_wait_url": "https://cp.kuaishou.com/article/publish/video?tabType=2",
+        "resource_upload_tab_locator": ".ant-tabs-tabpane-active:visible",
+        "resource_upload_tab_wait_locator": ".ant-tabs-tabpane-active:visible >> text=拖拽图片到此或点击上传",
+        "resource_upload_locator": "button[class^='_upload-btn']",
+        "resource_upload_wait_url": "https://cp.kuaishou.com/article/publish/video?tabType=2",
+        "resource_upload_wait_url_2": "https://cp.kuaishou.com/article/publish/video?tabType=2",
+        "resource_uploading_locator": "text=上传中",
+        "new_feature_button_locator": "button[type='button'] span:text('我知道了')",
+        "next_button_locator": "[class^='_button'] >> text=下一步",
+        "right_now_button_locator": "[class^='_button'] >> text=立刻体验",
+        "summary_locator": "#work-description-edit[contenteditable='true']",
+        "publish_wait_url": "https://cp.kuaishou.com/article/manage/video?status=2&from=publish"
+      }
+    },
+    "pipix": {
+      "video": {
+        "upload_page_url": "https://www.pipix.com/mp/upload",
+        "upload_page_wait_url": "**/mp/upload**",
+        "resource_upload_wait_locator": "div[class^='mainContainer']",
+        "resource_upload_locator": "div[class^='mainContainer'] div[class^='text']:has-text('将视频拖拽到此处') +div",
+        "resource_upload_success_locator": "div[class^='uploadTip']:text-is('视频上传成功')",
+        "thumbnail_locator": "div[class^='uploadCover'] div:text-is('上传封面')",
+        "thumbnail_submit_locator": "div[class^='container']:has-text('视频封面设定') div:text-is('确定')",
+        "summary_locator": "div[class^='titleBar']:has(div:text-is('视频描述')) +div textarea",
+        "tag_locator": "div[class^='container'] div:text-is('添加话题')",
+        "tag_name_locator": "div[class^='dropdown']:has(div[class^='title']:text-is('话题'))",
+        "tag_item_locator": "div[class^='topic']:has(div[class^='name']:text-is('{}'))",
+        "publish_locator": "div[class^='btn']:text-is('立即投稿')",
+        "publish_wait_locator": "div[class^='tipContainer'] div:text('上传成功')"
+      }
+    },
+    "sohu": {
+      "article": {
+        "upload_page_url": "https://mp.sohu.com/mpfe/v4/contentManagement/news/addarticle",
+        "editor_locator": ".ql-editor",
+        "image_locator": ".ql-image",
+        "image_file_locator": "#new-file",
+        "image_success_locator": "p.success-number:has-text('已成功上传') i:text-is('1')",
+        "image_confirm_locator": "p.success-number:has-text('已成功上传') +div.bottom-buttons p:text-is('确定')",
+        "title_locator": "input[placeholder*='请输入标题']",
+        "summary_locator": "textarea[placeholder*='请输入摘要']",
+        "thumbnail_locator": "div.cover-button",
+        "local_upload_locator": "div.dialog-title h3:has-text('本地上传')",
+        "thumbnail_upload_locator": "#new-file",
+        "thumbnail_success_locator": "p.success-number:has-text('封面图') i:text-is('1')",
+        "thumbnail_confirm_locator": "div.pagination-wrapper:has(p.success-number:has-text('封面图')) +div.bottom-buttons p.positive-button:text-is('确定')",
+        "tag_locator": "div.cover-title:has-text('话题') +div",
+        "length_alert_locator": "div.alert-dialog:has-text('文章不足200字') button.sure-btn",
+        "scheduled_publish_button_locator": "li.publish-report-btn:text-is('定时发布')",
+        "scheduled_publish_locator": "div.push-title:text-is('定时发布')",
+        "datetiem_selector_locator": "div.push-select div",
+        "date_selector_locator": "li:text-is('{}月{}日')",
+        "time_selector_locator": "li:text-is('{}')",
+        "scheduled_publish_confirm_locator": "div.pushtimeout-btn button.sure-btn",
+        "publish_button_locator": "li.publish-report-btn:text-is('发布')",
+        "publish_wait_url": "**/contentManagement/first/page**"
+      }
+    },
+    "tiktok": {
+      "video": {
+        "upload_page_url": "https://www.tiktok.com/tiktokstudio/upload",
+        "upload_page_wait_url": "https://www.tiktok.com/tiktokstudio/upload",
+        "resource_upload_locator": "input[type='file'][accept*='video']",
+        "resource_upload_wait_locator": "span.TUXText.TUXText--tiktok-sans"
+      }
+    },
+    "toutiao": {
+      "video": {
+        "upload_page_url": "https://mp.toutiao.com/profile_v4/xigua/upload-video",
+        "upload_page_wait_url": "https://mp.toutiao.com/profile_v4/xigua/upload-video",
+        "virtical_video_popup_locator": "div:has-text('小视频创作收益')",
+        "virtical_video_popup_close_locator": "button:has-text('暂不开通')",
+        "resource_upload_tab_locator": "div[class*='byte-tabs-header-title']",
+        "resource_upload_wait_locator": "div[class*='upload-tip']:has-text('点击上传')",
+        "resource_upload_locator": "div[class^='upload-video'] input",
+        "resource_upload_success_locator": "div[class*='m-tip-title'] span:has-text('上传成功')",
+        "virtical_video_flag_locator": "div.publisher-tip:has-text('竖版视频')",
+        "title_locator": "div[class*='article-title'] input",
+        "tag_locator": "div[class*='arco-input-tag'] input",
+        "tag_item_locator": "div[class*='arco-dropdown-menu'] div:has-text('#{}')",
+        "summary_locator": "div[class*='video-form-item'] textarea[placeholder*='视频简介']",
+        "scheduled_publish_locator": "div[class*='video-batch-footer'] button[class*='timer']",
+        "scheduled_publish_button_locator": "div.byte-modal-footer button:has(span:has-text('定时发布'))",
+        "publish_wait_url": "**/profile_v4/xigua/content-manage-v2**",
+        "virtical_publish_wait_url": "**/profile_v4/xigua/small-video**"
+      },
+      "image": {
+        "upload_page_url": "https://mp.toutiao.com/profile_v4/graphic/publish",
+        "upload_page_wait_url": "https://mp.toutiao.com/profile_v4/graphic/publish"
+      }
+    },
+    "weibo": {
+      "video": {
+        "upload_page_url": "https://weibo.com/upload/channel",
+        "upload_page_wait_url": "https://weibo.com/upload/channel**",
+        "resource_upload_wait_locator": "text=拖拽视频到此处也可上传",
+        "resource_upload_success_locator": "text=上传完成",
+        "set_original_locator": "span.woo-radio-text:has-text('原创')",
+        "title_locator": "input[placeholder='填写标题（0～30个字）']",
+        "summary_locator": "textarea[placeholder='有什么新鲜事想分享给大家？']",
+        "poi_locator": "div[class*='Tool_iconitem']:has(span[class*='Tool_text']:text-is('地点'))",
+        "poi_name_label": "搜索添加相关地点，获得更多曝光",
+        "poi_item_locator": "div[class*='Place_item'][role='button']:has-text('{}')",
+        "publish_wait_url": "https://weibo.com/upload/channel**",
+        "publish_wait_locator": "text=视频已上传成功"
+      },
+      "image": {
+        "upload_page_url": "https://weibo.com/",
+        "upload_page_wait_url": "https://weibo.com/",
+        "summary_locator": "textarea[placeholder='有什么新鲜事想分享给大家？']",
+        "more_tool_locator": "div[class*='Tool_iconitem']:has(span[class*='Tool_text']:text-is('更多'))",
+        "poi_name_label": "搜索添加相关地点，获得更多曝光",
+        "poi_item_locator": "div[class*='Place_item'][role='button']:has-text('{}')",
+        "publish_wait_url": "https://weibo.com/",
+        "publish_wait_locator": "text=发布成功"
+      }
+    },
+    "weishi": {
+      "video": {
+        "upload_page_url": "https://media.weishi.qq.com/",
+        "upload_page_wait_url": "https://media.weishi.qq.com/",
+        "resource_upload_locator": ":text('设置封面')",
+        "summary_locator": "textarea[placeholder='这一刻的想法']",
+        "publish_wait_url": "https://media.weishi.qq.com/media/video-manage",
+        "publish_wait_locator": "text=视频发布成功"
+      }
+    },
+    "weixin": {
+      "video": {
+        "upload_page_url": "https://channels.weixin.qq.com/platform/post/create",
+        "upload_page_wait_url": "https://channels.weixin.qq.com/platform/post/create",
+        "summary_locator": "div.input-editor",
+        "poi_locator": "div.position-display-wrap",
+        "poi_name_placeholder": "搜索附近位置",
+        "poi_item_locator": "div.location-item-info:has-text('{}')",
+        "personal_page_locator": "div.cover-tips:has-text('个人主页')",
+        "share_card_locator": "div.cover-tips:text-is('分享卡片')",
+        "thumbnail_modal_locator": "[class*='cover-set-wrap']:has-text('上传封面')",
+        "thumbnail_locator": "div[class='single-cover-uploader-wrap'] > input",
+        "thumbnail_container_locator": "div[class*='croppie-container']",
+        "use_same_file_button_label": "使用素材"
+      },
+      "image": {
+        "upload_page_url": "https://channels.weixin.qq.com/platform/post/finderNewLifeCreate",
+        "upload_page_wait_url": "https://channels.weixin.qq.com/platform/post/finderNewLifeCreate",
+        "title_locator": "input.weui-desktop-form__input[placeholder^='填写标题']",
+        "summary_locator": "div.input-editor",
+        "poi_locator": "div.position-display-wrap",
+        "poi_name_placeholder": "搜索附近位置",
+        "poi_item_locator": "div.location-item-info:has-text('{}')"
+      }
+    },
+    "xiaohongshu": {
+      "video": {
+        "upload_page_url": "https://creator.xiaohongshu.com/publish/publish?from=menu",
+        "upload_page_wait_url": "https://creator.xiaohongshu.com/publish/publish?from=menu",
+        "resource_upload_tab_container_locator": "div.upload-container div.header",
+        "resource_upload_tab_locator": "div[class*='creator-tab']",
+        "resource_upload_wait_locator": "div.video-plugin-title +div div.preview-new",
+        "thumbnail_locator": "div.cover-plugin-preview div.cover div.default",
+        "thumbnail_modal_locator": "[class*='d-modal-content']:has-text('上传图片')",
+        "thumbnail_upload_locator": "text='上传图片'",
+        "thumbnail_submit_locator": "div[class*='d-modal-content'] button:has-text('确定')",
+        "title_locator": "div.edit-container input.d-text[type='text']",
+        "summary_locator": ".editor-container .ProseMirror[contenteditable='true']",
+        "tag_item_locator": "span.name:text-is('{}')",
+        "poi_locator": "div.address-card-wrapper div:text('添加地点')",
+        "poi_item_locator": "div.option-item:has-text('{}')",
+        "set_original_locator": "div.custom-switch-card:has-text('原创声明') div.custom-switch-switch",
+        "original_modal_locator": ".originalContainer",
+        "original_checkbox_locator": "span.d-checkbox-simulator",
+        "original_confirm_locator": "button:has-text('声明原创')",
+        "scheduled_publish_button_locator": "div.custom-switch-card:has-text('定时发布') div.custom-switch-switch",
+        "scheduled_publish_locator": "div.d-datepicker-input-filter",
+        "publish_locator": "button:has-text('发布')",
+        "publish_wait_locator": "text=发布成功"
+      },
+      "image": {
+        "upload_page_url": "https://creator.xiaohongshu.com/publish/publish?from=menu",
+        "upload_page_wait_url": "https://creator.xiaohongshu.com/publish/publish?from=menu",
+        "resource_upload_tab_container_locator": "div.upload-container div.header",
+        "resource_upload_tab_locator": "div[class*='creator-tab']",
+        "resource_upload_wait_locator": "div.title-clear-all",
+        "title_locator": "div.edit-container input.d-text[type='text']",
+        "summary_locator": ".editor-container .ProseMirror[contenteditable='true']",
+        "tag_item_locator": "span.name:text-is('{}')",
+        "poi_locator": "div.address-card-wrapper div:text('添加地点')",
+        "poi_item_locator": "div.option-item:has-text('{}')",
+        "set_original_locator": "div.custom-switch-card:has-text('原创声明') div.custom-switch-switch",
+        "original_modal_locator": ".originalContainer",
+        "original_checkbox_locator": "span.d-checkbox-simulator",
+        "original_confirm_locator": "button:has-text('声明原创')",
+        "scheduled_publish_button_locator": "div.custom-switch-card:has-text('定时发布') div.custom-switch-switch",
+        "scheduled_publish_locator": "div.d-datepicker-input-filter",
+        "publish_locator": "button:has-text('发布')",
+        "publish_wait_locator": "text=发布成功"
+      }
+    }
+  }
+}

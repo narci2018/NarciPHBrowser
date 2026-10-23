@@ -1,0 +1,14 @@
+name = "narciph-auth-cf"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+JWT_SECRET = "narciph_jwt_secret_dev_key_must_be_changed_in_prod"
+SYNC_SECRET = "narciph_cluster_sync_secret_token_2026"
+SECONDARY_SYNC_URL = "https://qx.ilyou6.indevs.in"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "narciph_rbac"
+database_id = "881437ac-293b-4e54-a0c3-cf4752d93bbc"

@@ -1,0 +1,119 @@
+[
+  {
+    "tag": "BUTTON",
+    "id": "idBtn_Back",
+    "name": null,
+    "ariaLabel": "戻る",
+    "className": "___wtuvnq0 frvgh55 f1pha7fy fq4mcun f17fgpbq f6ogs8q frqbfng f3rmtva f1g0x7ka fhxju0i f1qch9an f1cnd47f fre7gi1 f1358rze fqdk4by f1rvrf73 f1ig3etr fy0y5fd f24j1xx fgv9nof f1tk1al1 f1xy2nom ftnjapa f8491dx f9xaagq f1mungug fb0xa7e f1buog9q f1e35ql2 fatbyko f1grzc83 fy7xq7b",
+    "type": "button",
+    "options": null
+  },
+  {
+    "tag": "SELECT",
+    "id": "countryRegionDropdown",
+    "name": null,
+    "ariaLabel": null,
+    "className": "___ipac1t0 ftgm304 fly5x3f fwrgwhw",
+    "type": null,
+    "options": [
+      {
+        "v": "IS",
+        "t": "アイスランド"
+      },
+      {
+        "v": "IE",
+        "t": "アイルランド"
+      },
+      {
+        "v": "AZ",
+        "t": "アゼルバイジャン"
+      },
+      {
+        "v": "AC",
+        "t": "アセンション島"
+      },
+      {
+        "v": "AF",
+        "t": "アフガニスタン"
+      }
+    ]
+  },
+  {
+    "tag": "INPUT",
+    "id": "BirthYear",
+    "name": "BirthYear",
+    "ariaLabel": "生まれた年",
+    "className": "___ipac1t0 ftgm304 fly5x3f fwrgwhw",
+    "type": "number",
+    "options": null
+  },
+  {
+    "tag": "SELECT",
+    "id": "BirthMonth",
+    "name": "BirthMonth",
+    "ariaLabel": "誕生月",
+    "className": "___ipac1t0 ftgm304 fly5x3f fwrgwhw",
+    "type": null,
+    "options": [
+      {
+        "v": "",
+        "t": "月"
+      },
+      {
+        "v": "1",
+        "t": "1月"
+      },
+      {
+        "v": "2",
+        "t": "2月"
+      },
+      {
+        "v": "3",
+        "t": "3月"
+      },
+      {
+        "v": "4",
+        "t": "4月"
+      }
+    ]
+  },
+  {
+    "tag": "SELECT",
+    "id": "BirthDay",
+    "name": "BirthDay",
+    "ariaLabel": "誕生日",
+    "className": "___ipac1t0 ftgm304 fly5x3f fwrgwhw",
+    "type": null,
+    "options": [
+      {
+        "v": "",
+        "t": "日"
+      },
+      {
+        "v": "1",
+        "t": "1日"
+      },
+      {
+        "v": "2",
+        "t": "2日"
+      },
+      {
+        "v": "3",
+        "t": "3日"
+      },
+      {
+        "v": "4",
+        "t": "4日"
+      }
+    ]
+  },
+  {
+    "tag": "BUTTON",
+    "id": "nextButton",
+    "name": null,
+    "ariaLabel": null,
+    "className": "ext-primary ext-button ___n08lmr0 f1nxs5xn f1ern45e f1n71otn f1h8hb77 f1deefiw fxdtvjf fytdu2e f14t3ns0 f10ra9hq f11qrl6u f1y2xyjm fjlbh76 f10pi13n f6dzj5z f17mccla fz5stix f1p9o1ba f1sil6mw fmrv4ls f1cmbuwj f1cyt9o8 f1iretw8 fv6p4nl fnsf7x1 f8491dx fj5daoo fnmhfyr f1e35ql2 fatbyko f1grzc83 fb0xa7e fljg2da f1c2uykm f1eqj1rd f7n145z ft0kson ff472gp f4yyc7m fggejwh ft2aflc f9f7vaa fmjaa5u flutoqy f12qb2w f1s9iqzn f1o2wvfq fkbkaou fjk9nze f10kbna7 f9ex757 f1bn7qby f1yx5976 fqv895b",
+    "type": "submit",
+    "options": null
+  }
+]

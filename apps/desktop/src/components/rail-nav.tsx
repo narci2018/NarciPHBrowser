@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { FiWifi } from "react-icons/fi";
 import { GoGear, GoKebabHorizontal } from "react-icons/go";
 import {
+  LuAppWindow,
   LuBot,
   LuCloud,
   LuInfo,
@@ -19,6 +20,7 @@ import { MOTION_SPRING_POSITION } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { Logo } from "./icons/logo";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { toast } from "sonner";
 
 export type AppPage =
   | "profiles"
@@ -27,6 +29,7 @@ export type AppPage =
   | "extensions"
   | "agent"
   | "integrations"
+  | "apps"
   | "account"
   | "shortcuts"
   | "settings"
@@ -48,19 +51,23 @@ function ActiveIndicator() {
   );
 }
 
+import { useAccountStore } from "@/lib/account-store";
+
 interface RailItem {
   page: AppPage;
   Icon: React.ComponentType<{ className?: string }>;
   labelKey: string;
+  permission?: string;
 }
 
 const TOP_ITEMS: RailItem[] = [
-  { page: "profiles", Icon: LuUser, labelKey: "common.profilesTitle" },
-  { page: "groups", Icon: LuUsers, labelKey: "common.groupsTitle" },
-  { page: "proxies", Icon: FiWifi, labelKey: "common.networkTitle" },
+  { page: "profiles", Icon: LuUser, labelKey: "common.profilesTitle", permission: "profile:list" },
+  { page: "groups", Icon: LuUsers, labelKey: "common.groupsTitle", permission: "profile:list" },
+  { page: "proxies", Icon: FiWifi, labelKey: "common.networkTitle", permission: "proxy:use" },
   { page: "extensions", Icon: LuPuzzle, labelKey: "common.extensionsTitle" },
   { page: "agent", Icon: LuBot, labelKey: "common.agentTitle" },
   { page: "integrations", Icon: LuPlug, labelKey: "common.integrationsTitle" },
+  { page: "apps", Icon: LuAppWindow, labelKey: "common.appsTitle" },
   { page: "account", Icon: LuCloud, labelKey: "common.accountTitle" },
 ];
 
@@ -89,7 +96,19 @@ interface RailNavProps {
 
 export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: RailNavProps) {
   const { t } = useTranslation();
+  const { user } = useAccountStore();
   const [moreOpen, setMoreOpen] = useState(false);
+
+  const handleNav = (targetPage: AppPage) => {
+    if (!user && targetPage !== "account") {
+      toast.warning("您当前未登录，请先在「账户」中登录或注册后使用此功能", {
+        id: "auth-login-required",
+      });
+      onNavigate("account");
+      return;
+    }
+    onNavigate(targetPage);
+  };
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -108,7 +127,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
         type="button"
         aria-label={t("common.applicationName")}
         className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-md bg-transparent text-foreground select-none"
-        onClick={() => onNavigate("profiles")}
+        onClick={() => handleNav("profiles")}
       >
         <Logo className="size-5" />
       </button>
@@ -116,16 +135,18 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
       <div className="my-1 h-px w-5 shrink-0 bg-border" />
 
       <div className="flex min-h-0 w-full flex-col items-center gap-1 overflow-y-auto [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-        {TOP_ITEMS.map(({ page, Icon, labelKey }) => {
+        {TOP_ITEMS.filter(({ permission }) => {
+          if (!permission) return true;
+          return user ? (user.role_code === 'owner' || (Array.isArray(user.permissions) && user.permissions.includes(permission))) : true;
+        }).map(({ page, Icon, labelKey }) => {
           const active = currentPage === page;
+          const isLocked = !user && page !== "account";
           return (
             <Tooltip key={page} delayDuration={300}>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => {
-                    onNavigate(page);
-                  }}
+                  onClick={() => handleNav(page)}
                   aria-label={t(labelKey)}
                   aria-current={active ? "page" : undefined}
                   className={cn(
@@ -133,13 +154,16 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
                     active
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    isLocked && "opacity-75"
                   )}
                 >
                   {active && <ActiveIndicator />}
                   <Icon className="size-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">{t(labelKey)}</TooltipContent>
+              <TooltipContent side="right">
+                {isLocked ? `${t(labelKey)} (需要登录)` : t(labelKey)}
+              </TooltipContent>
             </Tooltip>
           );
         })}
@@ -173,9 +197,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
         <TooltipTrigger asChild>
           <button
             type="button"
-            onClick={() => {
-              onNavigate("settings");
-            }}
+            onClick={() => handleNav("settings")}
             aria-label={t("common.settingsTitle")}
             aria-current={currentPage === "settings" ? "page" : undefined}
             className={cn(
@@ -183,13 +205,16 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
               currentPage === "settings"
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              !user && "opacity-75"
             )}
           >
             {currentPage === "settings" && <ActiveIndicator />}
             <GoGear className="size-3.5" />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right">{t("common.settingsTitle")}</TooltipContent>
+        <TooltipContent side="right">
+          {!user ? `${t("common.settingsTitle")} (需要登录)` : t("common.settingsTitle")}
+        </TooltipContent>
       </Tooltip>
 
       {moreOpen && (
@@ -214,7 +239,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
                 role="menuitem"
                 onClick={() => {
                   setMoreOpen(false);
-                  onNavigate(page);
+                  handleNav(page);
                 }}
                 className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100 hover:bg-accent hover:text-accent-foreground"
               >
@@ -223,7 +248,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
                 </span>
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate text-xs font-medium text-foreground">
-                    {t(labelKey)}
+                    {t(labelKey)} {!user && "(需要登录)"}
                   </span>
                   <span className="truncate text-[10px] text-muted-foreground">
                     {t(hintKey)}
@@ -236,6 +261,11 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
               role="menuitem"
               onClick={() => {
                 setMoreOpen(false);
+                if (!user) {
+                  toast.warning("您当前未登录，请先在「账户」中登录或注册", { id: "auth-login-required" });
+                  onNavigate("account");
+                  return;
+                }
                 onOpenTrash();
               }}
               className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100 hover:bg-accent hover:text-accent-foreground"
@@ -244,7 +274,7 @@ export function RailNav({ currentPage, onNavigate, onOpenTrash, onOpenAbout }: R
                 <LuTrash2 className="size-3" />
               </span>
               <span className="flex min-w-0 flex-col">
-                <span className="truncate text-xs font-medium text-foreground">{t("common.trash")}</span>
+                <span className="truncate text-xs font-medium text-foreground">{t("common.trash")} {!user && "(需要登录)"}</span>
                 <span className="truncate text-[10px] text-muted-foreground">
                   {t("common.trashHint")}
                 </span>

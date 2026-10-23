@@ -1,0 +1,514 @@
+proxies:
+- name: 🇮🇩 印尼 - Psiphon 01
+  password: freeuser1
+  port: 9251
+  server: cr2-id.freeconnect.link
+  sni: cr2-id.freeconnect.link
+  tls: true
+  type: http
+  username: freeuser1
+- name: 🇮🇩 印尼 - Psiphon 03
+  port: 443
+  server: 178.248.73.58
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇲🇽 墨西哥 - Psiphon 01
+  port: 443
+  server: 45.134.9.41
+  skip-cert-verify: true
+  sni: 991cc80f13caf81d3426ddebb2da7f49-240d6105b6ef86f0.apache-iv.com
+  tls: true
+  type: http
+- name: 🇫🇷 法国 - Psiphon 02
+  port: 8090
+  server: 82.96.128.175
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇫🇷 法国 - Psiphon 04
+  port: 9443
+  server: 138.199.47.247
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇫🇷 法国 - Psiphon 06
+  port: 8081
+  server: 31.32.19.111
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇳🇱 荷兰 - Psiphon 01
+  port: 443
+  server: 185.238.168.20
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇳🇱 荷兰 - Psiphon 03
+  port: 9002
+  server: 84.17.47.126
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇳🇱 荷兰 - Psiphon 05
+  password: 'null'
+  port: 9002
+  server: 84.17.47.148
+  skip-cert-verify: true
+  tls: true
+  type: http
+  username: 'null'
+- client-fingerprint: chrome
+  encryption: none
+  flow: xtls-rprx-vision
+  name: 🇳🇱 荷兰 - Psiphon 07
+  network: tcp
+  port: 443
+  reality-opts:
+    public-key: NOw-idkk3OCn-N0IRS93leujH4ik-E749O2T5BYJQ0M
+    short-id: 3cef317b
+  server: 157.228.160.166
+  servername: addons.mozilla.org
+  tls: true
+  type: vless
+  udp: true
+  uuid: df53b6c2-8005-475c-9eb9-74e1be785dc8
+  xudp: true
+- name: 🇳🇱 荷兰 - Psiphon 09
+  password: freeuser1
+  port: 9251
+  server: nl202.freeconnect.link
+  skip-cert-verify: true
+  sni: nl202.freeconnect.link
+  tls: true
+  type: http
+  username: freeuser1
+- name: 🇳🇱 荷兰 - Psiphon 11
+  port: 443
+  server: 5.255.118.82
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇳🇱 荷兰 - Psiphon 13
+  port: 9002
+  server: 84.17.47.124
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇳🇱 荷兰 - Psiphon 15
+  port: 443
+  server: 89.150.35.94
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇬🇧 英国 - Psiphon 01
+  port: 8443
+  server: 77.221.136.60
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇬🇧 英国 - Psiphon 03
+  port: 443
+  server: 185.164.138.156
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 - Psiphon 02
+  port: 443
+  server: 44.239.226.15
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 - Psiphon 04
+  port: 443
+  server: 170.199.233.89
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 - Psiphon 06
+  port: 443
+  server: 44.228.137.206
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+- name: 🇺🇸 美国 - Psiphon 08
+  port: 443
+  server: 20.42.108.114
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 - Psiphon 10
+  password: 'null'
+  port: 9002
+  server: 138.199.35.216
+  skip-cert-verify: true
+  tls: true
+  type: http
+  udp: true
+  username: 'null'
+- name: 🇺🇸 美国 - Psiphon 12
+  port: 9002
+  server: 138.199.35.203
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 - Psiphon 14
+  port: 9443
+  server: 198.44.138.27
+  skip-cert-verify: true
+  tls: true
+  type: http
+- cipher: none
+  name: 🇺🇸 美国 - Psiphon 16
+  password: ODI4ZjAwZGMtNDQz
+  plugin: obfs
+  plugin-opts:
+    host: upay.10010.com
+    mode: http
+  port: 80
+  server: 103.11.76.248
+  type: ss
+  udp: true
+- name: 🇺🇸 美国 - Psiphon 18
+  port: 443
+  server: 38.247.141.135
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 20 - Psiphon
+  port: 443
+  server: 23.133.176.14
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 22 - Psiphon
+  port: 443
+  server: 38.28.193.188
+  skip-cert-verify: true
+  tls: true
+  type: http
+  udp: true
+- name: 🇺🇸 美国 24 - Psiphon
+  port: 443
+  server: 121.127.34.82
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 26 - Psiphon
+  password: 384d1b42-655f-11ed-a8bf-f23c91cfbbc9
+  port: 443
+  server: 0cd5cc27-t9zts0-tazlv3-11p9g.se.oshuawei.com
+  sni: 0cd5cc27-t9zts0-tazlv3-11p9g.se.oshuawei.com
+  tls: true
+  type: http
+  username: 384d1b42-655f-11ed-a8bf-f23c91cfbbc9
+- alterId: '2'
+  cipher: auto
+  client-fingerprint: chrome
+  name: 🇺🇸 美国 28 - Psiphon
+  network: tcp
+  port: 11221
+  server: sbgfgov.vip21.wogacnmnagfwgov.com
+  type: vmess
+  uuid: 605956ee-544d-308e-8b90-51e67c6ea8da
+- alterId: 0
+  cipher: auto
+  client-fingerprint: chrome
+  name: 🇺🇸 美国 30 - Psiphon
+  network: ws
+  port: 443
+  server: www.shopify.com
+  servername: guanwang.awsno.com
+  skip-cert-verify: false
+  tls: true
+  type: vmess
+  udp: true
+  uuid: 6a89a215-22bf-4bd7-9642-b95b2e09583a
+  ws-opts:
+    headers:
+      Host: guanwang.awsno.com
+    path: /hls/cctv5phd.m3u8
+  xudp: true
+- name: 🇺🇸 美国 32 - Psiphon
+  port: 443
+  server: 12.202.180.118
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 34 - Psiphon
+  password: 'null'
+  port: 9002
+  server: 138.199.35.219
+  skip-cert-verify: true
+  tls: true
+  type: http
+  username: 'null'
+- name: 🇺🇸 美国 36 - Psiphon
+  password: ''
+  port: 443
+  server: purecambogiasl.live
+  skip-cert-verify: true
+  sni: purecambogiasl.live
+  tls: true
+  type: http
+  username: ''
+- name: 🇺🇸 美国 38 - Psiphon
+  port: 443
+  server: 12.202.180.10
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 40 - Psiphon
+  port: 443
+  server: 148.135.10.80
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+- name: 🇩🇪 德国 - Psiphon 02
+  port: 443
+  server: fan.973511.xyz
+  sni: fan.973511.xyz
+  tls: true
+  type: http
+- name: 🇩🇪 德国 - Psiphon 04
+  port: 443
+  server: 149.36.50.129
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇩🇪 德国 - Psiphon 06
+  port: 9443
+  server: 79.127.156.177
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇩🇪 德国 - Psiphon 08
+  port: 443
+  server: 176.94.74.21
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇷🇴 罗马尼亚 - Psiphon 01
+  port: 9002
+  server: 193.176.84.17
+  skip-cert-verify: true
+  sni: www.bing.com
+  sub_tag: noCache
+  tls: true
+  type: http
+- name: 🇷🇴 罗马尼亚 - Psiphon 03
+  port: 9002
+  server: 193.176.84.31
+  skip-cert-verify: true
+  sni: www.bing.com
+  tls: true
+  type: http
+- name: 🇷🇴 罗马尼亚 - Psiphon 05
+  port: 9002
+  server: 193.176.84.38
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇷🇴 罗马尼亚 - Psiphon 07
+  password: 'null'
+  port: 9002
+  server: 193.176.84.32
+  skip-cert-verify: true
+  tls: true
+  type: http
+  username: 'null'
+- name: 🇷🇴 罗马尼亚 - Psiphon 09
+  port: 9002
+  server: 193.176.84.23
+  skip-cert-verify: true
+  tls: true
+  type: http
+  udp: true
+- name: 🇷🇴 罗马尼亚 - Psiphon 11
+  port: 9002
+  server: 193.176.84.25
+  skip-cert-verify: true
+  sni: www.bing.com
+  tls: true
+  type: http
+- name: 🇯🇵 日本 - Psiphon 02
+  port: 10808
+  server: 101.36.104.46
+  type: socks5
+- name: 🇦🇱 阿尔巴尼亚 - Psiphon 01
+  password: None
+  port: 443
+  server: 87.120.103.242
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇦🇱 阿尔巴尼亚 - Psiphon 03
+  port: 443
+  server: 31.171.154.66
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇧🇬 保加利亚 - Psiphon 02
+  password: None
+  port: 443
+  server: 185.94.192.210
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇮🇹 意大利 - Psiphon 02
+  port: 443
+  server: 109.116.41.154
+  skip-cert-verify: true
+  tls: true
+  type: http
+- client-fingerprint: chrome
+  flow: xtls-rprx-vision
+  name: 🇵🇱 波兰 - Psiphon 02
+  network: tcp
+  port: 2063
+  reality-opts:
+    public-key: MMpt_jWc4J3oySBdf5sPDVRkiWlZmOObth6A1scM9BM
+  server: 2.26.231.218
+  servername: rusbid.de
+  tls: true
+  type: vless
+  udp: true
+  uuid: b18d5990-96eb-4587-a386-7f8ef7591e6a
+- name: 🇨🇦 加拿大 - Psiphon 01
+  port: 443
+  server: 206.223.161.47
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇨🇦 加拿大 - Psiphon 03
+  port: 443
+  server: 23.169.224.34
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇬🇪 格鲁吉亚 - Psiphon 01
+  port: 443
+  server: 195.54.178.210
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇸🇬 新加坡 - Psiphon 01
+  password: ''
+  port: 9443
+  server: 149.88.99.209
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+  username: ''
+- name: 🇸🇬 新加坡 - Psiphon 03
+  password: e4b72b531a2d10900519
+  port: 443
+  server: 146.70.29.45
+  sni: 92461d2d.acsnet.co
+  sub_tag: noCache
+  tls: true
+  type: http
+  username: testuser1
+- name: 🇸🇬 新加坡 - Psiphon 05
+  port: 9090
+  server: 128.199.254.13
+  type: http
+- client-fingerprint: chrome
+  encryption: none
+  flow: xtls-rprx-vision
+  name: 🇸🇬 新加坡 - Psiphon 07
+  network: tcp
+  port: 443
+  reality-opts:
+    public-key: 4tYZTzPnpJQQiG3bExrmT1TBzRMuaBWhFssBRNqrDVU
+    short-id: b1a9832f489b
+  server: vl.033.node-for-bigairport.com
+  servername: ap-southeast-1.console.aws.amazon.com
+  tls: true
+  type: vless
+  udp: true
+  uuid: 11bce34b-e248-4af5-a0f1-951c4c5ece45
+  xudp: true
+- name: 🇱🇻 拉脱维亚 - Psiphon 02
+  port: 443
+  server: 109.248.149.34
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇸🇪 瑞典 - Psiphon 02
+  password: None
+  port: 443
+  server: 79.142.77.63
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇷🇸 塞尔维亚 - Psiphon 01
+  port: 443
+  server: 146.70.221.34
+  skip-cert-verify: true
+  tls: true
+  type: http
+- client-fingerprint: chrome
+  encryption: none
+  flow: xtls-rprx-vision
+  name: 🇫🇮 芬兰 - Psiphon 01
+  network: tcp
+  port: 443
+  reality-opts:
+    public-key: QnxkyscHouhaLDJHT47beyenVd4LHi62yfJIeRV01Ws
+    short-id: 06e00e7c
+  server: 157.228.128.59
+  servername: addons.mozilla.org
+  tls: true
+  type: vless
+  udp: true
+  uuid: df53b6c2-8005-475c-9eb9-74e1be785dc8
+  xudp: true
+- name: 🇦🇹 奥地利 - Psiphon 01
+  port: 443
+  server: 146.70.244.2
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇹🇬 多哥 - Psiphon 01
+  password: a7c5d30b-ce9b-4e34-b5cb-66f8308790ef
+  port: 1042
+  server: 4rffo880.zf-mix.9999231.xyz
+  skip-cert-verify: true
+  sni: tg-wy.9999231.xyz
+  type: anytls
+  udp: true
+- name: 🇱🇹 立陶宛 - Psiphon 01
+  port: 443
+  server: 89.124.11.9
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇮🇳 印度 - Psiphon 01
+  port: 9443
+  server: 165.231.253.58
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇧🇷 巴西 - Psiphon 01
+  port: 443
+  server: 134.65.17.77
+  skip-cert-verify: true
+  tls: true
+  type: http
+- alterId: 2
+  cipher: auto
+  client-fingerprint: chrome
+  name: 🇭🇰 香港 - Psiphon 02
+  network: tcp
+  port: 11252
+  server: goldcnmltyljgfwgov.vip52.wogcnmnnagfwgov.com
+  type: vmess
+  udp: true
+  uuid: 605956ee-544d-308e-8b90-51e67c6ea8da

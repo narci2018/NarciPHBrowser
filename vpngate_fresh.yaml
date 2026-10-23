@@ -1,0 +1,201 @@
+proxies:
+- name: 🇺🇸 美国 - VPNGate 01
+  port: 1080
+  server: 128.211.249.131
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 01
+  port: 1080
+  server: 219.100.37.109
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 02
+  port: 1080
+  server: 219.100.37.203
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 03
+  port: 1080
+  server: 219.100.37.114
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 04
+  port: 1080
+  server: 219.100.37.205
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 05
+  port: 1080
+  server: 219.100.37.192
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 06
+  port: 1080
+  server: 219.100.37.17
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 07
+  port: 1080
+  server: 219.100.37.115
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 08
+  port: 1080
+  server: 219.100.37.81
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 09
+  port: 1080
+  server: 219.100.37.4
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 10
+  port: 1080
+  server: 219.100.37.11
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 11
+  port: 1080
+  server: 219.100.37.217
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 12
+  port: 1080
+  server: 219.100.37.184
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 13
+  port: 1080
+  server: 219.100.37.7
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 14
+  port: 1080
+  server: 219.100.37.207
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 15
+  port: 1080
+  server: 14.10.120.193
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 16
+  port: 1080
+  server: 219.100.37.10
+  type: socks5
+- name: 🇰🇷 韩国 - VPNGate 01
+  port: 1080
+  server: 221.151.149.159
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 17
+  port: 1080
+  server: 219.100.37.97
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 18
+  port: 1080
+  server: 118.104.213.9
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 19
+  port: 1080
+  server: 39.110.97.87
+  type: socks5
+- name: 🇰🇷 韩国 - VPNGate 02
+  port: 1080
+  server: 119.196.23.11
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 20
+  port: 1080
+  server: 121.114.36.72
+  type: socks5
+- name: 🇷🇴 罗马尼亚 - VPNGate 01
+  port: 1080
+  server: 217.138.212.62
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 21
+  port: 1080
+  server: 60.137.122.174
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 22
+  port: 1080
+  server: 42.148.153.40
+  type: socks5
+- name: 🇰🇷 韩国 - VPNGate 03
+  port: 1080
+  server: 121.140.51.111
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 23
+  port: 1080
+  server: 115.179.206.241
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 24
+  port: 1080
+  server: 220.147.184.189
+  type: socks5
+- name: 🇰🇷 韩国 - VPNGate 04
+  port: 1080
+  server: 175.113.163.59
+  type: socks5
+- name: 🇰🇷 韩国 - VPNGate 05
+  port: 1080
+  server: 180.230.30.211
+  type: socks5
+- name: 🇰🇷 韩国 - VPNGate 06
+  port: 1080
+  server: 121.148.48.93
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 25
+  port: 1080
+  server: 58.70.120.185
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 26
+  port: 1080
+  server: 133.202.225.244
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 27
+  port: 1080
+  server: 219.100.37.94
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 28
+  port: 1080
+  server: 14.132.109.178
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 29
+  port: 1080
+  server: 203.179.200.136
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 30
+  port: 1080
+  server: 153.226.172.207
+  type: socks5
+- name: 🇰🇷 韩国 - VPNGate 07
+  port: 1080
+  server: 220.72.113.101
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 31
+  port: 1080
+  server: 180.19.240.86
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 32
+  port: 1080
+  server: 125.4.123.202
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 33
+  port: 1080
+  server: 126.8.199.141
+  type: socks5
+- name: 🇰🇷 韩国 - VPNGate 08
+  port: 1080
+  server: 180.224.138.10
+  type: socks5
+- name: 🇭🇺 匈牙利 - VPNGate 01
+  port: 1080
+  server: 46.139.25.117
+  type: socks5
+- name: 🇰🇷 韩国 - VPNGate 09
+  port: 1080
+  server: 175.193.94.149
+  type: socks5
+- name: 🇰🇷 韩国 - VPNGate 10
+  port: 1080
+  server: 59.16.119.33
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 34
+  port: 1080
+  server: 14.14.148.93
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 35
+  port: 1080
+  server: 126.227.94.216
+  type: socks5
+- name: 🇰🇷 韩国 - VPNGate 11
+  port: 1080
+  server: 211.213.226.149
+  type: socks5
+- name: 🇯🇵 日本 - VPNGate 36
+  port: 1080
+  server: 106.179.46.146
+  type: socks5

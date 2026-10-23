@@ -1,0 +1,513 @@
+proxies:
+- name: 🇮🇩 印尼 - MegaV 02
+  password: freeuser1
+  port: 9251
+  server: cr1-id.freeconnect.link
+  sni: cr1-id.freeconnect.link
+  tls: true
+  type: http
+  username: freeuser1
+- name: 🇮🇩 印尼 - MegaV 04
+  password: freeuser1
+  port: 9251
+  server: sr2-id.freeconnect.link
+  sni: sr2-id.freeconnect.link
+  tls: true
+  type: http
+  username: freeuser1
+- name: 🇫🇷 法国 - MegaV 01
+  password: freeuser1
+  port: 9251
+  server: fr012.freeconnect.link
+  sni: fr012.freeconnect.link
+  tls: true
+  type: http
+  username: freeuser1
+- name: 🇫🇷 法国 - MegaV 03
+  password: None
+  port: 443
+  server: fan.132031.xyz
+  skip-cert-verify: true
+  sni: fan.132031.xyz
+  tls: true
+  type: http
+- name: 🇫🇷 法国 - MegaV 05
+  port: 8090
+  server: 83.206.1.225
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇫🇷 法国 - MegaV 07
+  port: 443
+  server: 84.235.228.156
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇳🇱 荷兰 - MegaV 02
+  port: 443
+  server: 185.238.170.10
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇳🇱 荷兰 - MegaV 04
+  password: 'null'
+  port: 9002
+  server: 84.17.47.149
+  skip-cert-verify: true
+  tls: true
+  type: http
+  username: 'null'
+- name: 🇳🇱 荷兰 - MegaV 06
+  password: None
+  port: 9002
+  server: 84.17.47.147
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+- name: 🇳🇱 荷兰 - MegaV 08
+  port: 443
+  server: 185.93.106.214
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇳🇱 荷兰 - MegaV 10
+  password: None
+  port: 443
+  server: 149.36.51.129
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇳🇱 荷兰 - MegaV 12
+  password: freeuser1
+  port: 9251
+  server: nl201.freeconnect.link
+  sni: nl201.freeconnect.link
+  tls: true
+  type: http
+  username: freeuser1
+- name: 🇳🇱 荷兰 - MegaV 14
+  port: 443
+  server: 152.53.107.196
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇳🇱 荷兰 - MegaV 16
+  port: 21384
+  server: 51.158.204.46
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+- client-fingerprint: chrome
+  name: 🇬🇧 英国 - MegaV 02
+  network: tcp
+  password: Trojan@82164024
+  port: 443
+  server: gb.tronsg.com
+  skip-cert-verify: true
+  sni: gb.tronsg.com
+  type: trojan
+  udp: true
+- name: 🇺🇸 美国 - MegaV 01
+  port: 8443
+  server: 45.145.72.122
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 - MegaV 03
+  port: 443
+  server: 44.198.49.169
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 - MegaV 05
+  password: None
+  port: 9002
+  server: 138.199.35.213
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+- name: 🇺🇸 美国 - MegaV 07
+  port: 9002
+  server: 138.199.35.204
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 - MegaV 09
+  password: None
+  port: 9002
+  server: 138.199.35.201
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 - MegaV 11
+  port: 9002
+  server: 138.199.35.195
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 - MegaV 13
+  password: None
+  port: 9002
+  server: 138.199.35.196
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+- name: 🇺🇸 美国 - MegaV 15
+  password: 'null'
+  port: 9002
+  server: 138.199.35.200
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+  username: 'null'
+- name: 🇺🇸 美国 - MegaV 17
+  password: 'null'
+  port: 9002
+  server: 138.199.35.217
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+  username: 'null'
+- name: 🇺🇸 美国 - MegaV 19
+  port: 8443
+  server: 44.229.69.166
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 21 - MegaV
+  port: 44499
+  server: 45.61.188.134
+  type: socks5
+- name: 🇺🇸 美国 23 - MegaV
+  port: 443
+  server: goedkoopgeluid.icu
+  skip-cert-verify: true
+  sni: goedkoopgeluid.icu
+  tls: true
+  type: http
+- name: 🇺🇸 美国 25 - MegaV
+  port: 443
+  server: 162.217.114.50
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 27 - MegaV
+  port: 443
+  server: 216.107.139.82
+  skip-cert-verify: true
+  sni: 991cc80f13caf81d3426ddebb2da7f49-92ff472ddc24e5b7.apache-iv.com
+  tls: true
+  type: http
+- name: 🇺🇸 美国 29 - MegaV
+  password: None
+  port: 9002
+  server: 138.199.35.218
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+- client-fingerprint: chrome
+  flow: xtls-rprx-vision
+  name: 🇺🇸 美国 31 - MegaV
+  network: tcp
+  port: 443
+  server: s2318.okgg.top
+  servername: u695098uf24555c7s2316.gogocs.xyz
+  tls: true
+  type: vless
+  udp: true
+  uuid: 30e52776-55ac-3cb4-8d36-e2910f07e2c3
+  xudp: true
+- name: 🇺🇸 美国 33 - MegaV
+  port: 8443
+  server: 45.145.73.240
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇺🇸 美国 35 - MegaV
+  password: 6725d134ee80
+  port: 443
+  server: 98416548.df6h451rh.xin
+  skip-cert-verify: true
+  sni: images.ctfassets.net
+  type: anytls
+  udp: true
+- name: 🇺🇸 美国 37 - MegaV
+  port: 443
+  server: kimberlymilano.icu
+  sni: kimberlymilano.icu
+  tls: true
+  type: http
+- name: 🇺🇸 美国 39 - MegaV
+  port: 443
+  server: 24.225.10.211
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇩🇪 德国 - MegaV 01
+  port: 443
+  server: 87.249.132.97
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+- name: 🇩🇪 德国 - MegaV 03
+  port: 9002
+  server: 158.173.154.2
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇩🇪 德国 - MegaV 05
+  port: 443
+  server: 87.106.223.158
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇩🇪 德国 - MegaV 07
+  port: 443
+  server: 159.69.94.125
+  skip-cert-verify: true
+  tls: true
+  type: http
+- client-fingerprint: randomized
+  encryption: none
+  flow: xtls-rprx-vision
+  name: 🇩🇪 德国 - MegaV 09
+  network: tcp
+  port: 443
+  reality-opts:
+    public-key: 0-or5ogGhYbBgsVSrSC2Fhxyp2BN97Y9pqIdg61Qd08
+    short-id: 4be4110078ebed4a
+  server: 177.1.187.251
+  servername: de2.srv.vbuste.ru
+  tls: true
+  type: vless
+  udp: true
+  uuid: 318c935d-c195-41d3-99ad-9bbcfdab3386
+  xudp: true
+- name: 🇷🇴 罗马尼亚 - MegaV 02
+  port: 9002
+  server: 193.176.84.34
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇷🇴 罗马尼亚 - MegaV 04
+  port: 9002
+  server: 193.176.84.27
+  skip-cert-verify: true
+  tls: true
+  type: http
+  udp: true
+- name: 🇷🇴 罗马尼亚 - MegaV 06
+  password: 'null'
+  port: 9002
+  server: 193.176.84.37
+  skip-cert-verify: true
+  tls: true
+  type: http
+  username: 'null'
+- name: 🇷🇴 罗马尼亚 - MegaV 08
+  port: 9002
+  server: 193.176.84.33
+  skip-cert-verify: true
+  tls: true
+  type: http
+  udp: true
+- name: 🇷🇴 罗马尼亚 - MegaV 10
+  password: None
+  port: 9002
+  server: 193.176.84.21
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇯🇵 日本 - MegaV 01
+  port: 443
+  server: fan.587475.xyz
+  sni: fan.587475.xyz
+  tls: true
+  type: http
+- alterId: 2
+  cipher: auto
+  client-fingerprint: chrome
+  name: 🇯🇵 日本 - MegaV 03
+  network: tcp
+  port: 11260
+  server: goldcnmltyljgfwgov.vip60.wogcnmnnagfwgov.com
+  type: vmess
+  udp: true
+  uuid: 605956ee-544d-308e-8b90-51e67c6ea8da
+- name: 🇦🇱 阿尔巴尼亚 - MegaV 02
+  port: 443
+  server: 87.120.103.226
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇧🇬 保加利亚 - MegaV 01
+  port: 443
+  server: 109.204.88.17
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇮🇹 意大利 - MegaV 01
+  port: 443
+  server: 94.177.163.156
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇵🇱 波兰 - MegaV 01
+  port: 443
+  server: 151.115.54.133
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇮🇪 爱尔兰 - MegaV 01
+  port: 443
+  server: 34.249.214.108
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇨🇦 加拿大 - MegaV 02
+  port: 9443
+  server: 198.44.157.19
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇨🇦 加拿大 - MegaV 04
+  port: 443
+  server: 142.44.210.129
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇨🇿 捷克 - MegaV 01
+  password: None
+  port: 443
+  server: 185.216.35.130
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+- name: 🇸🇬 新加坡 - MegaV 02
+  port: 443
+  server: 43.160.239.37
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+- name: 🇸🇬 新加坡 - MegaV 04
+  port: 9090
+  server: 152.42.170.187
+  type: http
+- client-fingerprint: chrome
+  name: 🇸🇬 新加坡 - MegaV 06
+  network: tcp
+  password: WvH8ooM9hom4KOOJHFJz1x5umE0aV4R0
+  port: 443
+  server: 43.156.36.253
+  skip-cert-verify: true
+  sni: tx-hy2
+  type: trojan
+  udp: true
+- name: 🇱🇻 拉脱维亚 - MegaV 01
+  password: None
+  port: 443
+  server: 109.248.147.66
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true
+- name: 🇸🇪 瑞典 - MegaV 01
+  password: None
+  port: 443
+  server: 146.70.242.130
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇸🇪 瑞典 - MegaV 03
+  port: 39811
+  server: 176.111.37.5
+  type: http
+- name: 🇬🇹 危地马拉 - MegaV 01
+  port: 999
+  server: 186.33.0.203
+  type: http
+- client-fingerprint: firefox
+  encryption: none
+  flow: xtls-rprx-vision
+  name: 🇫🇮 芬兰 - MegaV 02
+  network: tcp
+  port: 13443
+  reality-opts:
+    public-key: 1MLoHw7RVkGefh7XUyuGg4ndxwv4vDU9en-f9JxpXRQ
+    short-id: d2061bb1
+  server: gw1.edgemedia.lol
+  servername: ya.ru
+  tls: true
+  type: vless
+  udp: true
+  uuid: 9ebf4fda-7395-4800-b42f-b2dda649880a
+  xudp: true
+- name: 🇧🇦 波斯尼亚和黑塞哥维那 - MegaV 01
+  port: 443
+  server: 185.164.35.16
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇨🇭 瑞士 - MegaV 01
+  port: 9443
+  server: 37.120.213.210
+  skip-cert-verify: true
+  sub_tag: R002-260618
+  tls: true
+  type: http
+  udp: true
+- name: 🇦🇺 澳大利亚 - MegaV 01
+  password: None
+  port: 443
+  server: 159.13.44.228
+  skip-cert-verify: true
+  tls: true
+  type: http
+- name: 🇵🇹 葡萄牙 - MegaV 01
+  password: ''
+  port: 443
+  server: 149.22.86.1
+  skip-cert-verify: true
+  tls: true
+  type: http
+  username: ''
+- alterId: 2
+  cipher: auto
+  client-fingerprint: chrome
+  name: 🇭🇰 香港 - MegaV 01
+  network: tcp
+  port: 11226
+  server: silversbgfgov.vip26.wogbcnmnagfwgov.com
+  type: vmess
+  udp: true
+  uuid: 605956ee-544d-308e-8b90-51e67c6ea8da
+- name: 🇭🇺 匈牙利 - MegaV 01
+  password: None
+  port: 443
+  server: 146.70.203.18
+  skip-cert-verify: true
+  sub_tag: noCache
+  tls: true
+  type: http
+  udp: true

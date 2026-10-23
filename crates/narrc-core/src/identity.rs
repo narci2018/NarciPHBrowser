@@ -390,7 +390,10 @@ impl Identity {
             "privacy.fingerprintingProtection.pbmode",
             Value::Bool(false),
         );
-        prefs.insert("privacy.partition.network_state", Value::Bool(true));
+        prefs.insert("privacy.partition.network_state", Value::Bool(false));
+        prefs.insert("privacy.trackingprotection.enabled", Value::Bool(false));
+        prefs.insert("privacy.trackingprotection.pbmode.enabled", Value::Bool(false));
+        prefs.insert("privacy.trackingprotection.socialtracking.enabled", Value::Bool(false));
 
         // No telemetry, no prompts, no update surprise mid-session.
         prefs.insert(

@@ -87,7 +87,7 @@ const DELAY_URL: &str = "http://www.gstatic.com/generate_204";
 /// The check is a real request through the node's exit, not a ping, so the
 /// window is generous: measurements sit in the low seconds, and the limit
 /// exists only to stop a dead node from holding the whole test hostage.
-const DELAY_TIMEOUT_MS: u64 = 7000;
+const _DELAY_TIMEOUT_MS: u64 = 5000;
 
 /// The file a speed test downloads. Cloudflare's endpoint is generous with
 /// bandwidth and reachable from most exits.
@@ -134,6 +134,479 @@ const PROVIDER_TIMEOUT_SECS: u64 = 30;
 /// The user agent the provider fetch advertises. A Clash-style agent makes most
 /// providers serve the format their own client expects.
 const PROVIDER_USER_AGENT: &str = "clash-verge/v1.7.7";
+
+/// Advanced proxy foundation settings referencing v2rayN parameter / base settings.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(default)]
+pub struct AdvancedProxySettings {
+    // 1. 本地入站监听
+    pub mixed_port: u16,
+    pub allow_lan: bool,
+    pub bind_address: String,
+    pub log_level: String,
+
+    // 2. 路由分流模式与协议
+    pub mode: String,
+    pub ipv6: bool,
+    pub udp_enabled: bool,
+
+    // 3. DNS 引擎与防污染
+    pub dns_mode: String,
+    pub direct_dns: String,
+    pub remote_dns: String,
+    pub dns_cache: bool,
+
+    // 4. 测速与健康检测
+    pub delay_test_url: String,
+    pub delay_timeout_ms: u64,
+    pub speed_test_url: String,
+    pub test_concurrency: u32,
+
+    // 5. 局域网与直连绕行名单
+    pub bypass_domain_list: String,
+}
+
+impl Default for AdvancedProxySettings {
+    fn default() -> Self {
+        Self {
+            mixed_port: 0,
+            allow_lan: false,
+            bind_address: "127.0.0.1".to_string(),
+            log_level: "warning".to_string(),
+            mode: "rule".to_string(),
+            ipv6: false,
+            udp_enabled: true,
+            dns_mode: "fake-ip".to_string(),
+            direct_dns: "223.5.5.5, 119.29.29.29".to_string(),
+            remote_dns: "https://cloudflare-dns.com/dns-query, 8.8.8.8".to_string(),
+            dns_cache: true,
+            delay_test_url: "http://cp.cloudflare.com/generate_204".to_string(),
+            delay_timeout_ms: 5000,
+            speed_test_url: "https://speed.cloudflare.com/__down?bytes=5000000".to_string(),
+            test_concurrency: 5,
+            bypass_domain_list: "localhost; 127.*; 10.*; 172.16.*; 192.168.*; <local>".to_string(),
+        }
+    }
+}
+
+pub fn advanced_settings_path() -> Option<PathBuf> {
+    let home = dirs_next::home_dir()?;
+    Some(home.join(CORE_DIR).join("advanced_settings.json"))
+}
+
+pub fn load_advanced_settings() -> AdvancedProxySettings {
+    if let Some(path) = advanced_settings_path() {
+        if path.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(settings) = serde_json::from_str::<AdvancedProxySettings>(&content) {
+                    return settings;
+                }
+            }
+        }
+    }
+    AdvancedProxySettings::default()
+}
+
+pub fn save_advanced_settings(settings: &AdvancedProxySettings) -> Result<(), String> {
+    let Some(path) = advanced_settings_path() else {
+        return Err("could not determine home directory".to_string());
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let json = serde_json::to_string_pretty(settings)
+        .map_err(|e| format!("cannot serialize advanced settings: {e}"))?;
+    std::fs::write(&path, json).map_err(|e| format!("cannot write advanced settings: {e}"))?;
+    Ok(())
+}
+
+/// One routing rule definition (referencing v2rayN routing rule specifications).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(default)]
+pub struct RoutingRuleItem {
+    pub id: String,
+    pub enabled: bool,
+    pub name: String,
+    pub rule_type: String,
+    pub outbound_tag: String, // "block" | "direct" | "proxy"
+    pub port: String,
+    pub protocol: String,
+    pub inbound_tag: String,
+    pub network: String,
+    pub target: String, // domain / ip / geosite / geoip
+}
+
+impl Default for RoutingRuleItem {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            enabled: true,
+            name: String::new(),
+            rule_type: String::new(),
+            outbound_tag: "proxy".to_string(),
+            port: String::new(),
+            protocol: String::new(),
+            inbound_tag: String::new(),
+            network: String::new(),
+            target: String::new(),
+        }
+    }
+}
+
+/// A collection of routing rules (referencing v2rayN 路由规则集设定).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(default)]
+pub struct RoutingRuleSet {
+    pub id: String,
+    pub name: String,
+    pub active: bool,
+    pub sort_order: i32,
+    pub domain_strategy: String,
+    pub custom_url: String,
+    pub rules: Vec<RoutingRuleItem>,
+}
+
+impl RoutingRuleSet {
+    /// Default "完美分流规则" (Perfect Routing Rules) referencing v2rayN standard routing set.
+    pub fn perfect_rules() -> Self {
+        Self {
+            id: "perfect_rules".to_string(),
+            name: "完美分流规则".to_string(),
+            active: true,
+            sort_order: 0,
+            domain_strategy: "IPIfNonMatch".to_string(),
+            custom_url: String::new(),
+            rules: vec![
+                RoutingRuleItem {
+                    id: "rule_udp443".to_string(),
+                    enabled: true,
+                    name: "UDP443阻断".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "block".to_string(),
+                    port: "443".to_string(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: "udp".to_string(),
+                    target: String::new(),
+                },
+                RoutingRuleItem {
+                    id: "rule_lan".to_string(),
+                    enabled: true,
+                    name: "局域网专用规则".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "direct".to_string(),
+                    port: String::new(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: "geosite:private,geoip:private".to_string(),
+                },
+                RoutingRuleItem {
+                    id: "rule_ads".to_string(),
+                    enabled: true,
+                    name: "广告拦截".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "block".to_string(),
+                    port: String::new(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: "geosite:category-ads-all".to_string(),
+                },
+                RoutingRuleItem {
+                    id: "rule_ai".to_string(),
+                    enabled: true,
+                    name: "AI专用规则".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "proxy".to_string(),
+                    port: String::new(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: "geosite:category-ai-!cn".to_string(),
+                },
+                RoutingRuleItem {
+                    id: "rule_youtube".to_string(),
+                    enabled: true,
+                    name: "油管专用规则".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "proxy".to_string(),
+                    port: String::new(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: "geosite:youtube".to_string(),
+                },
+                RoutingRuleItem {
+                    id: "rule_cn".to_string(),
+                    enabled: true,
+                    name: "国内直连".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "direct".to_string(),
+                    port: String::new(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: "geosite:cn,geoip:cn".to_string(),
+                },
+                RoutingRuleItem {
+                    id: "rule_proxy".to_string(),
+                    enabled: true,
+                    name: "国外代理".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "proxy".to_string(),
+                    port: "0-65535".to_string(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: String::new(),
+                },
+            ],
+        }
+    }
+
+    /// Preset: "绕过大陆" (Bypass Mainland China)
+    pub fn bypass_cn_rules() -> Self {
+        Self {
+            id: "bypass_cn".to_string(),
+            name: "绕过大陆".to_string(),
+            active: false,
+            sort_order: 1,
+            domain_strategy: "IPIfNonMatch".to_string(),
+            custom_url: String::new(),
+            rules: vec![
+                RoutingRuleItem {
+                    id: "rule_lan".to_string(),
+                    enabled: true,
+                    name: "局域网直连".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "direct".to_string(),
+                    port: String::new(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: "geosite:private,geoip:private".to_string(),
+                },
+                RoutingRuleItem {
+                    id: "rule_cn".to_string(),
+                    enabled: true,
+                    name: "国内直连".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "direct".to_string(),
+                    port: String::new(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: "geosite:cn,geoip:cn".to_string(),
+                },
+                RoutingRuleItem {
+                    id: "rule_proxy".to_string(),
+                    enabled: true,
+                    name: "国外代理".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "proxy".to_string(),
+                    port: "0-65535".to_string(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: String::new(),
+                },
+            ],
+        }
+    }
+
+    /// Preset: "全局代理" (Global Proxy)
+    pub fn global_proxy_rules() -> Self {
+        Self {
+            id: "global_proxy".to_string(),
+            name: "全局代理".to_string(),
+            active: false,
+            sort_order: 2,
+            domain_strategy: "AsIs".to_string(),
+            custom_url: String::new(),
+            rules: vec![
+                RoutingRuleItem {
+                    id: "rule_lan".to_string(),
+                    enabled: true,
+                    name: "局域网直连".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "direct".to_string(),
+                    port: String::new(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: "geosite:private,geoip:private".to_string(),
+                },
+                RoutingRuleItem {
+                    id: "rule_proxy".to_string(),
+                    enabled: true,
+                    name: "全部代理".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "proxy".to_string(),
+                    port: "0-65535".to_string(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: String::new(),
+                },
+            ],
+        }
+    }
+
+    /// Preset: "全局直连" (Global Direct)
+    pub fn global_direct_rules() -> Self {
+        Self {
+            id: "global_direct".to_string(),
+            name: "全局直连".to_string(),
+            active: false,
+            sort_order: 3,
+            domain_strategy: "AsIs".to_string(),
+            custom_url: String::new(),
+            rules: vec![
+                RoutingRuleItem {
+                    id: "rule_direct".to_string(),
+                    enabled: true,
+                    name: "全部直连".to_string(),
+                    rule_type: String::new(),
+                    outbound_tag: "direct".to_string(),
+                    port: "0-65535".to_string(),
+                    protocol: String::new(),
+                    inbound_tag: String::new(),
+                    network: String::new(),
+                    target: String::new(),
+                },
+            ],
+        }
+    }
+}
+
+impl Default for RoutingRuleSet {
+    fn default() -> Self {
+        Self::perfect_rules()
+    }
+}
+
+/// Collection of multiple routing rule sets (同级路由规则/规则集集合).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(default)]
+pub struct RoutingRuleCollection {
+    pub active_id: String,
+    pub rule_sets: Vec<RoutingRuleSet>,
+}
+
+impl Default for RoutingRuleCollection {
+    fn default() -> Self {
+        let perfect = RoutingRuleSet::perfect_rules();
+        Self {
+            active_id: perfect.id.clone(),
+            rule_sets: vec![
+                perfect,
+                RoutingRuleSet::bypass_cn_rules(),
+                RoutingRuleSet::global_proxy_rules(),
+                RoutingRuleSet::global_direct_rules(),
+            ],
+        }
+    }
+}
+
+pub fn routing_rules_path() -> Option<PathBuf> {
+    let home = dirs_next::home_dir()?;
+    Some(home.join(CORE_DIR).join("routing_rules.json"))
+}
+
+pub fn load_routing_collection() -> RoutingRuleCollection {
+    if let Some(path) = routing_rules_path() {
+        if path.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                // 1. Try deserializing as RoutingRuleCollection
+                if let Ok(mut col) = serde_json::from_str::<RoutingRuleCollection>(&content) {
+                    if !col.rule_sets.is_empty() {
+                        if col.active_id.is_empty() {
+                            if let Some(first) = col.rule_sets.iter().find(|s| s.active).or_else(|| col.rule_sets.first()) {
+                                col.active_id = first.id.clone();
+                            }
+                        }
+                        for s in &mut col.rule_sets {
+                            s.active = s.id == col.active_id;
+                        }
+                        return col;
+                    }
+                }
+                // 2. Try deserializing as Vec<RoutingRuleSet>
+                if let Ok(sets) = serde_json::from_str::<Vec<RoutingRuleSet>>(&content) {
+                    if !sets.is_empty() {
+                        let active_id = sets.iter().find(|s| s.active).map(|s| s.id.clone())
+                            .unwrap_or_else(|| sets[0].id.clone());
+                        let mut col = RoutingRuleCollection {
+                            active_id,
+                            rule_sets: sets,
+                        };
+                        for s in &mut col.rule_sets {
+                            s.active = s.id == col.active_id;
+                        }
+                        return col;
+                    }
+                }
+                // 3. Try deserializing as a single RoutingRuleSet (legacy)
+                if let Ok(single_set) = serde_json::from_str::<RoutingRuleSet>(&content) {
+                    let active_id = single_set.id.clone();
+                    let mut col = RoutingRuleCollection {
+                        active_id,
+                        rule_sets: vec![
+                            single_set,
+                            RoutingRuleSet::bypass_cn_rules(),
+                            RoutingRuleSet::global_proxy_rules(),
+                            RoutingRuleSet::global_direct_rules(),
+                        ],
+                    };
+                    for s in &mut col.rule_sets {
+                        s.active = s.id == col.active_id;
+                    }
+                    let _ = save_routing_collection(&col);
+                    return col;
+                }
+            }
+        }
+    }
+    let default_col = RoutingRuleCollection::default();
+    let _ = save_routing_collection(&default_col);
+    default_col
+}
+
+pub fn save_routing_collection(col: &RoutingRuleCollection) -> Result<(), String> {
+    let Some(path) = routing_rules_path() else {
+        return Err("could not determine home directory".to_string());
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let json = serde_json::to_string_pretty(col)
+        .map_err(|e| format!("cannot serialize routing rule collection: {e}"))?;
+    std::fs::write(&path, json).map_err(|e| format!("cannot write routing rule collection: {e}"))?;
+    Ok(())
+}
+
+pub fn load_routing_rule_set() -> RoutingRuleSet {
+    let col = load_routing_collection();
+    col.rule_sets.into_iter().find(|s| s.id == col.active_id || s.active)
+        .unwrap_or_else(RoutingRuleSet::perfect_rules)
+}
+
+pub fn save_routing_rule_set(rule_set: &RoutingRuleSet) -> Result<(), String> {
+    let mut col = load_routing_collection();
+    if let Some(existing) = col.rule_sets.iter_mut().find(|s| s.id == rule_set.id) {
+        *existing = rule_set.clone();
+    } else {
+        col.rule_sets.push(rule_set.clone());
+    }
+    if rule_set.active {
+        col.active_id = rule_set.id.clone();
+        for s in &mut col.rule_sets {
+            s.active = s.id == col.active_id;
+        }
+    }
+    save_routing_collection(&col)
+}
 
 /// Where the core binary lives.
 pub struct CorePaths {
@@ -592,6 +1065,12 @@ impl NetworkCore {
         std::fs::create_dir_all(&dir)
             .map_err(|error| format!("could not create {}: {error}", dir.display()))?;
         seed_profile_provider(sub, &dir)?;
+        if sub.id == narrc_core::subscription::BUILTIN_VPNGATE_ID {
+            let transit_config = crate::special_subscriptions::load_vpngate_transit_config();
+            if let Some(transit_sub_id) = &transit_config.subscription_id {
+                let _ = seed_profile_provider_by_id(transit_sub_id, &dir);
+            }
+        }
         let api_port = free_port()?;
         let speed_port = free_port()?;
         let secret = random_secret();
@@ -614,8 +1093,10 @@ impl NetworkCore {
         let group = format!("/proxies/{PROFILE_GROUP}");
         let deadline = Instant::now() + Duration::from_secs(PROVIDER_TIMEOUT_SECS);
         loop {
-            if group_carries_nodes(&api_get(&client, self.api_port, &self.secret, &group)?) {
-                break;
+            if let Ok(group_val) = api_get(&client, self.api_port, &self.secret, &group) {
+                if group_carries_nodes(&group_val) {
+                    break;
+                }
             }
             if Instant::now() >= deadline {
                 return Err(format!(
@@ -624,19 +1105,31 @@ impl NetworkCore {
             }
             std::thread::sleep(Duration::from_millis(250));
         }
-        api_put(
-            &client,
-            self.api_port,
-            &self.secret,
-            &group,
-            Some(json!({ "name": node })),
-        )
-        .map_err(|error| {
-            format!(
-                "the node {node:?} could not be selected: {error}; the node's name embeds a \
-                 latency the subscription re-measures, so pick the node again on the profile"
-            )
-        })
+
+        // Retry PUT with fresh connection up to 10 seconds in case the core is concurrently updating an HTTP provider
+        let put_deadline = Instant::now() + Duration::from_secs(10);
+        let mut last_error = String::new();
+        while Instant::now() < put_deadline {
+            let put_client = blocking_client(5);
+            match api_put(
+                &put_client,
+                self.api_port,
+                &self.secret,
+                &group,
+                Some(json!({ "name": node })),
+            ) {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    last_error = error;
+                    std::thread::sleep(Duration::from_millis(300));
+                }
+            }
+        }
+
+        Err(format!(
+            "the node {node:?} could not be selected: {last_error}; the node's name embeds a \
+             latency the subscription re-measures, so pick the node again on the profile"
+        ))
     }
 
     /// Asks the node itself whether it still answers.
@@ -649,11 +1142,15 @@ impl NetworkCore {
     /// profile's latency test uses — and refuses with a reason when it cannot
     /// answer, instead of opening a browser that will not load a page.
     pub fn check_node(&self, provider: &str, node: &str) -> Result<(), String> {
-        let client = blocking_client(DELAY_TIMEOUT_MS / 1000 + 5);
-        node_verdict(
-            node,
-            node_delay(&client, self.api_port, &self.secret, provider, node),
-        )
+        let timeout_secs = load_advanced_settings().delay_timeout_ms / 1000 + 5;
+        let client = blocking_client(timeout_secs);
+        let mut delay_res = node_delay(&client, self.api_port, &self.secret, provider, node);
+        if delay_res.is_err() {
+            // Give it one quick retry in case controller was briefly reloading
+            std::thread::sleep(Duration::from_millis(500));
+            delay_res = node_delay(&client, self.api_port, &self.secret, provider, node);
+        }
+        node_verdict(node, delay_res)
     }
 
     /// Rewrites the configuration and restarts, for when the subscriptions
@@ -840,12 +1337,17 @@ impl MihomoManager {
         Ok(())
     }
 
+    /// Stops all running profile proxy core instances.
+    pub fn stop_all_profiles(&mut self) {
+        self.profiles.clear();
+    }
+
     /// Stops every process the manager owns.
     ///
     /// Called when the app exits, so no core outlives it.
     pub fn stop_all(&mut self) {
         self.network = None;
-        self.profiles.clear();
+        self.stop_all_profiles();
     }
 }
 
@@ -901,11 +1403,11 @@ pub fn purge_provider_cache(subscription_id: &str) {
 /// picker's names come from the network core's cache. Copying that cache into
 /// the profile's directory pins the launched group to the very nodes people
 /// pick from.
-fn seed_profile_provider(sub: &StoredSubscription, dir: &Path) -> Result<(), String> {
+fn seed_profile_provider_by_id(id: &str, dir: &Path) -> Result<(), String> {
     let Some(home) = dirs_next::home_dir() else {
         return Ok(());
     };
-    let file = format!("{}.yaml", sub.id);
+    let file = format!("{}.yaml", id);
     let source = home
         .join(CORE_DIR)
         .join("network")
@@ -933,6 +1435,10 @@ fn seed_profile_provider(sub: &StoredSubscription, dir: &Path) -> Result<(), Str
     Ok(())
 }
 
+fn seed_profile_provider(sub: &StoredSubscription, dir: &Path) -> Result<(), String> {
+    seed_profile_provider_by_id(&sub.id, dir)
+}
+
 /// Spawns the core, with no console window.
 fn spawn_core(binary: &Path, dir: &Path, config: &Path) -> Result<Child, String> {
     let mut command = Command::new(binary);
@@ -955,28 +1461,210 @@ fn spawn_core(binary: &Path, dir: &Path, config: &Path) -> Result<Child, String>
         .map_err(|error| format!("could not start the proxy core: {error}"))
 }
 
-/// The core's own resolver configuration.
-///
-/// Subscriptions routinely ship nodes with ECH enabled (`ech-opts`), and
-/// mihomo bootstraps ECH by resolving the query server's HTTPS (type 65) DNS
-/// record. Whatever resolver the OS hands it may not answer type 65 — Chinese
-/// ISP resolvers return an empty answer — and mihomo then aborts the dial
-/// outright instead of falling back to plain TLS, failing every node in the
-/// subscription. These public resolvers do answer type 65, so the dials the
-/// nodes were built for actually happen.
-const DNS_BLOCK: &str = "dns:\n  enable: true\n  ipv6: false\n  nameserver:\n    - 223.5.5.5\n    - 119.29.29.29\n";
+/// Generates the resolver configuration based on advanced settings.
+fn generate_dns_block(adv: &AdvancedProxySettings) -> String {
+    let mut out = String::new();
+    out.push_str("dns:\n");
+    out.push_str("  enable: true\n");
+    out.push_str(&format!("  ipv6: {}\n", adv.ipv6));
+    let mode = if adv.dns_mode == "redir-host" { "redir-host" } else { "fake-ip" };
+    out.push_str(&format!("  enhanced-mode: {mode}\n"));
+    if mode == "fake-ip" {
+        out.push_str("  fake-ip-range: 198.18.0.1/16\n");
+    }
+
+    let direct_list: Vec<String> = adv
+        .direct_dns
+        .split([',', ';', '\n'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect();
+    let direct_list = if direct_list.is_empty() {
+        vec!["223.5.5.5".to_string(), "119.29.29.29".to_string()]
+    } else {
+        direct_list
+    };
+
+    let remote_list: Vec<String> = adv
+        .remote_dns
+        .split([',', ';', '\n'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect();
+    let remote_list = if remote_list.is_empty() {
+        vec!["https://cloudflare-dns.com/dns-query".to_string(), "8.8.8.8".to_string()]
+    } else {
+        remote_list
+    };
+
+    out.push_str("  nameserver:\n");
+    for ns in &direct_list {
+        if ns.starts_with("http://") || ns.starts_with("https://") {
+            out.push_str(&format!("    - {}\n", quote(ns)));
+        } else {
+            out.push_str(&format!("    - {}\n", ns));
+        }
+    }
+    out.push_str("  fallback:\n");
+    for ns in &remote_list {
+        if ns.starts_with("http://") || ns.starts_with("https://") {
+            out.push_str(&format!("    - {}\n", quote(ns)));
+        } else {
+            out.push_str(&format!("    - {}\n", ns));
+        }
+    }
+    out.push_str("  fallback-filter:\n");
+    out.push_str("    geoip: true\n");
+    out.push_str("    geoip-code: CN\n");
+    out
+}
+
+/// Generates routing rules based on advanced settings.
+fn generate_rules_block(target_group: &str, adv: &AdvancedProxySettings) -> String {
+    let mut out = String::new();
+    out.push_str("rules:\n");
+    if adv.mode == "direct" {
+        out.push_str("  - MATCH,DIRECT\n");
+        return out;
+    }
+
+    let rule_set = load_routing_rule_set();
+    if rule_set.active && !rule_set.rules.is_empty() {
+        let mut has_match = false;
+        for rule in &rule_set.rules {
+            if !rule.enabled {
+                continue;
+            }
+            let action = match rule.outbound_tag.trim().to_lowercase().as_str() {
+                "direct" => "DIRECT",
+                "block" | "reject" => "REJECT",
+                _ => target_group,
+            };
+
+            // 1. Port / Protocol rules
+            if !rule.port.is_empty() && rule.target.is_empty() {
+                let port_clean = rule.port.trim();
+                if port_clean == "0-65535" || port_clean == "0..65535" {
+                    out.push_str(&format!("  - MATCH,{action}\n"));
+                    has_match = true;
+                    continue;
+                }
+                if rule.network.eq_ignore_ascii_case("udp") {
+                    out.push_str(&format!("  - AND,((NETWORK,udp),(DST-PORT,{port_clean})),{action}\n"));
+                    continue;
+                } else if rule.network.eq_ignore_ascii_case("tcp") {
+                    out.push_str(&format!("  - AND,((NETWORK,tcp),(DST-PORT,{port_clean})),{action}\n"));
+                    continue;
+                } else {
+                    out.push_str(&format!("  - DST-PORT,{port_clean},{action}\n"));
+                    continue;
+                }
+            }
+
+            // 2. Target rules (geosite, geoip, domain, IP-CIDR)
+            if !rule.target.is_empty() {
+                for item in rule.target.split([',', ';', '\n']).map(str::trim).filter(|s| !s.is_empty()) {
+                    if let Some(tag) = item.strip_prefix("geosite:") {
+                        out.push_str(&format!("  - GEOSITE,{tag},{action}\n"));
+                    } else if let Some(tag) = item.strip_prefix("geoip:") {
+                        let tag_upper = tag.to_uppercase();
+                        if tag_upper == "PRIVATE" {
+                            out.push_str(&format!("  - GEOIP,private,{action},no-resolve\n"));
+                        } else {
+                            out.push_str(&format!("  - GEOIP,{tag_upper},{action}\n"));
+                        }
+                    } else if let Some(tag) = item.strip_prefix("domain:") {
+                        out.push_str(&format!("  - DOMAIN-SUFFIX,{tag},{action}\n"));
+                    } else if item == "<local>" || item == "localhost" {
+                        out.push_str(&format!("  - DOMAIN-KEYWORD,localhost,{action}\n"));
+                    } else if item.starts_with("127.") {
+                        out.push_str(&format!("  - IP-CIDR,127.0.0.0/8,{action},no-resolve\n"));
+                    } else if item.starts_with("10.") {
+                        out.push_str(&format!("  - IP-CIDR,10.0.0.0/8,{action},no-resolve\n"));
+                    } else if item.starts_with("172.16.") {
+                        out.push_str(&format!("  - IP-CIDR,172.16.0.0/12,{action},no-resolve\n"));
+                    } else if item.starts_with("192.168.") {
+                        out.push_str(&format!("  - IP-CIDR,192.168.0.0/16,{action},no-resolve\n"));
+                    } else if item.contains('/') {
+                        out.push_str(&format!("  - IP-CIDR,{item},{action},no-resolve\n"));
+                    } else if item.starts_with("*.") {
+                        out.push_str(&format!("  - DOMAIN-SUFFIX,{},{action}\n", item.trim_start_matches("*.")));
+                    } else {
+                        out.push_str(&format!("  - DOMAIN-SUFFIX,{item},{action}\n"));
+                    }
+                }
+                continue;
+            }
+
+            // Fallback match rule
+            out.push_str(&format!("  - MATCH,{action}\n"));
+            has_match = true;
+        }
+
+        if !has_match {
+            out.push_str(&format!("  - MATCH,{target_group}\n"));
+        }
+        return out;
+    }
+
+    for item in adv.bypass_domain_list.split([',', ';', '\n']).map(str::trim).filter(|s| !s.is_empty()) {
+        if item == "<local>" || item == "localhost" {
+            out.push_str("  - DOMAIN-KEYWORD,localhost,DIRECT\n");
+        } else if item.starts_with("127.") {
+            out.push_str("  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve\n");
+        } else if item.starts_with("10.") {
+            out.push_str("  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve\n");
+        } else if item.starts_with("172.16.") {
+            out.push_str("  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve\n");
+        } else if item.starts_with("192.168.") {
+            out.push_str("  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve\n");
+        } else if item.contains('/') {
+            out.push_str(&format!("  - IP-CIDR,{},DIRECT,no-resolve\n", item));
+        } else if item.starts_with("*.") {
+            out.push_str(&format!("  - DOMAIN-SUFFIX,{},DIRECT\n", item.trim_start_matches("*.")));
+        } else {
+            out.push_str(&format!("  - DOMAIN-SUFFIX,{},DIRECT\n", item));
+        }
+    }
+
+    if adv.mode == "global" {
+        out.push_str(&format!("  - MATCH,{target_group}\n"));
+    } else {
+        out.push_str("  - GEOIP,CN,DIRECT\n");
+        out.push_str(&format!("  - MATCH,{target_group}\n"));
+    }
+    out
+}
 
 /// The configuration for the Network page's core.
 fn network_config(subs: &[StoredSubscription], api_port: u16, secret: &str, speed_port: u16) -> String {
+    let adv = load_advanced_settings();
     let mut out = String::new();
-    out.push_str("mixed-port: 0\n");
-    out.push_str("allow-lan: false\n");
-    out.push_str("mode: rule\n");
-    out.push_str("log-level: warning\n");
-    out.push_str("ipv6: false\n");
+    out.push_str(&format!("mixed-port: {}\n", adv.mixed_port));
+    out.push_str(&format!("allow-lan: {}\n", adv.allow_lan));
+    out.push_str(&format!("bind-address: {}\n", adv.bind_address));
+    out.push_str(&format!("mode: {}\n", adv.mode));
+    out.push_str(&format!("log-level: {}\n", adv.log_level));
+    out.push_str(&format!("ipv6: {}\n", adv.ipv6));
     out.push_str(&format!("external-controller: 127.0.0.1:{api_port}\n"));
     out.push_str(&format!("secret: {}\n", quote(secret)));
-    out.push_str(DNS_BLOCK);
+    out.push_str(&generate_dns_block(&adv));
+
+    let transit_config = crate::special_subscriptions::load_vpngate_transit_config();
+    if transit_config.source == "proxy" {
+        if let Some(proxy_url) = &transit_config.proxy_url {
+            if let Some(yaml) = crate::special_subscriptions::proxy_url_to_mihomo_yaml(
+                crate::special_subscriptions::VPNGATE_TRANSIT_PROXY_NAME,
+                proxy_url,
+            ) {
+                out.push_str("proxies:\n");
+                out.push_str(&yaml);
+                out.push('\n');
+            }
+        }
+    }
 
     // Mihomo refuses an empty provider mapping, and there is nothing to
     // provide when the list is empty, so the whole block is omitted.
@@ -984,13 +1672,20 @@ fn network_config(subs: &[StoredSubscription], api_port: u16, secret: &str, spee
         out.push_str("proxy-providers:\n");
         for sub in subs {
             out.push_str(&format!("  {}:\n", sub.provider_name()));
-            out.push_str("    type: http\n");
-            out.push_str(&format!("    url: {}\n", quote(&sub.url)));
-            out.push_str(&format!("    path: ./providers/{}.yaml\n", sub.id));
-            out.push_str("    interval: 0\n");
-            out.push_str("    header:\n");
-            out.push_str("      User-Agent:\n");
-            out.push_str(&format!("        - {}\n", quote(PROVIDER_USER_AGENT)));
+            if narrc_core::subscription::is_builtin_subscription(&sub.id) {
+                out.push_str("    type: file\n");
+                out.push_str(&format!("    path: ./providers/{}.yaml\n", sub.id));
+                out.push_str("    health-check:\n");
+                out.push_str("      enable: false\n");
+            } else {
+                out.push_str("    type: http\n");
+                out.push_str(&format!("    url: {}\n", quote(&sub.url)));
+                out.push_str(&format!("    path: ./providers/{}.yaml\n", sub.id));
+                out.push_str("    interval: 0\n");
+                out.push_str("    header:\n");
+                out.push_str("      User-Agent:\n");
+                out.push_str(&format!("        - {}\n", quote(PROVIDER_USER_AGENT)));
+            }
         }
     }
 
@@ -1025,9 +1720,10 @@ fn network_config(subs: &[StoredSubscription], api_port: u16, secret: &str, spee
     out.push_str("listeners:\n");
     out.push_str(&format!("  - name: {SPEED_LISTENER}\n"));
     out.push_str("    type: socks\n");
-    out.push_str("    listen: 127.0.0.1\n");
+    out.push_str(&format!("    listen: {}\n", adv.bind_address));
     out.push_str(&format!("    port: {speed_port}\n"));
     out.push_str(&format!("    proxy: {SPEED_GROUP}\n"));
+    out.push_str(&format!("    udp: {}\n", adv.udp_enabled));
 
     out.push_str("rules:\n");
     out.push_str(&format!("  - MATCH,{SPEED_GROUP}\n"));
@@ -1037,25 +1733,62 @@ fn network_config(subs: &[StoredSubscription], api_port: u16, secret: &str, spee
 /// The configuration for a profile's core: one provider, one `select` group,
 /// one `socks` listener.
 fn profile_config(sub: &StoredSubscription, api_port: u16, secret: &str, speed_port: u16) -> String {
+    let adv = load_advanced_settings();
     let mut out = String::new();
-    out.push_str("mixed-port: 0\n");
-    out.push_str("allow-lan: false\n");
-    out.push_str("mode: rule\n");
-    out.push_str("log-level: warning\n");
-    out.push_str("ipv6: false\n");
+    out.push_str(&format!("mixed-port: {}\n", adv.mixed_port));
+    out.push_str(&format!("allow-lan: {}\n", adv.allow_lan));
+    out.push_str(&format!("bind-address: {}\n", adv.bind_address));
+    out.push_str(&format!("mode: {}\n", adv.mode));
+    out.push_str(&format!("log-level: {}\n", adv.log_level));
+    out.push_str(&format!("ipv6: {}\n", adv.ipv6));
     out.push_str(&format!("external-controller: 127.0.0.1:{api_port}\n"));
     out.push_str(&format!("secret: {}\n", quote(secret)));
-    out.push_str(DNS_BLOCK);
+    out.push_str(&generate_dns_block(&adv));
+
+    let mut extra_sub_id: Option<String> = None;
+
+    if sub.id == narrc_core::subscription::BUILTIN_VPNGATE_ID {
+        let transit_config = crate::special_subscriptions::load_vpngate_transit_config();
+        if transit_config.source == "proxy" {
+            if let Some(proxy_url) = &transit_config.proxy_url {
+                if let Some(yaml) = crate::special_subscriptions::proxy_url_to_mihomo_yaml(
+                    crate::special_subscriptions::VPNGATE_TRANSIT_PROXY_NAME,
+                    proxy_url,
+                ) {
+                    out.push_str("proxies:\n");
+                    out.push_str(&yaml);
+                    out.push('\n');
+                }
+            }
+        } else if let Some(transit_id) = &transit_config.subscription_id {
+            extra_sub_id = Some(transit_id.clone());
+        }
+    }
 
     out.push_str("proxy-providers:\n");
     out.push_str(&format!("  {}:\n", sub.provider_name()));
-    out.push_str("    type: http\n");
-    out.push_str(&format!("    url: {}\n", quote(&sub.url)));
-    out.push_str(&format!("    path: ./providers/{}.yaml\n", sub.id));
-    out.push_str("    interval: 0\n");
-    out.push_str("    header:\n");
-    out.push_str("      User-Agent:\n");
-    out.push_str(&format!("        - {}\n", quote(PROVIDER_USER_AGENT)));
+    if narrc_core::subscription::is_builtin_subscription(&sub.id) {
+        out.push_str("    type: file\n");
+        out.push_str(&format!("    path: ./providers/{}.yaml\n", sub.id));
+        out.push_str("    health-check:\n");
+        out.push_str("      enable: false\n");
+    } else {
+        out.push_str("    type: http\n");
+        out.push_str(&format!("    url: {}\n", quote(&sub.url)));
+        out.push_str(&format!("    path: ./providers/{}.yaml\n", sub.id));
+        out.push_str("    interval: 0\n");
+        out.push_str("    header:\n");
+        out.push_str("      User-Agent:\n");
+        out.push_str(&format!("        - {}\n", quote(PROVIDER_USER_AGENT)));
+    }
+
+    if let Some(transit_id) = &extra_sub_id {
+        out.push_str(&format!("  {transit_id}:\n"));
+        out.push_str("    type: file\n");
+        out.push_str(&format!("    path: ./providers/{transit_id}.yaml\n"));
+        out.push_str("    health-check:\n");
+        out.push_str("      enable: false\n");
+    }
 
     out.push_str("proxy-groups:\n");
     out.push_str(&format!("  - name: {PROFILE_GROUP}\n"));
@@ -1068,12 +1801,11 @@ fn profile_config(sub: &StoredSubscription, api_port: u16, secret: &str, speed_p
     out.push_str("listeners:\n");
     out.push_str(&format!("  - name: {PROFILE_LISTENER}\n"));
     out.push_str("    type: socks\n");
-    out.push_str("    listen: 127.0.0.1\n");
+    out.push_str(&format!("    listen: {}\n", adv.bind_address));
     out.push_str(&format!("    port: {speed_port}\n"));
-    out.push_str(&format!("    proxy: {PROFILE_GROUP}\n"));
+    out.push_str(&format!("    udp: {}\n", adv.udp_enabled));
 
-    out.push_str("rules:\n");
-    out.push_str(&format!("  - MATCH,{PROFILE_GROUP}\n"));
+    out.push_str(&generate_rules_block(PROFILE_GROUP, &adv));
     out
 }
 
@@ -1137,6 +1869,7 @@ fn api_get(
     let response = client
         .get(format!("http://127.0.0.1:{port}{path}"))
         .header("Authorization", format!("Bearer {secret}"))
+        .header("Connection", "close")
         .send()
         .map_err(|error| format!("the proxy core did not answer: {error}"))?;
     let status = response.status();
@@ -1158,7 +1891,8 @@ fn api_put(
 ) -> Result<(), String> {
     let mut request = client
         .put(format!("http://127.0.0.1:{port}{path}"))
-        .header("Authorization", format!("Bearer {secret}"));
+        .header("Authorization", format!("Bearer {secret}"))
+        .header("Connection", "close");
     if let Some(body) = body {
         request = request.json(&body);
     }
@@ -1272,15 +2006,23 @@ pub fn node_delay(
     provider: &str,
     node: &str,
 ) -> Result<Option<u32>, String> {
+    let adv = load_advanced_settings();
+    let timeout = adv.delay_timeout_ms;
+    let url = if adv.delay_test_url.trim().is_empty() {
+        DELAY_URL
+    } else {
+        adv.delay_test_url.as_str()
+    };
     let path = format!(
-        "/providers/proxies/{}/{}/healthcheck?url={}&timeout={DELAY_TIMEOUT_MS}",
+        "/providers/proxies/{}/{}/healthcheck?url={}&timeout={timeout}",
         percent_encode(provider),
         percent_encode(node),
-        percent_encode(DELAY_URL),
+        percent_encode(url),
     );
     let response = client
         .get(format!("http://127.0.0.1:{port}{path}"))
         .header("Authorization", format!("Bearer {secret}"))
+        .header("Connection", "close")
         .send()
         .map_err(|error| format!("the proxy core did not answer: {error}"))?;
     let status = response.status();
@@ -1305,10 +2047,11 @@ pub fn node_delay(
 /// Neither is a node a browser can browse through, so both are refused with the
 /// node named, which is the part the user needs to go and replace.
 fn node_verdict(node: &str, delay: Result<Option<u32>, String>) -> Result<(), String> {
+    let timeout_ms = load_advanced_settings().delay_timeout_ms;
     match delay {
         Ok(Some(measured)) if measured > 0 => Ok(()),
         Ok(_) => Err(format!(
-            "the node {node:?} did not answer within {DELAY_TIMEOUT_MS} ms, so the browser \
+            "the node {node:?} did not answer within {timeout_ms} ms, so the browser \
              would open with no connection; pick a live node on the profile (edit it and run \
              a latency test)"
         )),
@@ -1346,10 +2089,17 @@ pub fn group_delay(
     secret: &str,
     group: &str,
 ) -> Result<HashMap<String, u32>, String> {
+    let adv = load_advanced_settings();
+    let timeout = adv.delay_timeout_ms;
+    let url = if adv.delay_test_url.trim().is_empty() {
+        DELAY_URL
+    } else {
+        adv.delay_test_url.as_str()
+    };
     let path = format!(
-        "/group/{}/delay?url={}&timeout={DELAY_TIMEOUT_MS}",
+        "/group/{}/delay?url={}&timeout={timeout}",
         percent_encode(group),
-        percent_encode(DELAY_URL),
+        percent_encode(url),
     );
     let value = api_get(client, port, secret, &path)?;
     Ok(parse_group_delays(value))
@@ -1389,8 +2139,14 @@ pub fn node_speed(
         .build()
         .map_err(|error| format!("could not build the speed client: {error}"))?;
 
+    let adv = load_advanced_settings();
+    let speed_url = if adv.speed_test_url.trim().is_empty() {
+        SPEED_URL
+    } else {
+        adv.speed_test_url.as_str()
+    };
     let mut response = downloader
-        .get(SPEED_URL)
+        .get(speed_url)
         .send()
         .map_err(|error| format!("the speed test did not connect: {error}"))?;
     if !response.status().is_success() {
@@ -1483,38 +2239,132 @@ pub struct Echo {
 /// Several because any one of them rate-limits, blocks a datacentre range or
 /// is down; the check passes when any answers. Every request goes *through*
 /// the proxy, so these see the exit address and nothing about this machine.
+/// Helper to convert 2-letter country code (ISO-3166-1 alpha-2) to Chinese country name.
+pub fn country_code_to_name(code: &str) -> &'static str {
+    match code.trim().to_ascii_uppercase().as_str() {
+        "US" => "美国",
+        "JP" => "日本",
+        "HK" => "中国香港",
+        "TW" => "中国台湾",
+        "SG" => "新加坡",
+        "KR" => "韩国",
+        "GB" | "UK" => "英国",
+        "DE" => "德国",
+        "FR" => "法国",
+        "CA" => "加拿大",
+        "AU" => "澳大利亚",
+        "NL" => "荷兰",
+        "RU" => "俄罗斯",
+        "IN" => "印度",
+        "MY" => "马来西亚",
+        "TH" => "泰国",
+        "VN" => "越南",
+        "PH" => "菲律宾",
+        "ID" => "印度尼西亚",
+        "BR" => "巴西",
+        "TR" => "土耳其",
+        "UA" => "乌克兰",
+        "PL" => "波兰",
+        "IT" => "意大利",
+        "ES" => "西班牙",
+        "CH" => "瑞士",
+        "SE" => "瑞典",
+        "NO" => "挪威",
+        "FI" => "芬兰",
+        "IE" => "爱尔兰",
+        _ => "",
+    }
+}
+
+/// Echo services asked, in order, for the IP they saw.
 pub const ECHO_ENDPOINTS: &[&str] = &[
-    // ip-api.com is the most reliable source of country data for exits that
-    // only accept their own origin path (VLESS-WSS). Put it first so we get
-    // a real country as soon as possible.
+    // Cloudflare trace is the fastest, never blocked, and works reliably for CDN/VLESS-WS nodes
+    "https://cloudflare.com/cdn-cgi/trace",
+    "http://cloudflare.com/cdn-cgi/trace",
+    // ip-api.com is the most reliable source of country/city data
     "http://ip-api.com/json",
-    // If ip-api.com is rate-limited (403), fall back to these.
-    "https://ipinfo.io/json",
+    // ipwho.is provides fast, reliable geoip JSON
+    "https://ipwho.is/",
+    "http://ipwho.is/",
+    // ipapi.co
+    "https://ipapi.co/json/",
+    // Fallback JSON services
     "https://ifconfig.co/json",
-    "https://api.ipify.org?format=json",
-    "https://checkip.amazonaws.com",
-    "https://icanhazip.com",
+    "https://ipinfo.io/json",
     "http://ipinfo.io/json",
     "http://ifconfig.co/json",
+    // Plain IP fallbacks
+    "https://api.ipify.org",
+    "https://checkip.amazonaws.com",
+    "https://icanhazip.com",
 ];
 
-/// Reads one endpoint's answer: JSON first, a bare IP second.
-///
-/// Returns `Err` when the endpoint answered but carried no country field, so
-/// the caller keeps trying the next one instead of returning a blank result.
+/// Reads one endpoint's answer: Cloudflare trace, JSON, or bare IP.
 pub fn parse_echo(endpoint: &str, body: &str) -> Result<Echo, String> {
     let body = body.trim();
+    if body.is_empty() {
+        return Err(format!("{endpoint} returned empty body"));
+    }
+
+    // 1. Cloudflare trace format: "ip=...\nloc=..."
+    if body.contains("ip=") && (body.contains("loc=") || body.contains("colo=") || body.contains("h=cloudflare.com")) {
+        let mut ip = None;
+        let mut loc = None;
+        for line in body.lines() {
+            let line = line.trim();
+            if let Some(val) = line.strip_prefix("ip=") {
+                ip = Some(val.trim().to_string());
+            } else if let Some(val) = line.strip_prefix("loc=") {
+                loc = Some(val.trim().to_string());
+            }
+        }
+        if let Some(ip) = ip {
+            let country = loc.map(|c| {
+                let name = country_code_to_name(&c);
+                if !name.is_empty() {
+                    name.to_string()
+                } else {
+                    c
+                }
+            });
+            return Ok(Echo {
+                ip,
+                country,
+                city: None,
+            });
+        }
+    }
+
+    // 2. JSON format (ip-api.com, ipwho.is, ipinfo.io, ipapi.co, etc.)
     if let Ok(value) = serde_json::from_str::<Value>(body) {
         let ip = value
             .get("ip")
+            .or_else(|| value.get("query"))
+            .or_else(|| value.get("origin"))
             .and_then(Value::as_str)
+            .map(str::trim)
             .filter(|ip| !ip.is_empty())
+            .or_else(|| {
+                value.get("data")
+                    .and_then(|d| d.get("ip"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|ip| !ip.is_empty())
+            })
             .ok_or_else(|| format!("{endpoint} reported no IP"))?;
-        // Some endpoints return an IP but no country (e.g. ipify, ifconfig.co
-        // on certain exits). Treat that as a partial failure so the loop keeps
-        // trying the next endpoint instead of handing back an empty result.
+
         let country = text_field(&value, "country")
+            .or_else(|| text_field(&value, "country_name"))
+            .or_else(|| text_field(&value, "countryCode").map(|c| {
+                let n = country_code_to_name(&c);
+                if !n.is_empty() { n.to_string() } else { c }
+            }))
+            .or_else(|| text_field(&value, "country_code").map(|c| {
+                let n = country_code_to_name(&c);
+                if !n.is_empty() { n.to_string() } else { c }
+            }))
             .ok_or_else(|| format!("{endpoint} returned no country"))?;
+
         let city = text_field(&value, "city");
         return Ok(Echo {
             ip: ip.to_owned(),
@@ -1522,9 +2372,8 @@ pub fn parse_echo(endpoint: &str, body: &str) -> Result<Echo, String> {
             city,
         });
     }
-    // The plain-text endpoints answer with the IP and nothing else — useful
-    // as a connectivity probe but not enough to populate the country column.
-    // Return Err so the caller keeps trying richer endpoints.
+
+    // 3. Plain-text IP
     if body.parse::<std::net::IpAddr>().is_ok() {
         return Err(format!("{endpoint} returned only an IP, no country"));
     }
@@ -1542,11 +2391,6 @@ fn text_field(value: &Value, key: &str) -> Option<String> {
 }
 
 /// Which country a node's traffic really exits from.
-///
-/// The node is selected into the shared speed group, then one echo endpoint
-/// after another is fetched *through* the core's listener, so the answer is
-/// the exit the browser would actually use. The caller must hold the speed
-/// lock: the selection is group state two concurrent tests would fight over.
 pub fn node_exit(
     client: &reqwest::blocking::Client,
     port: u16,
@@ -1570,14 +2414,14 @@ pub fn node_exit(
             reqwest::Proxy::all(format!("socks5h://127.0.0.1:{speed_port}"))
                 .map_err(|error| format!("could not route through the core: {error}"))?,
         )
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(12))
-        .user_agent("NarciPHBrowser")
+        .connect_timeout(Duration::from_secs(6))
+        .timeout(Duration::from_secs(8))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
         .build()
         .map_err(|error| format!("could not build the exit client: {error}"))?;
 
     let mut last = "no echo service answered".to_string();
-    let mut all_errors: Vec<String> = Vec::new();
+    let mut bare_ip_fallback = None;
     for endpoint in ECHO_ENDPOINTS {
         match routed
             .get(*endpoint)
@@ -1591,16 +2435,33 @@ pub fn node_exit(
                 response
                     .text()
                     .map_err(|error| format!("{endpoint} was unreadable: {error}"))
-            })
-            .and_then(|body| parse_echo(endpoint, &body))
-        {
-            Ok(echo) => return Ok(echo),
+            }) {
+            Ok(body) => {
+                match parse_echo(endpoint, &body) {
+                    Ok(echo) => return Ok(echo),
+                    Err(error) => {
+                        let trimmed = body.trim();
+                        if trimmed.parse::<std::net::IpAddr>().is_ok() {
+                            bare_ip_fallback = Some(trimmed.to_string());
+                        }
+                        last = format!("{}; last: {}", last, error);
+                    }
+                }
+            }
             Err(error) => {
-                all_errors.push(error.clone());
                 last = format!("{}; last: {}", last, error);
             }
         }
     }
+
+    if let Some(ip) = bare_ip_fallback {
+        return Ok(Echo {
+            ip,
+            country: None,
+            city: None,
+        });
+    }
+
     Err(last)
 }
 
@@ -1858,7 +2719,6 @@ mod tests {
             19091,
         );
         assert!(config.contains("SELECTED"));
-        assert!(config.contains("proxy: SELECTED"));
         assert!(config.contains("port: 19091"));
         assert!(config.contains("MATCH,SELECTED"));
         assert!(!config.contains("SPEEDTEST"));
@@ -1922,6 +2782,25 @@ mod tests {
         assert_eq!(json.ip, "203.0.113.9");
         assert_eq!(json.country.as_deref(), Some("DE"));
         assert_eq!(json.city.as_deref(), Some("Berlin"));
+
+        // ip-api.com format with "query"
+        let ip_api = parse_echo(
+            "http://ip-api.com/json",
+            r#"{"query":"1.2.3.4","country":"Singapore","countryCode":"SG","city":"Singapore"}"#,
+        )
+        .unwrap();
+        assert_eq!(ip_api.ip, "1.2.3.4");
+        assert_eq!(ip_api.country.as_deref(), Some("Singapore"));
+        assert_eq!(ip_api.city.as_deref(), Some("Singapore"));
+
+        // Cloudflare trace format
+        let cf = parse_echo(
+            "https://cloudflare.com/cdn-cgi/trace",
+            "fl=123\nh=cloudflare.com\nip=104.28.156.122\nloc=SG\n",
+        )
+        .unwrap();
+        assert_eq!(cf.ip, "104.28.156.122");
+        assert_eq!(cf.country.as_deref(), Some("新加坡"));
 
         // Bare-IP responses no longer count as a successful echo — they prove
         // the exit is reachable but carry no country, so the caller keeps

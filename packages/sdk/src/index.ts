@@ -47,4 +47,6 @@ export type {
   VerifyReport,
   Version,
   Violation,
+  PermissionCode,
+  PERMISSIONS,
 } from "./types.js";

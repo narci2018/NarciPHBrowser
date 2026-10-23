@@ -2,8 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LuCloud, LuKeyboard, LuPlug } from "react-icons/lu";
+import { LuKeyboard, LuShieldAlert } from "react-icons/lu";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import type {
   ClearOverrideResult,
   CreateResult,
@@ -38,6 +39,7 @@ import {
   type NodeAssignment,
   type StoredAssignment,
 } from "@/lib/subscriptions";
+import { accountStore, useAccountStore } from "@/lib/account-store";
 
 // Only the profiles page is needed for the first paint; the rest are fetched
 // when the rail navigates to them, so startup parses less JavaScript. The
@@ -54,17 +56,31 @@ const NetworkPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("@/pages/settings").then((m) => ({ default: m.SettingsPage })),
 );
+const AccountPage = lazy(() =>
+  import("@/pages/account").then((m) => ({ default: m.AccountPage })),
+);
+const IntegrationsPage = lazy(() =>
+  import("@/pages/integrations").then((m) => ({ default: m.IntegrationsPage })),
+);
+const AppsPage = lazy(() => import("@/pages/apps").then((m) => ({ default: m.AppsPage })));
 
 type PlaceholderKey = Exclude<
   AppPage,
-  "profiles" | "groups" | "proxies" | "settings" | "about" | "extensions" | "agent"
+  | "profiles"
+  | "groups"
+  | "proxies"
+  | "settings"
+  | "about"
+  | "extensions"
+  | "agent"
+  | "account"
+  | "integrations"
+  | "apps"
 >;
 
 type PlaceholderEntry = { titleKey: string; descKey: string; Icon: React.ComponentType<{ className?: string }> };
 
 const PLACEHOLDER_KEYS: Record<PlaceholderKey, PlaceholderEntry> = {
-  integrations: { titleKey: "common.integrationsTitle", descKey: "common.integrationsDescription", Icon: LuPlug },
-  account: { titleKey: "common.accountTitle", descKey: "common.accountDescription", Icon: LuCloud },
   shortcuts: { titleKey: "common.shortcutsTitle", descKey: "common.shortcutsDescription", Icon: LuKeyboard },
 };
 
@@ -74,6 +90,7 @@ const PAGE_TITLE_KEYS: Partial<Record<AppPage, string>> = {
   extensions: "common.extensionsTitle",
   agent: "common.agentTitle",
   integrations: "common.integrationsTitle",
+  apps: "common.appsTitle",
   account: "common.accountTitle",
   shortcuts: "common.shortcutsTitle",
   settings: "common.settingsTitle",
@@ -115,9 +132,13 @@ export function App() {
   // — refreshed with the profiles, since a save can file one under a new name.
   const [groups, setGroups] = useState<GroupInfo[]>([]);
 
-  const [page, setPage] = useState<AppPage>("profiles");
-  const [searchQuery, setSearchQuery] = useState("");
+  const accountUser = useAccountStore((s) => s.user);
+  const [page, setPage] = useState<AppPage>(() => {
+    return accountStore.getState().user ? "profiles" : "account";
+  });
+  const hasPermission = useCallback((code: string) => accountStore.hasPermission(code), []);
 
+  const [searchQuery, setSearchQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -134,6 +155,13 @@ export function App() {
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const [verification, setVerification] = useState<VerifyReport | null>(null);
   const [verifying, setVerifying] = useState(false);
+
+  // 匿名未登录用户限制：必须登录，其他功能自动定位至账户中心
+  useEffect(() => {
+    if (!accountUser && page !== "account") {
+      setPage("account");
+    }
+  }, [accountUser, page]);
 
   // The profile the dialog is showing, readable from a callback that has been
   // awaiting a browser start for several seconds.
@@ -473,6 +501,15 @@ export function App() {
   }, [bulkTrashIds, refreshProfiles, t]);
 
   const handleLaunch = useCallback(async (id: string) => {
+    if (!accountUser) {
+      toast.warning("您当前未登录，请先在「账户」中登录或注册", { id: "auth-login-required" });
+      setPage("account");
+      return;
+    }
+    if (!hasPermission("profile:launch")) {
+      toast.error("当前角色无权启动指纹浏览器");
+      return;
+    }
     setLaunchingId(id);
     try {
       const launched = await invoke<Launched>("launch_profile", { id });
@@ -502,7 +539,7 @@ export function App() {
     } finally {
       setLaunchingId(null);
     }
-  }, [t]);
+  }, [accountUser, hasPermission, t]);
 
   const handleVerify = useCallback(
     async (keepAgreements: boolean) => {
@@ -597,6 +634,15 @@ export function App() {
   // the backup path. Bulk targets carry only `proxied`; the dialog's login
   // checkbox treats that as "may carry a login", never as "has none".
   const handleExportProfiles = useCallback(() => {
+    if (!accountUser) {
+      toast.warning("您当前未登录，请先在「账户」中登录或注册", { id: "auth-login-required" });
+      setPage("account");
+      return;
+    }
+    if (!hasPermission("profile:export")) {
+      toast.error("当前角色无权导出环境数据与Cookies凭据");
+      return;
+    }
     const chosen =
       selectedProfileIds.length > 0 ? selectedProfileIds : profiles.map((profile) => profile.id);
     const targets = chosen.flatMap((id) => {
@@ -605,9 +651,18 @@ export function App() {
     });
     if (targets.length === 0) return;
     setExportTargets(targets);
-  }, [profiles, selectedProfileIds]);
+  }, [accountUser, hasPermission, profiles, selectedProfileIds]);
 
   const handleImportProfile = useCallback(async () => {
+    if (!accountUser) {
+      toast.warning("您当前未登录，请先在「账户」中登录或注册", { id: "auth-login-required" });
+      setPage("account");
+      return;
+    }
+    if (!hasPermission("profile:import")) {
+      toast.error("当前角色无权导入外部环境");
+      return;
+    }
     try {
       const result = await invoke<{ cancelled?: boolean; count?: number; names?: string[] }>(
         "import_profile",
@@ -624,7 +679,25 @@ export function App() {
     } catch (error) {
       toast.error(String(error));
     }
-  }, [refreshProfiles, t]);
+  }, [accountUser, hasPermission, refreshProfiles, t]);
+
+  const handleStopAllBrowsers = useCallback(async () => {
+    if (!accountUser) {
+      toast.warning("您当前未登录，请先在「账户」中登录或注册", { id: "auth-login-required" });
+      setPage("account");
+      return;
+    }
+    if (!hasPermission("profile:stop")) {
+      toast.error("当前角色无权执行批量停止操作");
+      return;
+    }
+    try {
+      await invoke<number>("stop_all_browsers");
+      toast.success(t("common.stoppedAllBrowsers"));
+    } catch (error) {
+      toast.error(String(error));
+    }
+  }, [accountUser, hasPermission, t]);
 
   const filteredProfiles = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -689,14 +762,33 @@ export function App() {
       <div className="flex min-w-0 flex-1 flex-col">
         <HomeHeader
           onCreateProfileDialogOpen={() => {
+            if (!accountUser) {
+              toast.warning("您当前未登录，请先在「账户」中登录或注册", { id: "auth-login-required" });
+              setPage("account");
+              return;
+            }
+            if (!hasPermission("profile:create")) {
+              toast.error("当前角色无权创建新环境");
+              return;
+            }
+            if (accountUser && profiles.length >= accountUser.quotas.max_profiles) {
+              toast.error(`当前角色最多允许创建 ${accountUser.quotas.max_profiles} 个环境，体验配额已满`);
+              return;
+            }
             setEditingProfile(null);
             setCreateOpen(true);
           }}
+          onStopAllBrowsers={handleStopAllBrowsers}
           onImportProfiles={() => {
             void handleImportProfile();
           }}
           onExportProfiles={handleExportProfiles}
           onOpenTrash={() => {
+            if (!accountUser) {
+              toast.warning("您当前未登录，请先在「账户」中登录或注册", { id: "auth-login-required" });
+              setPage("account");
+              return;
+            }
             setTrashOpen(true);
           }}
           searchQuery={searchQuery}
@@ -707,7 +799,20 @@ export function App() {
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <Suspense fallback={<div className="flex min-h-0 flex-1" />}>
-            {page === "profiles" ? (
+            {!accountUser && page !== "account" ? (
+              <div className="flex h-full flex-1 flex-col items-center justify-center p-8 text-center">
+                <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
+                  <LuShieldAlert className="size-7" />
+                </div>
+                <h2 className="text-xl font-semibold">需要登录账号</h2>
+                <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                  您当前处于未登录状态，指纹浏览器所有功能（配置文件、分组、代理、扩展等）需登录后使用。
+                </p>
+                <Button className="mt-6 gap-2" onClick={() => setPage("account")}>
+                  前往「账户」中心登录或注册
+                </Button>
+              </div>
+            ) : page === "profiles" ? (
               <ProfilesPage
                 profiles={filteredProfiles}
                 totalCount={profiles.length}
@@ -761,8 +866,14 @@ export function App() {
               />
             ) : page === "agent" ? (
               <AgentPage profiles={profiles} />
+            ) : page === "integrations" ? (
+              <IntegrationsPage profiles={profiles} />
+            ) : page === "apps" ? (
+              <AppsPage profiles={profiles} />
             ) : page === "settings" ? (
               <SettingsPage versionLine={versionLine} download={download} />
+            ) : page === "account" ? (
+              <AccountPage />
             ) : placeholder ? (
               <PlaceholderPage
                 title={placeholder.title}

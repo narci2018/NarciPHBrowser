@@ -24,3 +24,14 @@ logs/
 
 # sidecar binary copied here by the build scripts
 apps/desktop/src-tauri/binaries/
+# Playwright CLI output (may contain credentials)
+.playwright-cli/
+
+# Test media and outputs
+duck_data/
+*.log
+__pycache__/
+NarciPHBrowser.exe
+发布鸭.exe_extracted/
+profiles/
+

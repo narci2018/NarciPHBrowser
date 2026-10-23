@@ -5,6 +5,7 @@ import { currentMonitor, primaryMonitor } from "@tauri-apps/api/window";
 import { LuActivity, LuLoaderCircle } from "react-icons/lu";
 import { toast } from "sonner";
 import type { CreateSpec, Profile, TargetOs } from "@narc/sdk";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -26,13 +27,20 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { maskPassword, type StoredProxy } from "@/lib/proxies";
 import {
+  BUILTIN_MEGAV_ID,
+  BUILTIN_PSIPHON_ID,
+  BUILTIN_VPNGATE_ID,
+  formatTransitSummary,
+  getVpngateTransitNode,
   listAssignments,
+  listSpecialNodes,
   listSubscriptionNodes,
   listSubscriptions,
   testAllNodeDelays,
   type NodeAssignment,
   type SubscriptionNode,
   type SubscriptionRow,
+  type VpngateTransitConfig,
 } from "@/lib/subscriptions";
 import { cn } from "@/lib/utils";
 
@@ -43,12 +51,15 @@ const OS_OPTIONS: { value: TargetOs; labelKey: string }[] = [
 ];
 
 /** Where a profile's traffic should leave: nowhere, a stored proxy, a node, or a typed URL. */
-type ProxySource = "direct" | "library" | "subscription" | "manual";
+type ProxySource = "direct" | "library" | "subscription" | "psiphon" | "vpngate" | "megav" | "manual";
 
 const PROXY_SOURCES: { value: ProxySource; labelKey: string }[] = [
   { value: "direct", labelKey: "common.proxySourceDirect" },
   { value: "library", labelKey: "common.proxySourceLibrary" },
   { value: "subscription", labelKey: "common.proxySourceSubscription" },
+  { value: "psiphon", labelKey: "common.proxySourcePsiphon" },
+  { value: "vpngate", labelKey: "common.proxySourceVpngate" },
+  { value: "megav", labelKey: "common.proxySourceMegav" },
   { value: "manual", labelKey: "common.proxySourceManual" },
 ];
 
@@ -113,6 +124,7 @@ export function CreateProfileDialog({
   const [presets, setPresets] = useState<ScreenPreset[]>([]);
   const [monitor, setMonitor] = useState<HostMonitor | null>(null);
   const [busy, setBusy] = useState(false);
+  const [transitConfig, setTransitConfig] = useState<VpngateTransitConfig | null>(null);
 
   useEffect(() => {
     if (open) return;
@@ -176,6 +188,9 @@ export function CreateProfileDialog({
       if (cancelled) return;
       setProxies(nextProxies);
       setSubscriptions(nextSubscriptions);
+      void getVpngateTransitNode().then((cfg) => {
+        if (!cancelled) setTransitConfig(cfg);
+      }).catch(console.error);
 
       if (!profile) return;
       let assigned: NodeAssignment | null = null;
@@ -187,8 +202,19 @@ export function CreateProfileDialog({
       }
       if (cancelled) return;
       if (assigned) {
-        setProxySource("subscription");
-        setSubscriptionId(assigned.subscription_id);
+        if (assigned.subscription_id === BUILTIN_PSIPHON_ID) {
+          setProxySource("psiphon");
+          setSubscriptionId(BUILTIN_PSIPHON_ID);
+        } else if (assigned.subscription_id === BUILTIN_VPNGATE_ID) {
+          setProxySource("vpngate");
+          setSubscriptionId(BUILTIN_VPNGATE_ID);
+        } else if (assigned.subscription_id === BUILTIN_MEGAV_ID) {
+          setProxySource("megav");
+          setSubscriptionId(BUILTIN_MEGAV_ID);
+        } else {
+          setProxySource("subscription");
+          setSubscriptionId(assigned.subscription_id);
+        }
         setNode(assigned.node);
         return;
       }
@@ -206,6 +232,29 @@ export function CreateProfileDialog({
     };
   }, [open, profile]);
 
+  // When switching to a special proxy source, automatically lock the subscriptionId
+  useEffect(() => {
+    if (proxySource === "psiphon") {
+      setSubscriptionId(BUILTIN_PSIPHON_ID);
+      setNode("");
+    } else if (proxySource === "vpngate") {
+      setSubscriptionId(BUILTIN_VPNGATE_ID);
+      setNode("");
+    } else if (proxySource === "megav") {
+      setSubscriptionId(BUILTIN_MEGAV_ID);
+      setNode("");
+    } else if (proxySource === "subscription") {
+      if (
+        subscriptionId === BUILTIN_PSIPHON_ID ||
+        subscriptionId === BUILTIN_VPNGATE_ID ||
+        subscriptionId === BUILTIN_MEGAV_ID
+      ) {
+        setSubscriptionId("");
+        setNode("");
+      }
+    }
+  }, [proxySource]);
+
   // The nodes of the chosen subscription. The delay batch is dropped with the
   // subscription it measured, so readings never describe another list.
   useEffect(() => {
@@ -216,7 +265,17 @@ export function CreateProfileDialog({
     }
     let cancelled = false;
     setNodesLoading(true);
-    void listSubscriptionNodes(subscriptionId)
+
+    const isSpecial =
+      subscriptionId === BUILTIN_PSIPHON_ID ||
+      subscriptionId === BUILTIN_VPNGATE_ID ||
+      subscriptionId === BUILTIN_MEGAV_ID;
+
+    const loader = isSpecial
+      ? listSpecialNodes(subscriptionId)
+      : listSubscriptionNodes(subscriptionId);
+
+    void loader
       .then((list) => {
         if (!cancelled) setNodes(list);
       })
@@ -318,12 +377,15 @@ export function CreateProfileDialog({
   }, [availableNodes, nodes, node]);
 
   const chosenProxy = proxies.find((entry) => entry.id === proxyId);
+  const isSpecialSource =
+    proxySource === "psiphon" || proxySource === "vpngate" || proxySource === "megav";
+
   const sourceReady =
     proxySource === "library"
       ? Boolean(chosenProxy)
       : proxySource === "manual"
         ? Boolean(proxyUrl.trim())
-        : proxySource === "subscription"
+        : proxySource === "subscription" || isSpecialSource
           ? Boolean(subscriptionId && node)
           : true;
 
@@ -388,7 +450,7 @@ export function CreateProfileDialog({
               exit_country: proxyCountry.trim().toUpperCase() || undefined,
             }
           : undefined;
-      } else if (proxySource === "subscription" && subscriptionId && node) {
+      } else if ((proxySource === "subscription" || isSpecialSource) && subscriptionId && node) {
         assignment = { subscription_id: subscriptionId, node };
       }
       await onSubmit(
@@ -654,6 +716,76 @@ export function CreateProfileDialog({
                   size="sm"
                   className="shrink-0"
                   disabled={!subscriptionId || testingDelays || nodes.length === 0}
+                  onClick={() => void measureAllDelays()}
+                >
+                  {testingDelays ? (
+                     <LuLoaderCircle className="size-3.5 animate-spin" />
+                  ) : (
+                    <LuActivity className="size-3.5" />
+                  )}
+                  {t("common.testLatency")}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {isSpecialSource && (
+            <div className="grid gap-2">
+              {proxySource === "vpngate" && transitConfig && (
+                <div className="flex items-center justify-between rounded-md border border-primary/20 bg-primary/5 px-3 py-1.5 text-[11px]">
+                  <span className="text-muted-foreground">
+                    {t("vpngate.currentTransitNode", { defaultValue: "当前前置中转" })}:
+                  </span>
+                  <Badge
+                    variant={transitConfig.source === "direct" ? "outline" : "default"}
+                    className="font-mono text-[10px]"
+                  >
+                    {formatTransitSummary(transitConfig)}
+                  </Badge>
+                </div>
+              )}
+              <div className="grid gap-2">
+                <Label htmlFor="profile-special-node">{t("common.selectNode")}</Label>
+                <Select
+                  value={nodesLoading ? "" : node}
+                  onValueChange={setNode}
+                  disabled={nodesLoading}
+                >
+                  <SelectTrigger id="profile-special-node" className="w-full">
+                    <SelectValue
+                      placeholder={
+                        nodesLoading ? t("common.loading") : t("common.selectNode")
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {nodeOptions.map((entry) => {
+                      const delay = delayOf(entry, batchDelays);
+                      return (
+                        <SelectItem key={entry.name} value={entry.name}>
+                          {entry.name}
+                          {delay != null ? ` · ${delay} ms` : ""}
+                          {!nodes.some((candidate) => candidate.name === entry.name)
+                            ? t("common.storedRouteSuffix")
+                            : ""}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[11px] text-muted-foreground">
+                  {availableNodes.length === 0 && !nodesLoading
+                    ? t("common.noAvailableNodes")
+                    : t("common.subscriptionNodeHint")}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={testingDelays || nodes.length === 0}
                   onClick={() => void measureAllDelays()}
                 >
                   {testingDelays ? (

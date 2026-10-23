@@ -16,7 +16,12 @@ import { IdentityFieldsTab } from "@/components/identity-fields-tab";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { StoredAssignment } from "@/lib/subscriptions";
+import {
+  BUILTIN_MEGAV_ID,
+  BUILTIN_PSIPHON_ID,
+  BUILTIN_VPNGATE_ID,
+  type StoredAssignment,
+} from "@/lib/subscriptions";
 import { cn } from "@/lib/utils";
 
 const OS_LABEL_KEY: Record<string, string> = {
@@ -211,11 +216,20 @@ function NetworkTab({
   // local port, so the node is the route the traffic really takes — and it is
   // read from the assignment file, not from `profile.proxy`.
   if (assignment) {
+    const routeLabel =
+      assignment.subscription_id === BUILTIN_PSIPHON_ID
+        ? "Psiphon"
+        : assignment.subscription_id === BUILTIN_VPNGATE_ID
+          ? "VPNGate"
+          : assignment.subscription_id === BUILTIN_MEGAV_ID
+            ? "MegaV"
+            : t("common.routeSubscription");
+
     return (
       <div className="space-y-3">
         <div className="overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-2.5">
-            <span className="text-xs text-muted-foreground">{t("common.routeSubscription")}</span>
+            <span className="text-xs text-muted-foreground">{routeLabel}</span>
             <code className="truncate font-mono text-xs text-foreground" title={assignment.subscription_id}>
               {assignment.subscription_id}
             </code>

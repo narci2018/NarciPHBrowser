@@ -5,6 +5,7 @@ import type { ProfileSummary, TargetOs } from "@narc/sdk";
 import { Logo } from "@/components/icons/logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PermissionGuard } from "@/components/permission-guard";
 import {
   Table,
   TableBody,
@@ -15,7 +16,12 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { StoredAssignment } from "@/lib/subscriptions";
+import {
+  BUILTIN_MEGAV_ID,
+  BUILTIN_PSIPHON_ID,
+  BUILTIN_VPNGATE_ID,
+  type StoredAssignment,
+} from "@/lib/subscriptions";
 import { cn } from "@/lib/utils";
 
 const OS_LABEL_KEY: Record<TargetOs, string> = {
@@ -408,7 +414,13 @@ export function ProfilesPage({
                       variant="secondary"
                       title={`${assignment.subscription_id} · ${assignment.node}`}
                     >
-                      {t("common.routeSubscription")}
+                      {assignment.subscription_id === BUILTIN_PSIPHON_ID
+                        ? "Psiphon"
+                        : assignment.subscription_id === BUILTIN_VPNGATE_ID
+                          ? "VPNGate"
+                          : assignment.subscription_id === BUILTIN_MEGAV_ID
+                            ? "MegaV"
+                            : t("common.routeSubscription")}
                     </Badge>
                   ) : profile.proxied ? (
                     <Badge variant="secondary">{t("common.proxy")}</Badge>
@@ -418,24 +430,26 @@ export function ProfilesPage({
                 </TableCell>
                 <TableCell className="pr-3">
                   <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          aria-label={t("common.launchProfile", { name: profile.name })}
-                          disabled={!profile.coherent || launchingId === profile.id}
-                          onClick={() => {
-                            onLaunch(profile);
-                          }}
-                          className="grid size-6 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <LuPlay className="size-3.5" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {profile.coherent ? t("common.launch") : t("common.fixCoherenceFirst")}
-                      </TooltipContent>
-                    </Tooltip>
+                    <PermissionGuard permission="profile:launch" mode="disable" disabledReason="当前角色无浏览器启动权限">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={t("common.launchProfile", { name: profile.name })}
+                            disabled={!profile.coherent || launchingId === profile.id}
+                            onClick={() => {
+                              onLaunch(profile);
+                            }}
+                            className="grid size-6 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <LuPlay className="size-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {profile.coherent ? t("common.launch") : t("common.fixCoherenceFirst")}
+                        </TooltipContent>
+                      </Tooltip>
+                    </PermissionGuard>
                     <button
                       type="button"
                       aria-label={t("common.openProfile", { name: profile.name })}
@@ -446,16 +460,18 @@ export function ProfilesPage({
                     >
                       <LuInfo className="size-3.5" />
                     </button>
-                    <button
-                      type="button"
-                      aria-label={t("common.deleteProfile", { name: profile.name })}
-                      onClick={() => {
-                        onDelete(profile);
-                      }}
-                      className="grid size-6 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                    >
-                      <LuTrash2 className="size-3.5" />
-                    </button>
+                    <PermissionGuard permission="profile:trash" mode="disable" disabledReason="当前角色无删除/移入废纸篓权限">
+                      <button
+                        type="button"
+                        aria-label={t("common.deleteProfile", { name: profile.name })}
+                        onClick={() => {
+                          onDelete(profile);
+                        }}
+                        className="grid size-6 cursor-pointer place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <LuTrash2 className="size-3.5" />
+                      </button>
+                    </PermissionGuard>
                   </div>
                 </TableCell>
               </TableRow>

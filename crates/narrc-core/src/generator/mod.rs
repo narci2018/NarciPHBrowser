@@ -88,7 +88,7 @@ impl GeneratorOptions {
             screen: None,
             dpr: None,
             fonts: FontProfile::Stock,
-            tracking_protection: true,
+            tracking_protection: false,
             humanize: false,
             locale: None,
             country: None,
@@ -1051,7 +1051,9 @@ mod tests {
         assert!(!identity.is_set(keys::GLOBAL_PRIVACY_CONTROL));
         assert_eq!(identity.get_str(keys::DO_NOT_TRACK), Some("unspecified"));
 
-        let on = &generate(1, &GeneratorOptions::new(TargetOs::Windows)).identity;
+        let mut on_opts = GeneratorOptions::new(TargetOs::Windows);
+        on_opts.tracking_protection = true;
+        let on = &generate(1, &on_opts).identity;
         assert_eq!(on.get_bool(keys::GLOBAL_PRIVACY_CONTROL), Some(true));
         assert_eq!(on.get_str(keys::DO_NOT_TRACK), Some("1"));
     }

@@ -509,10 +509,14 @@ export function SubscriptionNodesDialog({
                           </span>
                         ) : result.exit ? (
                           <span
-                            className="tabular-nums text-foreground"
-                            title={result.exit.ip}
+                            className="tabular-nums text-foreground inline-block max-w-[110px] truncate"
+                            title={
+                              result.exit.ip
+                                ? `${result.exit.country ? result.exit.country + "\n" : ""}${result.exit.ip}`
+                                : result.exit.country ?? ""
+                            }
                           >
-                            {result.exit.country ?? t("common.unknown")}
+                            {result.exit.country || result.exit.ip || t("common.unknown")}
                           </span>
                         ) : (
                           <span className="text-muted-foreground">—</span>

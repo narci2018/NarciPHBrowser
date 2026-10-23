@@ -30,6 +30,26 @@ rl.on('close', () => {
 
     const opts = JSON.parse(Buffer.from(line, 'base64').toString('utf-8'));
 
+    // Fix: Playwright's launchServer rejects `--profile <dir>` in args and requires `_userDataDir`.
+    // If `--profile` is present in args, extract the directory and map to `_userDataDir`.
+    if (Array.isArray(opts.args)) {
+        const cleanArgs = [];
+        for (let i = 0; i < opts.args.length; i++) {
+            if (opts.args[i] === '--profile' && i + 1 < opts.args.length) {
+                opts._userDataDir = opts.args[i + 1];
+                i++; // Skip the profile path value
+            } else if (typeof opts.args[i] === 'string' && opts.args[i].startsWith('--profile=')) {
+                opts._userDataDir = opts.args[i].slice('--profile='.length);
+            } else if (opts.args[i] !== '-silent' && opts.args[i] !== '--silent') {
+                cleanArgs.push(opts.args[i]);
+            }
+        }
+        opts.args = cleanArgs;
+    }
+
+    // Share pre-launched browser persistent context to guarantee exactly ONE window
+    opts._sharedBrowser = true;
+
     // `addInitScript` and `options` are not launch options, they are passed to the
     // browser context.
     let initScript = opts.addInitScript;

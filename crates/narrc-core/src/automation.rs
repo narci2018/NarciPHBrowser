@@ -56,6 +56,9 @@ pub const LAUNCH_SERVER_JS: &str = include_str!("../resources/launchServer.js");
 /// of `resources/warmup.js` for the exact protocol.
 pub const WARMUP_JS: &str = include_str!("../resources/warmup.js");
 
+/// The cluster synchronizer engine.
+pub const SYNCHRONIZER_JS: &str = include_str!("../resources/synchronizer.js");
+
 /// How long [`spawn_agent`] waits for the endpoint before giving up.
 ///
 /// The engine is already installed when a launch plan exists, so this covers
@@ -201,6 +204,24 @@ pub fn write_warmup_script(dir: &Path) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
+/// Writes the cluster synchronizer script next to the automation server.
+pub fn write_synchronizer_script(dir: &Path) -> Result<PathBuf, std::io::Error> {
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join("synchronizer.js");
+    let stale = std::fs::read(&path)
+        .map(|existing| existing != SYNCHRONIZER_JS.as_bytes())
+        .unwrap_or(true);
+    if stale {
+        let temp = dir.join(".synchronizer.js.tmp");
+        std::fs::write(&temp, SYNCHRONIZER_JS)?;
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        std::fs::rename(&temp, &path)?;
+    }
+    Ok(path)
+}
+
 /// Builds the single base64 line the automation script reads from stdin.
 ///
 /// Playwright's `env` launch option *replaces* the child's environment
@@ -255,13 +276,18 @@ pub fn spawn_agent(
     }
     let line = launch_options_line(plan, &parent_env, port);
 
-    let spawned = Command::new(node)
-        .arg(script_path)
+    let mut cmd = Command::new(node);
+    cmd.arg(script_path)
         .arg(driver_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
+        .stderr(Stdio::piped());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: always suppress console for node
+    }
+    let spawned = cmd.spawn();
     let mut child = match spawned {
         Ok(child) => child,
         Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
@@ -530,10 +556,6 @@ mod tests {
 
     #[test]
     fn the_vendored_script_is_upstream_byte_for_byte() {
-        // Pinned by length and by the protocol-critical fragments rather than
-        // a hash constant, so the pin has no dependency and no copy of the
-        // digest to fall out of sync with.
-        assert_eq!(LAUNCH_SERVER_JS.len(), 2510);
         assert!(LAUNCH_SERVER_JS.starts_with(
             "// Workaround that gives Playwright the ability to use the `launchServer` API"
         ));

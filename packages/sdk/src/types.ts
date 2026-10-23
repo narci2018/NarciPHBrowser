@@ -570,3 +570,38 @@ export interface DeleteResult {
   /** The id that was deleted. */
   deleted: string;
 }
+
+// ------------------------------------------------------------- permissions
+
+/** 系统内置权限常量表（与服务端 SSOT permissions 保持严格同步） */
+export const PERMISSIONS = {
+  // 环境
+  PROFILE_LIST: 'profile:list',
+  PROFILE_CREATE: 'profile:create',
+  PROFILE_LAUNCH: 'profile:launch',
+  PROFILE_STOP: 'profile:stop',
+  PROFILE_EDIT_BASIC: 'profile:edit_basic',
+  PROFILE_EDIT_FINGERPRINT: 'profile:edit_fingerprint',
+  PROFILE_EXPORT: 'profile:export',
+  PROFILE_IMPORT: 'profile:import',
+  PROFILE_TRASH: 'profile:trash',
+  PROFILE_DELETE: 'profile:delete',
+
+  // 代理
+  PROXY_USE: 'proxy:use',
+  PROXY_VIEW_CREDENTIAL: 'proxy:view_credential',
+  PROXY_MANAGE: 'proxy:manage',
+  PROXY_EDIT_ROUTING: 'proxy:edit_routing',
+
+  // 成员与角色
+  MEMBER_READ: 'member:read',
+  MEMBER_INVITE: 'member:invite',
+  MEMBER_ASSIGN_ROLE: 'member:assign_role',
+  MEMBER_REMOVE: 'member:remove',
+  ROLE_MANAGE: 'role:manage',
+
+  // 审计
+  AUDIT_READ: 'audit:read',
+} as const;
+
+export type PermissionCode = typeof PERMISSIONS[keyof typeof PERMISSIONS];

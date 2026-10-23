@@ -33,6 +33,14 @@ use crate::seal;
 /// The on-disk format version of the subscription file.
 const SUBSCRIPTION_FORMAT: u32 = 2;
 
+pub const BUILTIN_PSIPHON_ID: &str = "builtin-psiphon";
+pub const BUILTIN_VPNGATE_ID: &str = "builtin-vpngate";
+pub const BUILTIN_MEGAV_ID: &str = "builtin-megav";
+
+pub fn is_builtin_subscription(id: &str) -> bool {
+    id == BUILTIN_PSIPHON_ID || id == BUILTIN_VPNGATE_ID || id == BUILTIN_MEGAV_ID
+}
+
 /// The longest name a subscription may have, mirroring a profile's bound.
 const MAX_NAME: usize = 120;
 
@@ -141,6 +149,46 @@ impl SubscriptionStore {
     /// Every stored subscription, in insertion order.
     pub fn list(&self) -> &[StoredSubscription] {
         &self.subscriptions
+    }
+
+    /// Ensures the three special built-in subscriptions (Psiphon, VPNGate, MegaV) exist.
+    pub fn ensure_builtins(&mut self) -> Result<()> {
+        let builtins = [
+            (
+                BUILTIN_PSIPHON_ID,
+                "Psiphon",
+                "https://raw.githubusercontent.com/vpngate-or-provider/psiphon/main/sub.yaml",
+            ),
+            (
+                BUILTIN_VPNGATE_ID,
+                "VPNGate",
+                "https://www.vpngate.net/api/iphone/",
+            ),
+            (
+                BUILTIN_MEGAV_ID,
+                "MegaV",
+                "https://raw.githubusercontent.com/Romaxa55/MegaV_Public/main/sub.yaml",
+            ),
+        ];
+        let mut changed = false;
+        for (id, name, url) in builtins {
+            if !self.subscriptions.iter().any(|entry| entry.id == id) {
+                self.subscriptions.push(StoredSubscription {
+                    id: id.to_owned(),
+                    name: name.to_owned(),
+                    url: url.to_owned(),
+                    updated_at: None,
+                    delays: None,
+                    speeds: None,
+                    exits: None,
+                });
+                changed = true;
+            }
+        }
+        if changed {
+            self.save()?;
+        }
+        Ok(())
     }
 
     /// One subscription by id, or `None`.
@@ -316,6 +364,9 @@ impl SubscriptionStore {
 
     /// Removes a subscription, reporting whether one was there.
     pub fn delete(&mut self, id: &str) -> Result<bool> {
+        if is_builtin_subscription(id) {
+            return Err(Error::identity("builtin subscriptions cannot be deleted"));
+        }
         let before = self.subscriptions.len();
         self.subscriptions.retain(|entry| entry.id != id);
         if self.subscriptions.len() == before {

@@ -1,0 +1,25 @@
+services:
+  narciph-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: narciph-rbac-server
+    restart: unless-stopped
+    ports:
+      - "29988:29988"
+    environment:
+      - PORT=29988
+      - DB_PATH=/data/narciph_rbac.db
+      - JWT_SECRET=narciph_jwt_secret_dev_key_must_be_changed_in_prod
+      - PRIMARY_SYNC_URL=https://ilyou6.indevs.in
+      - SYNC_SECRET=narciph_cluster_sync_secret_token_2026
+    volumes:
+      - ./data:/data
+
+  narciph-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: narciph-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --protocol http2 run --token eyJhIjoiNjQ3ZWQ0NmFhZGM4YjAyMDQ4N2FmNDljMTJiZmNiODAiLCJ0IjoiNjcwZDBiODEtYTk2Yi00ZGJmLTkzZGMtN2MzYmI1MzEyYTJjIiwicyI6IllXSmpaR1ZtWjJocGFtdHNiVzV2Y0hGeWMzUjFkbmQ0ZVhveE1qTTBOVFk9In0=
+    depends_on:
+      - narciph-server
