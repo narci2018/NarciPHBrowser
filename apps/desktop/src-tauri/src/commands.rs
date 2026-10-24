@@ -3980,6 +3980,9 @@ pub struct RemixResult {
     pub unsharp: Option<bool>,
     pub fake_camera_exif: Option<bool>,
     pub duration_secs: Option<f64>,
+    pub blind_watermark_removed: Option<bool>,
+    pub blind_watermark_status: Option<String>,
+    pub blind_watermark_detail: Option<String>,
     pub error: Option<String>,
 }
 
@@ -3995,6 +3998,20 @@ pub struct MergeResult {
     pub resolution: Option<String>,
     pub transitions: Option<Vec<String>>,
     pub duration_secs: Option<f64>,
+    pub blind_watermark_removed: Option<bool>,
+    pub blind_watermark_status: Option<String>,
+    pub blind_watermark_detail: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct BlindWatermarkDetectResult {
+    pub success: bool,
+    pub path: Option<String>,
+    pub detected: bool,
+    pub score: f64,
+    pub status_text: String,
+    pub reason: Option<String>,
     pub error: Option<String>,
 }
 
@@ -4809,6 +4826,43 @@ pub fn fetch_real_account_analytics(
     let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
     serde_json::from_str::<serde_json::Value>(&stdout_str)
         .map_err(|e| format!("Invalid JSON from analytics fetcher: {} (raw: {})", e, stdout_str))
+}
+
+/// 检测视频暗水印（频域/高通残差/8x8 DCT周期特征/SEI用户数据与元数据特征）
+#[tauri::command]
+pub fn detect_video_blind_watermark(video_path: String) -> Result<BlindWatermarkDetectResult, String> {
+    let script_path = resolve_media_tools_script();
+
+    let mut cmd = if is_python_available() {
+        let mut c = silent_command("python");
+        c.arg(&script_path);
+        c
+    } else {
+        let mut c = silent_command("uv");
+        c.args(["run", "--python", "3.12", "python"]);
+        c.arg(&script_path);
+        c
+    };
+
+    cmd.arg("detect-watermark")
+        .arg("--input")
+        .arg(&video_path);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+
+    let output = cmd.output().map_err(|e| format!("Failed to run watermark detector: {}", e))?;
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("检测视频暗水印失败: {}", err_msg));
+    }
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
+    serde_json::from_str::<BlindWatermarkDetectResult>(&stdout_str)
+        .map_err(|e| format!("Invalid JSON from watermark detector: {} (raw: {})", e, stdout_str))
 }
 
 

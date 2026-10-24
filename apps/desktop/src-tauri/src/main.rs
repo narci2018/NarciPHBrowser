@@ -39,6 +39,7 @@ use commands::{
     batch_add_addon, batch_remove_addon, list_all_profile_addons,
     pick_media_file, pick_multiple_media_files, open_path_in_explorer, open_url_in_browser, get_media_stream_url,
     generate_edge_tts, remix_video_dedup, remix_and_merge_videos, download_no_watermark_video, fetch_author_posts, generate_ai_copywriting, test_llm_connection, fetch_real_account_analytics, launch_profile_with_url,
+    detect_video_blind_watermark,
 };
 use state::AppState;
 
@@ -321,6 +322,7 @@ fn main() {
             test_llm_connection,
             fetch_real_account_analytics,
             launch_profile_with_url,
+            detect_video_blind_watermark,
         ])
         .setup(|app| {
             log_boot("Step 3: setup started");
