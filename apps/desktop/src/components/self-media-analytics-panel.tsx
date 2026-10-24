@@ -202,28 +202,47 @@ export const SelfMediaAnalyticsPanel: React.FC<SelfMediaAnalyticsPanelProps> = (
     }
   };
 
-  // 免密打开该账号的创作者工作台
+  // 免密打开该账号的创作者工作台 (直接使用指纹浏览器环境及配置的网络代理弹窗打开)
   const handleOpenCreatorCenter = async (acc: MatrixAccount) => {
+    if (!acc.profileId) {
+      toast.error(`【${acc.accountName}】未绑定指纹浏览器环境，请先绑定环境！`);
+      return;
+    }
     const p = MATRIX_PLATFORMS[acc.platformId];
-    if (!p) return;
-    toast.info(`正在使用专属隔离环境打开【${acc.accountName}】${p.name} 创作者工作台...`);
+    const targetUrl = p?.homeUrl || "https://creator.douyin.com/";
+    toast.info(`正在通过专属指纹环境打开【${acc.accountName}】创作者工作台...`);
     try {
-      await invoke("run_workflow", {
+      await invoke("launch_profile_with_url", {
         id: acc.profileId,
-        steps: [
-          {
-            action: "goto",
-            name: `进入 ${p.name} 创作者工作台`,
-            params: {
-              url: p.homeUrl || "https://creator.douyin.com/",
-            },
-          },
-        ],
+        url: targetUrl,
       });
     } catch (err: any) {
       toast.error(`打开失败: ${err?.message || err}`);
     }
   };
+
+  // 在线观看短视频作品 (直接通过该账号绑定的指纹浏览器环境与专属网络代理弹窗播放)
+  const handleWatchOnline = async (videoUrl?: string) => {
+    if (!videoUrl) {
+      toast.warning("该作品暂无有效的播放链接。");
+      return;
+    }
+    if (!currentAccountObj?.profileId) {
+      toast.error("该账号尚未绑定指纹浏览器环境，无法调用专属网络播放。");
+      return;
+    }
+    toast.info(`正在唤起【${currentAccountObj.accountName}】指纹浏览器专属网络播放原片...`);
+    try {
+      await invoke("launch_profile_with_url", {
+        id: currentAccountObj.profileId,
+        url: videoUrl,
+      });
+    } catch (err: any) {
+      toast.error(`调起指纹浏览器播放失败: ${err?.message || err}`);
+    }
+  };
+
+
 
   // 导出 CSV 报表
   const handleExportCSV = () => {
@@ -915,16 +934,15 @@ export const SelfMediaAnalyticsPanel: React.FC<SelfMediaAnalyticsPanelProps> = (
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={() => {
-                                  invoke("open_url_in_browser", { url: w.videoUrl });
-                                }}
+                                onClick={() => handleWatchOnline(w.videoUrl)}
                                 className="h-7 text-xs gap-1 border-blue-500/30 text-blue-600 hover:bg-blue-500/10"
-                                title="在默认浏览器中打开并播放该视频"
+                                title="直接使用当前账号配置的指纹浏览器网络弹窗播放"
                               >
                                 <LuExternalLink className="size-3" />
                                 在线观看
                               </Button>
                             )}
+
                             {onSendToDedup && (
                               <Button
                                 type="button"

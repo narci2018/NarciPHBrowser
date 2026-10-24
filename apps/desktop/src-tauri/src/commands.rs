@@ -1248,6 +1248,7 @@ pub async fn launch_profile(
     app: tauri::AppHandle,
     id: String,
     engine: Option<String>,
+    url: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let store = open_store(&state)?;
     let mut profile = store
@@ -1292,9 +1293,17 @@ pub async fn launch_profile(
     let camoufox_path = ensure_camoufox(&app)?;
 
     let dir = store.browser_dir(&id);
-    let (plan, discarded) = profile
+    let (mut plan, discarded) = profile
         .launch_plan_after_discarding_conflicts(&dir, engine.as_deref(), false)
         .map_err(|error| error.to_string())?;
+
+    // 如果指定了目标网页 URL，作为启动参数传递给指纹浏览器弹窗打开
+    if let Some(target_url) = url {
+        let trimmed = target_url.trim();
+        if !trimmed.is_empty() {
+            plan.args.push(trimmed.to_string());
+        }
+    }
 
     // Use the ensured binary path, overriding any configured path.
     let prog = camoufox_path.to_string_lossy().to_string();
@@ -1381,6 +1390,18 @@ pub async fn launch_profile(
         "geo_gate": geo_gate,
     }))
 }
+
+/// 使用指定指纹环境及配置的网络代理弹窗打开指定网页 (如短视频原片播放、创作者后台等)
+#[tauri::command]
+pub async fn launch_profile_with_url(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    id: String,
+    url: String,
+) -> Result<serde_json::Value, String> {
+    launch_profile(state, app, id, None, Some(url)).await
+}
+
 
 /// Closes all opened fingerprint browsers, terminates any orphaned engine processes,
 /// and stops all profile proxy cores to completely release resources.
@@ -4024,8 +4045,27 @@ pub struct FetchAuthorPostsResult {
     pub error: Option<String>,
 }
 
+/// 创建一个在 Windows 下绝不弹出控制台/CMD 黑色黑框的静默子进程命令
+pub fn silent_command<S: AsRef<std::ffi::OsStr>>(program: S) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
+/// 检查系统环境中是否存在直接可用的 python (且调用时绝不闪出控制台黑框)
+fn is_python_available() -> bool {
+    let mut check_cmd = silent_command("python");
+    check_cmd.arg("--version");
+    check_cmd.output().map(|o| o.status.success()).unwrap_or(false)
+}
+
 /// 智能解析 media_tools.py 脚本的绝对路径 (支持无论是开发环境、打包环境还是通过相对路径执行)
 fn resolve_media_tools_script() -> std::path::PathBuf {
+
     // 1. 优先使用当前工作区开发环境下的主工程脚本（保证实时最新）
     let primary = std::path::PathBuf::from(r"c:\Tools2\fingerBrowsers2\NarciPHBrowser\scripts\media_tools.py");
     if primary.exists() {
@@ -4073,8 +4113,9 @@ pub fn generate_edge_tts(
 ) -> Result<TtsResult, String> {
     let script_path = resolve_media_tools_script();
 
-    let mut cmd = std::process::Command::new("uv");
+    let mut cmd = silent_command("uv");
     cmd.args(["run", "--with", "edge-tts", "--python", "3.12", "python"])
+
         .arg(&script_path)
         .arg("tts")
         .arg("--text")
@@ -4150,16 +4191,17 @@ pub fn remix_video_dedup(
 ) -> Result<RemixResult, String> {
     let script_path = resolve_media_tools_script();
 
-    let mut cmd = if std::process::Command::new("python").arg("--version").output().map(|o| o.status.success()).unwrap_or(false) {
-        let mut c = std::process::Command::new("python");
+    let mut cmd = if is_python_available() {
+        let mut c = silent_command("python");
         c.arg(&script_path);
         c
     } else {
-        let mut c = std::process::Command::new("uv");
+        let mut c = silent_command("uv");
         c.args(["run", "--python", "3.12", "python"]);
         c.arg(&script_path);
         c
     };
+
 
     cmd.arg("remix")
         .arg("--input")
@@ -4302,16 +4344,17 @@ pub fn remix_and_merge_videos(
 
     let script_path = resolve_media_tools_script();
 
-    let mut cmd = if std::process::Command::new("python").arg("--version").output().map(|o| o.status.success()).unwrap_or(false) {
-        let mut c = std::process::Command::new("python");
+    let mut cmd = if is_python_available() {
+        let mut c = silent_command("python");
         c.arg(&script_path);
         c
     } else {
-        let mut c = std::process::Command::new("uv");
+        let mut c = silent_command("uv");
         c.args(["run", "--python", "3.12", "python"]);
         c.arg(&script_path);
         c
     };
+
 
     let inputs_json = serde_json::to_string(&input_paths).map_err(|e| e.to_string())?;
 
@@ -4432,16 +4475,17 @@ pub fn download_no_watermark_video(
     let script_path = resolve_media_tools_script();
 
     // 优先使用系统 Python（原生携带 Playwright、yt-dlp 与 Edge 浏览器桥），无缝秒级启动
-    let mut cmd = if std::process::Command::new("python").arg("--version").output().map(|o| o.status.success()).unwrap_or(false) {
-        let mut c = std::process::Command::new("python");
+    let mut cmd = if is_python_available() {
+        let mut c = silent_command("python");
         c.arg(&script_path);
         c
     } else {
-        let mut c = std::process::Command::new("uv");
+        let mut c = silent_command("uv");
         c.args(["run", "--with", "playwright", "--with", "yt-dlp", "--python", "3.12", "python"]);
         c.arg(&script_path);
         c
     };
+
 
     cmd.arg("parse-download")
         .arg("--text")
@@ -4479,16 +4523,17 @@ pub fn fetch_author_posts(
 ) -> Result<FetchAuthorPostsResult, String> {
     let script_path = resolve_media_tools_script();
 
-    let mut cmd = if std::process::Command::new("python").arg("--version").output().map(|o| o.status.success()).unwrap_or(false) {
-        let mut c = std::process::Command::new("python");
+    let mut cmd = if is_python_available() {
+        let mut c = silent_command("python");
         c.arg(&script_path);
         c
     } else {
-        let mut c = std::process::Command::new("uv");
+        let mut c = silent_command("uv");
         c.args(["run", "--with", "playwright", "--with", "yt-dlp", "--python", "3.12", "python"]);
         c.arg(&script_path);
         c
     };
+
 
     let p = platform.unwrap_or_else(|| "douyin".to_string());
     let cnt = count.unwrap_or(20);
@@ -4631,8 +4676,9 @@ pub fn generate_ai_copywriting(
 
     let script_path = resolve_media_tools_script();
 
-    let mut cmd = std::process::Command::new("uv");
+    let mut cmd = silent_command("uv");
     cmd.args(["run", "--with", "openai", "--python", "3.12", "python"])
+
         .arg(&script_path)
         .arg("llm")
         .arg("--platform")
@@ -4682,8 +4728,9 @@ pub fn test_llm_connection(
 ) -> Result<String, String> {
     let script_path = resolve_media_tools_script();
 
-    let mut cmd = std::process::Command::new("uv");
+    let mut cmd = silent_command("uv");
     cmd.args(["run", "--with", "openai", "--python", "3.12", "python"])
+
         .arg(&script_path)
         .arg("test-llm")
         .arg("--api-key")
@@ -4725,16 +4772,17 @@ pub fn fetch_real_account_analytics(
 ) -> Result<serde_json::Value, String> {
     let script_path = resolve_media_tools_script();
 
-    let mut cmd = if std::process::Command::new("python").arg("--version").output().map(|o| o.status.success()).unwrap_or(false) {
-        let mut c = std::process::Command::new("python");
+    let mut cmd = if is_python_available() {
+        let mut c = silent_command("python");
         c.arg(&script_path);
         c
     } else {
-        let mut c = std::process::Command::new("uv");
+        let mut c = silent_command("uv");
         c.args(["run", "--python", "3.12", "python"]);
         c.arg(&script_path);
         c
     };
+
 
     let acc_id = account_id.unwrap_or_default();
 
