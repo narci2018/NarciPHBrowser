@@ -591,6 +591,14 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
 
     toast.info(`正在嗅探同步【${acc.accountName}】(${rangeLabels[range] || range} / 最多 ${maxCnt} 条)...`);
     try {
+      if (acc.homeUrl && (acc.homeUrl.includes("demo") || acc.homeUrl.includes("_fin"))) {
+        toast.warning(
+          `【${acc.accountName}】绑定的主页链接为演示虚拟地址（${acc.homeUrl}），在抖音上不存在。\n请点击设置图标修改为真实的博主主页，或点击「+ 粘贴录入作品」直接收录！`,
+          { duration: 8000 }
+        );
+        return;
+      }
+
       const res = await invoke<any>("fetch_author_posts", {
         authorUrl: acc.homeUrl || `https://www.douyin.com/search/${encodeURIComponent(acc.accountName)}`,
         platform: acc.platform,
@@ -2010,6 +2018,18 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
                     <strong>智能策略执行</strong>：根据下方勾选项，自动加入后台静默下载或保留未下载供您手动在线试看。
                   </li>
                 </ul>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">博主主页链接 (Web端长链接或App分享短链)</Label>
+                <Input
+                  value={editingAccount.homeUrl || ""}
+                  onChange={(e) =>
+                    setEditingAccount({ ...editingAccount, homeUrl: e.target.value })
+                  }
+                  placeholder="如 https://www.douyin.com/user/... 或 https://v.douyin.com/..."
+                  className="h-8 text-xs font-mono"
+                />
               </div>
 
               <div className="space-y-1.5">
