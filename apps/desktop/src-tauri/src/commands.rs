@@ -4563,6 +4563,33 @@ pub fn open_path_in_explorer(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 在系统默认外部浏览器中打开指定链接 (解决 WebView2 window.open 无响应问题)
+#[tauri::command]
+pub fn open_url_in_browser(url: String) -> Result<(), String> {
+    let clean = url.trim().to_string();
+    if clean.is_empty() {
+        return Err("链接为空".to_string());
+    }
+    #[cfg(windows)]
+    {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/c", "start", "", &clean]);
+        cmd.creation_flags(0x0800_0000);
+        cmd.spawn().map_err(|e| format!("无法在系统浏览器中打开链接: {}", e))?;
+    }
+    #[cfg(not(windows))]
+    {
+        use std::process::Command;
+        Command::new("xdg-open")
+            .arg(&clean)
+            .spawn()
+            .map_err(|e| format!("无法在系统浏览器中打开链接: {}", e))?;
+    }
+    Ok(())
+}
+
 /// 获取本地视频/音频的 HTTP 206 流式在线播放 URL (零 WebView2 权限限制，支持 Range 寻道与任意特殊字符)
 #[tauri::command]
 pub fn get_media_stream_url(path: String) -> Result<String, String> {

@@ -398,6 +398,39 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
     }
   };
 
+  // 在系统外部浏览器中打开指定链接或博主主页
+  const handleOpenUrl = async (rawUrl?: string, platform?: string, accountName?: string) => {
+    let target = rawUrl?.trim();
+    if (!target && accountName) {
+      if (platform === "douyin") {
+        target = `https://www.douyin.com/search/${encodeURIComponent(accountName)}`;
+      } else if (platform === "tiktok") {
+        target = `https://www.tiktok.com/search?q=${encodeURIComponent(accountName)}`;
+      } else if (platform === "kuaishou") {
+        target = `https://www.kuaishou.com/search/author?searchKey=${encodeURIComponent(accountName)}`;
+      } else if (platform === "bilibili") {
+        target = `https://search.bilibili.com/all?keyword=${encodeURIComponent(accountName)}`;
+      } else if (platform === "youtube") {
+        target = `https://www.youtube.com/results?search_query=${encodeURIComponent(accountName)}`;
+      } else {
+        target = `https://www.baidu.com/s?wd=${encodeURIComponent(accountName)}`;
+      }
+    }
+    if (!target) {
+      toast.error("未找到可访问的博主主页链接");
+      return;
+    }
+    if (!target.startsWith("http://") && !target.startsWith("https://")) {
+      target = `https://${target}`;
+    }
+    try {
+      await invoke("open_url_in_browser", { url: target });
+      toast.success("已在系统浏览器中打开！");
+    } catch (e: any) {
+      toast.error(`打开链接失败: ${e.message || String(e)}`);
+    }
+  };
+
   // =========================================================================
   // 1. 执行单视频实时无水印提取下载
   // =========================================================================
@@ -1286,19 +1319,17 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
                         </Button>
 
                         {/* 打开博主主页 */}
-                        {acc?.homeUrl && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => window.open(acc.homeUrl, "_blank")}
-                            className="h-8 text-xs gap-1.5 border-border"
-                            title="在浏览器中直接打开博主主页"
-                          >
-                            <LuExternalLink className="size-3.5" />
-                            访问主页
-                          </Button>
-                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOpenUrl(acc?.homeUrl, acc?.platform, acc?.accountName)}
+                          className="h-8 text-xs gap-1.5 border-border"
+                          title="在系统默认浏览器中直接打开博主主页"
+                        >
+                          <LuExternalLink className="size-3.5" />
+                          访问主页
+                        </Button>
 
                         {/* 手动添加作品 */}
                         <Button
@@ -1466,6 +1497,20 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
                         </span>
 
                         <div className="flex items-center gap-1.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenUrl(acc.homeUrl, acc.platform, acc.accountName);
+                            }}
+                            className="h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted"
+                            title="在系统浏览器中直接打开博主主页"
+                          >
+                            <LuExternalLink className="size-3 mr-0.5" />
+                            主页
+                          </Button>
                           <Button
                             type="button"
                             size="sm"
@@ -2319,7 +2364,7 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => window.open(previewVideo.shareUrl, "_blank")}
+                      onClick={() => handleOpenUrl(previewVideo.shareUrl, previewVideo.platform, previewVideo.author)}
                       className="h-8 text-xs gap-1.5 border-zinc-700 text-zinc-300 hover:bg-zinc-800"
                     >
                       <LuExternalLink className="size-3.5" />
