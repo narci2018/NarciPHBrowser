@@ -45,6 +45,7 @@ import {
   LuChevronUp,
   LuChevronDown,
   LuFolderPlus,
+  LuChartLine,
 } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +74,7 @@ import {
 } from "@/lib/matrix-accounts";
 import { MatrixAccountsPanel } from "@/components/matrix-accounts-panel";
 import { MaterialCollectorPanel } from "@/components/material-collector-panel";
+import { SelfMediaAnalyticsPanel } from "@/components/self-media-analytics-panel";
 
 interface TtsResult {
   success: boolean;
@@ -1403,6 +1405,13 @@ export function AppsPage({ profiles = [] }: AppsPageProps) {
             <TabsTrigger value="accounts" className="gap-2 text-xs">
               <LuUsers className="size-3.5" />
               自媒体账号与会话 ({accounts.length})
+            </TabsTrigger>
+            <TabsTrigger
+              value="analytics"
+              className="gap-2 text-xs font-medium text-blue-600 dark:text-blue-400 data-[state=active]:bg-blue-500/15 data-[state=active]:text-blue-700 dark:data-[state=active]:text-blue-300"
+            >
+              <LuChartLine className="size-3.5 text-blue-500" />
+              自媒体账号数据分析
             </TabsTrigger>
             <TabsTrigger value="streamcap" className="gap-2 text-xs">
               <LuVideo className="size-3.5" />
@@ -3957,6 +3966,30 @@ export function AppsPage({ profiles = [] }: AppsPageProps) {
               }}
             />
           </div>
+        </TabsContent>
+
+        {/* Tab: 自媒体账号运营数据智能分析中心 */}
+        <TabsContent value="analytics" className="m-0 flex min-h-0 flex-1 flex-col overflow-y-auto data-[state=inactive]:hidden">
+          <SelfMediaAnalyticsPanel
+            accounts={accounts}
+            onSendToDedup={(filePath, fileName, sizeMb) => {
+              setDedupFiles((prev) => {
+                const exists = prev.some((p) => p.path === filePath);
+                return exists
+                  ? prev
+                  : [
+                      ...prev,
+                      {
+                        path: filePath,
+                        name: fileName,
+                        size_mb: sizeMb || 0,
+                        status: "pending",
+                      },
+                    ];
+              });
+              setActiveTab("dedup");
+            }}
+          />
         </TabsContent>
 
         {/* Tab: StreamCap 视图 */}
