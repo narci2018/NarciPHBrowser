@@ -219,7 +219,7 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
   const [newAccountUrl, setNewAccountUrl] = useState<string>("");
   const [newAccountNote, setNewAccountNote] = useState<string>("");
   const [newAccountSchedule, setNewAccountSchedule] = useState<"none" | "1h" | "6h" | "12h" | "24h">("6h");
-  const [newAccountSyncTimeRange, setNewAccountSyncTimeRange] = useState<"all" | "3d" | "7d" | "15d" | "30d" | "90d">("7d");
+  const [newAccountSyncTimeRange, setNewAccountSyncTimeRange] = useState<"all" | "3d" | "7d" | "15d" | "30d" | "90d">("all");
   const [newAccountSyncMaxCount, setNewAccountSyncMaxCount] = useState<number>(20);
   const [newAccountAutoDownload, setNewAccountAutoDownload] = useState<boolean>(false);
   const [autoFetchPostsAfterAdd, setAutoFetchPostsAfterAdd] = useState<boolean>(true);
@@ -342,11 +342,17 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
     return () => clearInterval(timer);
   }, [accounts]);
 
-  // 本地流媒体直链
-  const getVideoStreamUrl = (localPath?: string) => {
-    if (!localPath) return "";
-    const encoded = encodeURIComponent(localPath);
-    return `http://127.0.0.1:${mediaServerPort || 29995}/api/v1/media/stream?path=${encoded}`;
+  // 本地/远程流媒体直链（支持本地 206 分片与远程防盗链流媒体代理）
+  const getVideoStreamUrl = (localPath?: string, remoteUrl?: string) => {
+    if (localPath) {
+      const encoded = encodeURIComponent(localPath);
+      return `http://127.0.0.1:${mediaServerPort || 29995}/api/v1/media/stream?path=${encoded}`;
+    }
+    if (remoteUrl) {
+      const encoded = encodeURIComponent(remoteUrl);
+      return `http://127.0.0.1:${mediaServerPort || 29995}/api/v1/media/stream?url=${encoded}`;
+    }
+    return "";
   };
 
   // 在系统文件管理器中打开
@@ -633,9 +639,25 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
         return;
       }
 
-      // 按设定的时间跨度进行过滤并截取最大同步条数
+      // 按设定的时间跨度进行过滤
       const filtered = filterPostsByTimeRange(rawPosts, range);
-      const postsToAdd = (filtered.length > 0 ? filtered : rawPosts).slice(0, maxCnt);
+
+      // 智能作品集组装：
+      // 如果所选范围（如近7天）作品少于期望条数(maxCnt)，优先保留该范围内的最新作品，
+      // 并自动补充博主近期历史作品填满预期条数（避免博主更新频率较低时出现“选了20篇却只有1篇”的空白感）
+      let postsToAdd = filtered;
+      let isFilledWithHistory = false;
+      if (range === "all" || postsToAdd.length === 0) {
+        postsToAdd = rawPosts.slice(0, maxCnt);
+      } else if (postsToAdd.length < maxCnt) {
+        const remaining = rawPosts.filter((p) => !postsToAdd.some((f) => (f.url && f.url === p.url) || (f.id && f.id === p.id)));
+        if (remaining.length > 0) {
+          isFilledWithHistory = true;
+          postsToAdd = [...postsToAdd, ...remaining].slice(0, maxCnt);
+        }
+      } else {
+        postsToAdd = postsToAdd.slice(0, maxCnt);
+      }
 
       let addedCount = 0;
       setVideos((prev) => {
@@ -671,8 +693,13 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
         prev.map((a) => (a.id === acc.id ? { ...a, lastSyncAt: Date.now() } : a))
       );
 
+      const rangeDesc = rangeLabels[range] || range;
+      const historyNotice = isFilledWithHistory
+        ? `（近${rangeDesc}发布 ${filtered.length} 篇，已补充 ${postsToAdd.length - filtered.length} 篇近期作品）`
+        : "";
       toast.success(
-        `🎉 成功同步【${acc.accountName}】(${rangeLabels[range] || range})！${addedCount > 0 ? `新增 ${addedCount} 篇真实作品` : "作品列表已是最新状态"}。`
+        `🎉 成功同步【${acc.accountName}】${postsToAdd.length} 篇真实作品${historyNotice}！${addedCount > 0 ? `新增 ${addedCount} 篇` : "作品列表已是最新"}。`,
+        { duration: 5000 }
       );
     } catch (err: any) {
       toast.error(
@@ -1140,7 +1167,7 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
                           <div className="flex items-center gap-1.5 bg-background border border-border/80 rounded-md px-2 h-8 text-xs shadow-2xs">
                             <span className="text-muted-foreground text-[11px] select-none font-medium">范围:</span>
                             <select
-                              value={acc.syncTimeRange || "7d"}
+                              value={acc.syncTimeRange || "all"}
                               onChange={(e) => {
                                 const val = e.target.value as any;
                                 setAccounts((prev) =>
@@ -1150,12 +1177,12 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
                               className="bg-transparent text-foreground text-xs font-medium cursor-pointer focus:outline-none"
                               title="设置抓取视频的发布时间跨度"
                             >
-                              <option value="3d">近 3 天</option>
+                              <option value="all">全部最新作品 (推荐)</option>
                               <option value="7d">近 7 天</option>
                               <option value="15d">近 15 天</option>
                               <option value="30d">近 30 天</option>
                               <option value="90d">近 90 天</option>
-                              <option value="all">不限时间</option>
+                              <option value="3d">近 3 天</option>
                             </select>
 
                             <span className="text-border/60">|</span>
@@ -1950,12 +1977,12 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
                   onChange={(e) => setNewAccountSyncTimeRange(e.target.value as any)}
                   className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
                 >
-                  <option value="3d">近 3 天发布作品</option>
-                  <option value="7d">近 7 天发布作品 (推荐)</option>
+                  <option value="all">全部最新作品 (推荐)</option>
+                  <option value="7d">近 7 天发布作品</option>
                   <option value="15d">近 15 天发布作品</option>
                   <option value="30d">近 30 天发布作品</option>
                   <option value="90d">近 90 天发布作品</option>
-                  <option value="all">全部历史作品 (不限时间)</option>
+                  <option value="3d">近 3 天发布作品</option>
                 </select>
               </div>
 
@@ -2090,18 +2117,18 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
                 <div className="space-y-1.5">
                   <Label className="text-xs">作品同步时间跨度</Label>
                   <select
-                    value={editingAccount.syncTimeRange || "7d"}
+                    value={editingAccount.syncTimeRange || "all"}
                     onChange={(e) =>
                       setEditingAccount({ ...editingAccount, syncTimeRange: e.target.value as any })
                     }
                     className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
                   >
-                    <option value="3d">近 3 天发布作品</option>
-                    <option value="7d">近 7 天发布作品 (推荐)</option>
+                    <option value="all">全部最新作品 (推荐)</option>
+                    <option value="7d">近 7 天发布作品</option>
                     <option value="15d">近 15 天发布作品</option>
                     <option value="30d">近 30 天发布作品</option>
                     <option value="90d">近 90 天发布作品</option>
-                    <option value="all">全部历史作品 (不限时间)</option>
+                    <option value="3d">近 3 天发布作品</option>
                   </select>
                 </div>
 
@@ -2215,27 +2242,16 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
 
             {/* 视频播放窗口 */}
             <div className="relative rounded-lg overflow-hidden bg-black aspect-video flex items-center justify-center border border-border">
-              {previewVideo.localPath ? (
-                // 走本地高性能 206 流式分片服务
+              {previewVideo.localPath || previewVideo.videoStreamUrl ? (
+                // 走本地高性能 206 流式分片服务（支持本地原画与远程防盗链直链代理）
                 <video
-                  key={previewVideo.localPath}
+                  key={previewVideo.localPath || previewVideo.videoStreamUrl}
                   controls
                   autoPlay
                   playsInline
                   preload="metadata"
                   className="w-full h-full object-contain"
-                  src={getVideoStreamUrl(previewVideo.localPath)}
-                />
-              ) : previewVideo.videoStreamUrl ? (
-                // 走抓取到的在线无水印视频直链
-                <video
-                  key={previewVideo.videoStreamUrl}
-                  controls
-                  autoPlay
-                  playsInline
-                  preload="metadata"
-                  className="w-full h-full object-contain"
-                  src={previewVideo.videoStreamUrl}
+                  src={getVideoStreamUrl(previewVideo.localPath, previewVideo.videoStreamUrl)}
                 />
               ) : (
                 // 尚未下载且未提取直链时的封面预览与快速解析

@@ -331,8 +331,114 @@ fn parse_url(raw: &str) -> (String, HashMap<String, String>) {
     (path, query)
 }
 
-/// 处理多媒体文件流式请求 (支持 HTTP 206 Partial Content 与 Range 寻道)
+/// 代理远程流媒体直链（支持抖音、B站、TikTok等具备反盗链和 Referer 校验的视频源）
+fn handle_remote_stream_proxy(request: tiny_http::Request, url_str: &str) {
+    let range_header = request
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv("Range"))
+        .map(|h| h.value.as_str().to_string());
+
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            let mut resp = Response::from_string(format!("Proxy client error: {}", e)).with_status_code(500);
+            add_cors_headers(&mut resp);
+            let _ = request.respond(resp);
+            return;
+        }
+    };
+
+    let mut req_builder = client.get(url_str);
+    req_builder = req_builder.header(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    );
+
+    // 智能附加对应平台的防盗链 Referer
+    if url_str.contains("douyinvod.com") || url_str.contains("douyin.com") {
+        req_builder = req_builder.header("Referer", "https://www.douyin.com/");
+    } else if url_str.contains("tiktok") {
+        req_builder = req_builder.header("Referer", "https://www.tiktok.com/");
+    } else if url_str.contains("bilibili") || url_str.contains("hdslb") {
+        req_builder = req_builder.header("Referer", "https://www.bilibili.com/");
+    } else if url_str.contains("kuaishou") {
+        req_builder = req_builder.header("Referer", "https://www.kuaishou.com/");
+    }
+
+    if let Some(ref r) = range_header {
+        req_builder = req_builder.header("Range", r);
+    }
+
+    match req_builder.send() {
+        Ok(remote_resp) => {
+            let status_code = remote_resp.status().as_u16();
+            let content_length = remote_resp.content_length();
+            let content_type = remote_resp
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("video/mp4")
+                .to_string();
+            let content_range = remote_resp
+                .headers()
+                .get(reqwest::header::CONTENT_RANGE)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+
+            let mut resp = Response::new(
+                tiny_http::StatusCode(status_code),
+                vec![],
+                remote_resp,
+                content_length.map(|l| l as usize),
+                None,
+            );
+
+            if let Ok(h) = Header::from_bytes(&b"Content-Type"[..], content_type.as_bytes()) {
+                resp.add_header(h);
+            }
+            if let Ok(h) = Header::from_bytes(&b"Accept-Ranges"[..], &b"bytes"[..]) {
+                resp.add_header(h);
+            }
+            if let Some(cr) = content_range {
+                if let Ok(h) = Header::from_bytes(&b"Content-Range"[..], cr.as_bytes()) {
+                    resp.add_header(h);
+                }
+            }
+            add_cors_headers(&mut resp);
+            let _ = request.respond(resp);
+        }
+        Err(e) => {
+            let mut resp = Response::from_string(format!("Failed to fetch remote media stream: {}", e))
+                .with_status_code(502);
+            add_cors_headers(&mut resp);
+            let _ = request.respond(resp);
+        }
+    }
+}
+
+/// 处理多媒体文件流式请求 (支持本地 206 Partial Content 与 远程流媒体防盗链代理)
 fn handle_media_stream(request: tiny_http::Request, query: &HashMap<String, String>) {
+    // 1. 检查是否为远程音视频直链 (如抖音、B站等防盗链流)
+    let remote_url = query
+        .get("url")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            query
+                .get("path")
+                .map(|s| s.trim())
+                .filter(|s| s.starts_with("http://") || s.starts_with("https://"))
+        });
+
+    if let Some(url_str) = remote_url {
+        handle_remote_stream_proxy(request, url_str);
+        return;
+    }
+
     let file_path = match query.get("path") {
         Some(p) if !p.trim().is_empty() => p.trim(),
         _ => {
