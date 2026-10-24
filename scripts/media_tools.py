@@ -1270,10 +1270,17 @@ def fetch_author_posts(author_url, platform="douyin", count=20):
             req = urllib.request.Request(clean_url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             })
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=8) as resp:
                 clean_url = resp.geturl()
         except Exception:
             pass
+
+    # 规范化抖音链接：将移动端分享链接 (iesdouyin.com/share/user/...) 转换为标准PC Web端主页长链接
+    if "douyin" in clean_url or "iesdouyin" in clean_url:
+        sec_match = re.search(r'(?:sec_uid=|/user/)(MS4wLjABAAAA[a-zA-Z0-9_\-]+)', clean_url)
+        if sec_match:
+            sec_uid = sec_match.group(1)
+            clean_url = f"https://www.douyin.com/user/{sec_uid}"
 
     # 1. 尝试 yt-dlp 嗅探（适用于 YouTube, Bilibili, TikTok 等国际与主流视频站）
     try:
@@ -1345,32 +1352,64 @@ def fetch_author_posts(author_url, platform="douyin", count=20):
                                 pass
                     page.on("response", on_res)
                     try:
-                        page.goto(clean_url, wait_until="domcontentloaded", timeout=12000)
-                        time.sleep(3.5)
+                        page.goto(clean_url, wait_until="domcontentloaded", timeout=16000)
+                        time.sleep(4.5)
+
+                        # 提取博主昵称
+                        try:
+                            h1_elem = page.query_selector("h1")
+                            if h1_elem and h1_elem.inner_text().strip():
+                                author_name = h1_elem.inner_text().strip()
+                        except Exception:
+                            pass
+
                         if api_posts:
                             posts.extend(api_posts[:count])
-                        else:
-                            card_elements = page.query_selector_all("li.E3hk8HEB, a[href*='/video/'], [data-e2e='user-post-list'] li")
-                            for card in card_elements[:count]:
-                                href = card.get_attribute("href") or (card.query_selector("a") and card.query_selector("a").get_attribute("href"))
-                                img = card.query_selector("img")
-                                img_src = img.get_attribute("src") if img else None
-                                title_text = card.inner_text().strip() if card else ""
-                                if href and "/video/" in href:
+
+                        # 如果 API 嗅探到的作品不足，从页面所有 a 标签进一步补全真实作品
+                        if len(posts) < count:
+                            all_a = page.query_selector_all("a")
+                            seen_ids = set(p.get("id") for p in posts)
+                            for card in all_a:
+                                href = card.get_attribute("href") or ""
+                                if "/video/" in href:
                                     if not href.startswith("http"):
                                         href = "https://www.douyin.com" + href
                                     vid_id = href.split("/video/")[-1].split("?")[0]
+                                    post_id = f"douyin_{vid_id}"
+                                    if not vid_id or post_id in seen_ids:
+                                        continue
+                                    seen_ids.add(post_id)
+
+                                    img = card.query_selector("img")
+                                    img_src = img.get_attribute("src") if img else None
+                                    title_text = card.inner_text().strip().replace("\n", " ") if card else ""
+
+                                    # 智能提取点赞数与清洗标题
+                                    like_str = "爆款热度"
+                                    m_like = re.search(r'(\d+(?:\.\d+)?[万wW]?\s*赞?)', title_text)
+                                    if m_like:
+                                        like_str = m_like.group(1).strip()
+                                        if not like_str.endswith("赞"):
+                                            like_str += " 赞"
+
+                                    clean_p_title = re.sub(r'^(?:置顶|\s|\d+(?:\.\d+)?[万wW]?)+', '', title_text).strip()
+                                    if not clean_p_title:
+                                        clean_p_title = f"{author_name} 的作品 {vid_id}"
+
                                     posts.append({
-                                        "id": f"douyin_{vid_id}",
-                                        "title": title_text[:40] or f"视频作品 {vid_id}",
+                                        "id": post_id,
+                                        "title": clean_p_title[:60],
                                         "url": href,
                                         "cover_url": img_src,
                                         "author": author_name,
                                         "publish_time": "近期发布",
-                                        "like_count": "热度作品",
+                                        "like_count": like_str,
                                         "duration_secs": 0.0,
                                         "video_stream_url": None
                                     })
+                                    if len(posts) >= count:
+                                        break
                     except Exception:
                         pass
                     finally:
