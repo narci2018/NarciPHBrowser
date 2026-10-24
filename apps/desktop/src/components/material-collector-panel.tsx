@@ -127,8 +127,13 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
       if (data) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed)) {
-          // 彻底过滤掉早期遗留的测试演示虚拟博主 (acc_demo_...)
-          return parsed.filter((a: any) => !a.id?.startsWith("acc_demo_"));
+          // 自动修复旧版示例地址为用户提供的真实有效地址，避免用户重复受阻
+          return parsed.map((a: any) => {
+            if (a.accountName?.includes("小A") && (!a.homeUrl || a.homeUrl.includes("demo") || a.homeUrl.includes("_fin"))) {
+              return { ...a, homeUrl: "https://v.douyin.com/4yS4yT7qsxY/" };
+            }
+            return a;
+          });
         }
       }
     } catch (_) {}
@@ -589,28 +594,37 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
       all: "全部作品",
     };
 
-    toast.info(`正在嗅探同步【${acc.accountName}】(${rangeLabels[range] || range} / 最多 ${maxCnt} 条)...`);
+    const queryUrl = acc.homeUrl || `https://www.douyin.com/search/${encodeURIComponent(acc.accountName)}`;
+    toast.info(`正在嗅探同步【${acc.accountName}】(${queryUrl.slice(0, 32)}...)...`);
     try {
       if (acc.homeUrl && (acc.homeUrl.includes("demo") || acc.homeUrl.includes("_fin"))) {
         toast.warning(
-          `【${acc.accountName}】绑定的主页链接为演示虚拟地址（${acc.homeUrl}），在抖音上不存在。\n请点击设置图标修改为真实的博主主页，或点击「+ 粘贴录入作品」直接收录！`,
+          `【${acc.accountName}】绑定的主页链接为演示虚拟地址（${acc.homeUrl}），在抖音上不存在。\n请点击主页旁的「修改」输入真实的博主主页分享短链！`,
           { duration: 8000 }
         );
         return;
       }
 
       const res = await invoke<any>("fetch_author_posts", {
-        authorUrl: acc.homeUrl || `https://www.douyin.com/search/${encodeURIComponent(acc.accountName)}`,
+        authorUrl: queryUrl,
         platform: acc.platform,
         count: maxCnt,
       });
+
+      if (res && res.error) {
+        toast.error(`同步【${acc.accountName}】失败: ${res.error}`, { duration: 8000 });
+        setAccounts((prev) =>
+          prev.map((a) => (a.id === acc.id ? { ...a, lastSyncAt: Date.now() } : a))
+        );
+        return;
+      }
 
       const rawPosts: any[] = res && res.posts && Array.isArray(res.posts) ? res.posts : [];
 
       // 若平台反爬机制或滑块拦截未直接拿到列表，真实告知用户，坚决不注入虚假数据
       if (rawPosts.length === 0) {
         toast.warning(
-          `未能直接从【${acc.accountName}】的主页嗅探到公开作品。\n可能由于平台（如抖音PC端）启用了访客滑块拦截或该主页无公开作品。建议点击「访问主页」在浏览器中复制作品链接，或点击「粘贴录入作品」直接收录！`,
+          `未能直接从【${acc.accountName}】的主页（${queryUrl.slice(0, 30)}...）嗅探到公开作品。\n可能由于平台启用了访客滑块拦截或主页暂无公开视频。建议点击「访问主页」在浏览器中复制作品链接，或点击「粘贴录入作品」直接收录！`,
           { duration: 6000 }
         );
         setAccounts((prev) =>
@@ -1079,8 +1093,31 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
                           )}
                         </div>
 
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                        <div className="flex items-center gap-2.5 text-xs text-muted-foreground flex-wrap">
                           <span>{acc?.note || "暂无对标赛道备注"}</span>
+                          <span>·</span>
+                          <span className="flex items-center gap-1 font-mono text-[11px] bg-muted/60 px-2 py-0.5 rounded border border-border/60">
+                            <span className="text-muted-foreground font-sans">主页:</span>
+                            <span className="max-w-[200px] truncate text-foreground font-semibold" title={acc?.homeUrl}>
+                              {acc?.homeUrl || "未绑定链接"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!acc) return;
+                                const newUrl = window.prompt("请输入博主主页链接或短链 (如 https://v.douyin.com/...):", acc.homeUrl || "");
+                                if (newUrl !== null && newUrl.trim()) {
+                                  setAccounts((prev) =>
+                                    prev.map((a) => (a.id === acc.id ? { ...a, homeUrl: newUrl.trim() } : a))
+                                  );
+                                  toast.success("已更新主页链接！点击「同步博主最新作品」开始嗅探。");
+                                }
+                              }}
+                              className="text-violet-600 hover:text-violet-700 ml-1 font-sans underline"
+                            >
+                              修改
+                            </button>
+                          </span>
                           <span>·</span>
                           <span>作品总收录: <strong className="text-foreground">{accVideos.length}</strong> 篇</span>
                           <span>·</span>
