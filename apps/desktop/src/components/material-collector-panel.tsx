@@ -124,104 +124,48 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
   const [accounts, setAccounts] = useState<CollectorAccount[]>(() => {
     try {
       const data = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
-      if (data) return JSON.parse(data);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch (_) {}
-    return [
-      {
-        id: "acc_demo_douyin_1",
-        platform: "douyin",
-        accountName: "小A学财经",
-        homeUrl: "https://www.douyin.com/user/MS4wLjABAAAA_demo_fin",
-        note: "财经知识口播/财商认知，爆款对标",
-        syncSchedule: "6h",
-        syncTimeRange: "7d",
-        syncMaxCount: 20,
-        autoDownloadNew: false,
-        lastSyncAt: Date.now() - 3600000 * 2,
-        createdAt: Date.now() - 86400000,
-      },
-      {
-        id: "acc_demo_tiktok_1",
-        platform: "tiktok",
-        accountName: "LifeHacksDaily",
-        homeUrl: "https://www.tiktok.com/@lifehacksdaily",
-        note: "海外生活技巧大号，爆款视频出海搬运标杆",
-        syncSchedule: "12h",
-        syncTimeRange: "15d",
-        syncMaxCount: 20,
-        autoDownloadNew: true,
-        lastSyncAt: Date.now() - 3600000 * 5,
-        createdAt: Date.now() - 86400000 * 2,
-      },
-    ];
+    return [];
   });
 
   // 2. 自定义主题专辑
   const [albums, setAlbums] = useState<CollectorAlbum[]>(() => {
     try {
       const data = localStorage.getItem(STORAGE_KEY_ALBUMS);
-      if (data) return JSON.parse(data);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch (_) {}
-    return [
-      {
-        id: "alb_demo_1",
-        name: "美区 TikTok 带货热销爆款",
-        platform: "tiktok",
-        description: "高转化3C数码、家居好物混剪二创素材库",
-        color: "bg-rose-500",
-        createdAt: Date.now() - 86400000 * 3,
-      },
-      {
-        id: "alb_demo_2",
-        name: "国内抖音爆款解说高燃合辑",
-        platform: "douyin",
-        description: "高完播率影视、故事解说前3秒黄金Hook片段",
-        color: "bg-amber-500",
-        createdAt: Date.now() - 86400000 * 2,
-      },
-    ];
+    return [];
   });
 
-  // 3. 收集的视频素材库
+  // 3. 收集的视频素材库 (严格杜绝任何虚假演示数据注入)
   const [videos, setVideos] = useState<CollectedVideo[]>(() => {
     try {
       const data = localStorage.getItem(STORAGE_KEY_VIDEOS);
-      if (data) return JSON.parse(data);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          // 自动清除早期可能缓存的假演示数据，保证素材库纯净真实
+          return parsed.filter(
+            (v: any) =>
+              !v.id?.startsWith("vid_demo_") &&
+              !v.id?.startsWith("fin_") &&
+              !v.id?.startsWith("gen_")
+          );
+        }
+      }
     } catch (_) {}
-    return [
-      {
-        id: "vid_demo_1",
-        platform: "douyin",
-        title: "2026年普通人搞懂复利有多可怕？财商第一课",
-        shareUrl: "https://v.douyin.com/iLLx123/",
-        accountId: "acc_demo_douyin_1",
-        author: "小A学财经",
-        publishTime: "2026-10-22 14:30",
-        likeCount: "12.8w 赞",
-        durationSecs: 58.0,
-        coverUrl: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=500&auto=format&fit=crop&q=60",
-        status: "pending",
-        createdAt: Date.now() - 3600000 * 10,
-      },
-      {
-        id: "vid_demo_2",
-        platform: "douyin",
-        title: "从月光到存款50W：年轻人必备三大资产配置逻辑",
-        shareUrl: "https://v.douyin.com/iLLx456/",
-        accountId: "acc_demo_douyin_1",
-        author: "小A学财经",
-        publishTime: "2026-10-21 18:20",
-        likeCount: "8.5w 赞",
-        durationSecs: 72.0,
-        coverUrl: "https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=500&auto=format&fit=crop&q=60",
-        status: "pending",
-        createdAt: Date.now() - 3600000 * 24,
-      },
-    ];
+    return [];
   });
 
   // 当前进入的博主详情 (为空则展示博主列表卡片)
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>("acc_demo_douyin_1");
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   // 当前进入的专辑详情 (为空则展示专辑列表卡片)
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
 
@@ -569,128 +513,8 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
   };
 
   // =========================================================================
-  // 4. 自动同步博主最新作品 (调用嗅探爬虫或智能匹配作品库)
+  // 4. 自动同步博主最新作品 (调用真实嗅探爬虫，绝不伪造虚假数据)
   // =========================================================================
-  const getCuratedPostsForAccount = (acc: CollectorAccount): CollectedVideo[] => {
-    const isFinance =
-      acc.accountName.includes("财经") ||
-      acc.accountName.includes("理财") ||
-      (acc.note && acc.note.includes("财经"));
-
-    if (isFinance) {
-      return [
-        {
-          id: `fin_${acc.id}_1`,
-          platform: acc.platform,
-          title: "2026年普通人搞懂复利有多可怕？财商第一课",
-          shareUrl: "https://vjs.zencdn.net/v/oceans.mp4",
-          accountId: acc.id,
-          author: acc.accountName,
-          publishTime: "2026-10-23 10:30",
-          likeCount: "16.8w 赞",
-          durationSecs: 46.0,
-          coverUrl: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=500&auto=format&fit=crop&q=60",
-          videoStreamUrl: "https://vjs.zencdn.net/v/oceans.mp4",
-          status: "pending",
-          createdAt: Date.now(),
-        },
-        {
-          id: `fin_${acc.id}_2`,
-          platform: acc.platform,
-          title: "降息降准到底跟普通人有什么关系？3分钟彻底讲透",
-          shareUrl: "https://www.w3schools.com/html/mov_bbb.mp4",
-          accountId: acc.id,
-          author: acc.accountName,
-          publishTime: "2026-10-22 17:00",
-          likeCount: "9.2w 赞",
-          durationSecs: 32.0,
-          coverUrl: "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=500&auto=format&fit=crop&q=60",
-          videoStreamUrl: "https://www.w3schools.com/html/mov_bbb.mp4",
-          status: "pending",
-          createdAt: Date.now() - 3600000 * 5,
-        },
-        {
-          id: `fin_${acc.id}_3`,
-          platform: acc.platform,
-          title: "从月光到存款50W：年轻人必备三大资产配置逻辑",
-          shareUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-          accountId: acc.id,
-          author: acc.accountName,
-          publishTime: "2026-10-21 19:15",
-          likeCount: "21.0w 赞",
-          durationSecs: 24.0,
-          coverUrl: "https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=500&auto=format&fit=crop&q=60",
-          videoStreamUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-          status: "pending",
-          createdAt: Date.now() - 3600000 * 15,
-        },
-        {
-          id: `fin_${acc.id}_4`,
-          platform: acc.platform,
-          title: "为什么穷人总在通胀中买单？底层逻辑残酷真相",
-          shareUrl: "https://cdn.jsdelivr.net/gh/mediaelement/mediaelement-files@master/big_buck_bunny.mp4",
-          accountId: acc.id,
-          author: acc.accountName,
-          publishTime: "2026-10-20 12:40",
-          likeCount: "33.5w 赞",
-          durationSecs: 60.0,
-          coverUrl: "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=500&auto=format&fit=crop&q=60",
-          videoStreamUrl: "https://cdn.jsdelivr.net/gh/mediaelement/mediaelement-files@master/big_buck_bunny.mp4",
-          status: "pending",
-          createdAt: Date.now() - 3600000 * 30,
-        },
-      ];
-    }
-
-    return [
-      {
-        id: `gen_${acc.id}_1`,
-        platform: acc.platform,
-        title: `【${acc.accountName}】热销出海带货爆款选品拆解`,
-        shareUrl: "https://vjs.zencdn.net/v/oceans.mp4",
-        accountId: acc.id,
-        author: acc.accountName,
-        publishTime: "近期爆款",
-        likeCount: "14.2w 赞",
-        durationSecs: 46.0,
-        coverUrl: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=500&auto=format&fit=crop&q=60",
-        videoStreamUrl: "https://vjs.zencdn.net/v/oceans.mp4",
-        status: "pending",
-        createdAt: Date.now(),
-      },
-      {
-        id: `gen_${acc.id}_2`,
-        platform: acc.platform,
-        title: `【${acc.accountName}】前3秒黄金Hook话术复刻`,
-        shareUrl: "https://www.w3schools.com/html/mov_bbb.mp4",
-        accountId: acc.id,
-        author: acc.accountName,
-        publishTime: "3天前发布",
-        likeCount: "8.9w 赞",
-        durationSecs: 32.0,
-        coverUrl: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=500&auto=format&fit=crop&q=60",
-        videoStreamUrl: "https://www.w3schools.com/html/mov_bbb.mp4",
-        status: "pending",
-        createdAt: Date.now() - 86400000,
-      },
-      {
-        id: `gen_${acc.id}_3`,
-        platform: acc.platform,
-        title: `【${acc.accountName}】爆款短视频混剪结构拆解`,
-        shareUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-        accountId: acc.id,
-        author: acc.accountName,
-        publishTime: "5天前发布",
-        likeCount: "19.5w 赞",
-        durationSecs: 24.0,
-        coverUrl: "https://images.unsplash.com/photo-1533750349088-cd871a92f312?w=500&auto=format&fit=crop&q=60",
-        videoStreamUrl: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-        status: "pending",
-        createdAt: Date.now() - 86400000 * 2,
-      },
-    ];
-  };
-
   const filterPostsByTimeRange = (posts: any[], range: string = "7d"): any[] => {
     if (!range || range === "all") return posts;
 
@@ -753,7 +577,7 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
       all: "全部作品",
     };
 
-    toast.info(`正在同步【${acc.accountName}】(${rangeLabels[range] || range} / 最多 ${maxCnt} 条)...`);
+    toast.info(`正在嗅探同步【${acc.accountName}】(${rangeLabels[range] || range} / 最多 ${maxCnt} 条)...`);
     try {
       const res = await invoke<any>("fetch_author_posts", {
         authorUrl: acc.homeUrl || `https://www.douyin.com/search/${encodeURIComponent(acc.accountName)}`,
@@ -761,11 +585,18 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
         count: maxCnt,
       });
 
-      let rawPosts = res && res.posts && res.posts.length > 0 ? res.posts : [];
+      const rawPosts: any[] = res && res.posts && Array.isArray(res.posts) ? res.posts : [];
 
-      // 若目标平台（如抖音未登录Web端）开启了滑块防护未直接拿到列表，自动兜底装载博主精选可播放作品
+      // 若平台反爬机制或滑块拦截未直接拿到列表，真实告知用户，坚决不注入虚假数据
       if (rawPosts.length === 0) {
-        rawPosts = getCuratedPostsForAccount(acc);
+        toast.warning(
+          `未能直接从【${acc.accountName}】的主页嗅探到公开作品。\n可能由于平台（如抖音PC端）启用了访客滑块拦截或该主页无公开作品。建议点击「访问主页」在浏览器中复制作品链接，或点击「粘贴录入作品」直接收录！`,
+          { duration: 6000 }
+        );
+        setAccounts((prev) =>
+          prev.map((a) => (a.id === acc.id ? { ...a, lastSyncAt: Date.now() } : a))
+        );
+        return;
       }
 
       // 按设定的时间跨度进行过滤并截取最大同步条数
@@ -807,28 +638,15 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
       );
 
       toast.success(
-        `🎉 成功同步【${acc.accountName}】(${rangeLabels[range] || range})！${addedCount > 0 ? `新增 ${addedCount} 篇作品` : "作品已就绪"}。`
+        `🎉 成功同步【${acc.accountName}】(${rangeLabels[range] || range})！${addedCount > 0 ? `新增 ${addedCount} 篇真实作品` : "作品列表已是最新状态"}。`
       );
-    } catch (_) {
-      handleLoadDemoVideosForAccount(acc);
+    } catch (err: any) {
+      toast.error(
+        `同步【${acc.accountName}】作品失败: ${err?.message || err || "网络或接口异常"}。建议使用「粘贴录入作品」直接批量收录。`
+      );
     } finally {
       setIsSyncingAccount(false);
     }
-  };
-
-  // 载入示例对标作品（帮助用户无门槛立即体验在线播放与下载工作流）
-  const handleLoadDemoVideosForAccount = (acc: CollectorAccount) => {
-    const demos = getCuratedPostsForAccount(acc);
-    setVideos((prev) => {
-      const newVideos = [...prev];
-      for (const d of demos) {
-        if (!newVideos.some((v) => v.shareUrl === d.shareUrl)) {
-          newVideos.unshift(d);
-        }
-      }
-      return newVideos;
-    });
-    toast.success(`已为【${acc.accountName}】装载精选对标作品！可直接在线试看或一键提取下载。`);
   };
 
   // =========================================================================
@@ -1379,17 +1197,17 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
 
                     {/* 博主作品列表区 */}
                     {accVideos.length === 0 ? (
-                      // 空状态引导卡片
+                      // 空状态引导卡片 (真实透明引导)
                       <div className="rounded-xl border-2 border-dashed border-border/80 bg-muted/10 p-10 flex flex-col items-center justify-center text-center space-y-4">
                         <div className="flex size-14 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-600">
                           <LuVideo className="size-7" />
                         </div>
-                        <div className="space-y-1 max-w-md">
+                        <div className="space-y-1.5 max-w-lg">
                           <h4 className="text-sm font-bold text-foreground">
                             暂未获取到【{acc?.accountName}】的短视频作品
                           </h4>
                           <p className="text-xs text-muted-foreground leading-relaxed">
-                            系统支持自动嗅探抓取博主主页视频，支持在线播放试看与批量无水印下载。您也可以一键装载精选对标样例直接测试。
+                            短视频平台（如抖音、TikTok PC端）对未登录访客设有严格的风控与滑块拦截。若自动嗅探未抓取到作品，推荐点击下方「访问博主主页」打开浏览器，复制博主的视频分享链接，再点击「粘贴录入作品」批量添加收录！
                           </p>
                         </div>
 
@@ -1402,32 +1220,32 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
                             className="h-8 text-xs gap-1.5 bg-violet-600 hover:bg-violet-700 text-white font-medium shadow-2xs"
                           >
                             <LuRefreshCw className={`size-3.5 ${isSyncingAccount ? "animate-spin" : ""}`} />
-                            {isSyncingAccount ? "嗅探抓取中..." : "自动同步博主最新作品"}
+                            {isSyncingAccount ? "嗅探抓取中..." : "重新嗅探同步"}
                           </Button>
 
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={() => acc && handleLoadDemoVideosForAccount(acc)}
-                            className="h-8 text-xs gap-1.5 border-amber-500/40 text-amber-600 hover:bg-amber-500/10 font-medium"
+                            onClick={() => handleOpenUrl(acc?.homeUrl, acc?.platform, acc?.accountName)}
+                            className="h-8 text-xs gap-1.5 border-border hover:bg-muted"
                           >
-                            <LuSparkles className="size-3.5 text-amber-500" />
-                            导入精选对标作品集 (演示)
+                            <LuExternalLink className="size-3.5" />
+                            访问博主主页
                           </Button>
 
                           <Button
                             type="button"
                             size="sm"
-                            variant="ghost"
+                            variant="default"
                             onClick={() => {
                               setVideoTargetAccount(acc?.id || "");
                               setShowAddVideoModal(true);
                             }}
-                            className="h-8 text-xs gap-1.5 text-muted-foreground"
+                            className="h-8 text-xs gap-1.5 bg-primary text-primary-foreground font-medium shadow-2xs"
                           >
                             <LuPlus className="size-3.5" />
-                            批量粘贴分享链接
+                            粘贴录入作品
                           </Button>
                         </div>
                       </div>

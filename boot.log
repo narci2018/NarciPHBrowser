@@ -593,3 +593,7 @@ Backtrace:
 [SystemTime { intervals: 134371231994247809 }] Step 2: job assigned
 [SystemTime { intervals: 134371231998085893 }] Step 3: setup started
 [SystemTime { intervals: 134371231998101742 }] Step 4: local_api started
+[SystemTime { intervals: 134372772387963324 }] Step 1: main started
+[SystemTime { intervals: 134372772387966578 }] Step 2: job assigned
+[SystemTime { intervals: 134372772392385926 }] Step 3: setup started
+[SystemTime { intervals: 134372772392403400 }] Step 4: local_api started
