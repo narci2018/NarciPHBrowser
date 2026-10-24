@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import {
@@ -10,6 +10,7 @@ import {
   LuDownload,
   LuExternalLink,
   LuShieldCheck,
+  LuShieldAlert,
   LuTrendingUp,
   LuClock,
   LuSparkles,
@@ -18,6 +19,7 @@ import {
   LuChartColumn,
   LuChartPie,
 } from "react-icons/lu";
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { MatrixAccount } from "@/lib/matrix-accounts";
@@ -69,6 +71,32 @@ export const SelfMediaAnalyticsPanel: React.FC<SelfMediaAnalyticsPanelProps> = (
     }
     return updated;
   });
+
+  // 挂载时自动对已绑定指纹环境的账号静默拉取真实数据
+  useEffect(() => {
+    let isCancelled = false;
+    for (const acc of accounts) {
+      if (acc.profileId) {
+        const cached = analyticsMap[acc.id];
+        if (!cached || !cached.isReal) {
+          syncAccountAnalytics(acc)
+            .then((res) => {
+              if (!isCancelled) {
+                setAnalyticsMap((prev) => ({
+                  ...prev,
+                  [acc.id]: res,
+                }));
+              }
+            })
+            .catch(() => {});
+        }
+      }
+    }
+    return () => {
+      isCancelled = true;
+    };
+  }, [accounts]);
+
 
   // 过滤后的账号列表
   const filteredAccounts = useMemo(() => {
@@ -424,17 +452,25 @@ export const SelfMediaAnalyticsPanel: React.FC<SelfMediaAnalyticsPanelProps> = (
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       {/* 平台图标或头像 */}
-                      <div
-                        className="size-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-2xs"
-                        style={{ backgroundColor: p?.color || "#3b82f6" }}
-                      >
-                        {acc.accountName.slice(0, 1)}
-                      </div>
+                      {data?.avatar ? (
+                        <img
+                          src={data.avatar}
+                          alt=""
+                          className="size-9 rounded-full object-cover shrink-0 shadow-2xs border border-border"
+                        />
+                      ) : (
+                        <div
+                          className="size-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-2xs"
+                          style={{ backgroundColor: p?.color || "#3b82f6" }}
+                        >
+                          {acc.accountName.slice(0, 1)}
+                        </div>
+                      )}
 
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-semibold text-foreground truncate max-w-[120px]">
-                            {acc.accountName}
+                            {data?.accountName || acc.accountName}
                           </span>
                           <span
                             className="text-[9px] px-1 py-0.2 rounded font-mono text-white"
@@ -446,10 +482,15 @@ export const SelfMediaAnalyticsPanel: React.FC<SelfMediaAnalyticsPanelProps> = (
                         <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-mono mt-0.5">
                           <span>粉丝: {formatNum(data?.totalFans || 0)}</span>
                           <span>·</span>
-                          <span className="text-emerald-600">今日+{formatNum(data?.fansGrowthToday || 0)}</span>
+                          {data?.isReal ? (
+                            <span className="text-emerald-600 font-medium">真实</span>
+                          ) : (
+                            <span className="text-amber-500">待拉取</span>
+                          )}
                         </div>
                       </div>
                     </div>
+
 
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <Badge
@@ -480,31 +521,52 @@ export const SelfMediaAnalyticsPanel: React.FC<SelfMediaAnalyticsPanelProps> = (
               {/* 头部：当前选中账号信息与快捷操作 */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
                 <div className="flex items-center gap-3">
-                  <div
-                    className="size-10 rounded-xl flex items-center justify-center text-white text-sm font-bold shadow-xs"
-                    style={{
-                      backgroundColor:
-                        MATRIX_PLATFORMS[currentAccountObj.platformId]?.color || "#3b82f6",
-                    }}
-                  >
-                    {currentAccountObj.accountName.slice(0, 1)}
-                  </div>
+                  {currentAnalytics.avatar ? (
+                    <img
+                      src={currentAnalytics.avatar}
+                      alt=""
+                      className="size-11 rounded-xl object-cover shadow-xs border border-border"
+                    />
+                  ) : (
+                    <div
+                      className="size-11 rounded-xl flex items-center justify-center text-white text-base font-bold shadow-xs"
+                      style={{
+                        backgroundColor:
+                          MATRIX_PLATFORMS[currentAccountObj.platformId]?.color || "#3b82f6",
+                      }}
+                    >
+                      {currentAccountObj.accountName.slice(0, 1)}
+                    </div>
+                  )}
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-bold text-foreground">{currentAccountObj.accountName}</h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-bold text-foreground">
+                        {currentAnalytics.accountName || currentAccountObj.accountName}
+                      </h3>
                       <Badge variant="outline" className="text-[10px] bg-muted">
                         {MATRIX_PLATFORMS[currentAccountObj.platformId]?.name}
                       </Badge>
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] text-emerald-600 bg-emerald-500/10 border-emerald-500/30"
-                      >
-                        创作信用分: {currentAnalytics.healthScore} (正常)
-                      </Badge>
+                      {currentAnalytics.isReal ? (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] text-emerald-600 bg-emerald-500/10 border-emerald-500/30 gap-1 flex items-center"
+                        >
+                          <LuCircleCheck className="size-3" />
+                          100% 官方实时数据
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] text-amber-600 bg-amber-500/10 border-amber-500/30"
+                        >
+                          待同步真实数据
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
-                      上次自动同步: {new Date(currentAnalytics.lastSyncedAt).toLocaleTimeString()} · 绑定环境:{" "}
-                      {currentAccountObj.profileId}
+                      {currentAnalytics.lastSyncedAt > 0
+                        ? `上次同步: ${new Date(currentAnalytics.lastSyncedAt).toLocaleString()}`
+                        : "尚未同步官方数据"} · 绑定环境: {currentAccountObj.profileId || "未绑定"}
                     </p>
                   </div>
                 </div>
@@ -532,6 +594,25 @@ export const SelfMediaAnalyticsPanel: React.FC<SelfMediaAnalyticsPanelProps> = (
                   </Button>
                 </div>
               </div>
+
+              {/* 异常或未登录友好提示横幅 */}
+              {currentAnalytics.syncError && (
+                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <LuShieldAlert className="size-4 shrink-0 text-amber-600" />
+                    <span>{currentAnalytics.syncError}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[11px] border-amber-500/40 text-amber-700 dark:text-amber-300 shrink-0 self-start sm:self-auto"
+                    onClick={() => handleOpenCreatorCenter(currentAccountObj)}
+                  >
+                    打开环境登录
+                  </Button>
+                </div>
+              )}
+
 
               {/* 子导航 Tabs */}
               <div className="flex items-center gap-1 border-b pb-2">
@@ -755,61 +836,117 @@ export const SelfMediaAnalyticsPanel: React.FC<SelfMediaAnalyticsPanelProps> = (
                     </div>
                   </div>
 
-                  <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
-                    {sortedWorks.map((w, idx) => (
-                      <div
-                        key={w.id}
-                        className="p-3 rounded-lg border bg-card hover:bg-muted/30 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                      >
-                        <div className="flex items-start gap-3 min-w-0 flex-1">
-                          <div className="size-8 rounded-lg bg-blue-500/10 text-blue-600 font-bold font-mono text-xs flex items-center justify-center shrink-0">
-                            #{idx + 1}
-                          </div>
-                          <div className="min-w-0 space-y-1">
-                            <h4 className="text-xs font-semibold text-foreground line-clamp-1" title={w.title}>
-                              {w.title}
-                            </h4>
-                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground font-mono">
-                              <span>📅 {w.publishTime}</span>
-                              <span>·</span>
-                              <span className="text-foreground font-bold">▶ {formatNum(w.playCount)}</span>
-                              <span>·</span>
-                              <span>👍 {formatNum(w.likeCount)}</span>
-                              <span>·</span>
-                              <span>💬 {w.commentCount}</span>
-                              <span>·</span>
-                              <Badge variant="outline" className="text-[9px] bg-blue-500/10 text-blue-600 border-blue-500/20">
-                                完播率: {w.completionRateFull}%
-                              </Badge>
-                              <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
-                                推荐流: {w.trafficRecommendPct}%
-                              </Badge>
+                  {sortedWorks.length === 0 ? (
+                    <div className="py-12 text-center space-y-3 border rounded-xl bg-card">
+                      <div className="size-12 rounded-full bg-muted/60 flex items-center justify-center mx-auto text-muted-foreground">
+                        <LuPlay className="size-6" />
+                      </div>
+                      <div className="text-sm font-semibold text-foreground">暂无已收录的作品数据</div>
+                      <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                        {currentAnalytics.syncError || "该环境暂未提取到短视频作品，请先确保已在指纹会话中登录该平台创作者后台。"}
+                      </p>
+                      <div className="flex items-center justify-center gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          onClick={() => handleSyncSingleAccount(currentAccountObj)}
+                          disabled={isSyncing}
+                          className="h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white gap-1"
+                        >
+                          <LuRefreshCw className={`size-3 ${isSyncing ? "animate-spin" : ""}`} />
+                          立即拉取真实作品
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOpenCreatorCenter(currentAccountObj)}
+                          className="h-7 text-xs gap-1"
+                        >
+                          <LuExternalLink className="size-3" />
+                          免密前往创作者后台
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+                      {sortedWorks.map((w, idx) => (
+                        <div
+                          key={w.id}
+                          className="p-3 rounded-lg border bg-card hover:bg-muted/30 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        >
+                          <div className="flex items-start gap-3 min-w-0 flex-1">
+                            {w.coverUrl ? (
+                              <img
+                                src={w.coverUrl}
+                                alt=""
+                                className="size-12 rounded-lg object-cover shrink-0 border border-border bg-muted"
+                              />
+                            ) : (
+                              <div className="size-10 rounded-lg bg-blue-500/10 text-blue-600 font-bold font-mono text-xs flex items-center justify-center shrink-0">
+                                #{idx + 1}
+                              </div>
+                            )}
+                            <div className="min-w-0 space-y-1">
+                              <h4 className="text-xs font-semibold text-foreground line-clamp-1" title={w.title}>
+                                {w.title}
+                              </h4>
+                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground font-mono">
+                                <span>📅 {w.publishTime}</span>
+                                <span>·</span>
+                                <span className="text-foreground font-bold">▶ {formatNum(w.playCount)}</span>
+                                <span>·</span>
+                                <span>👍 {formatNum(w.likeCount)}</span>
+                                <span>·</span>
+                                <span>💬 {w.commentCount}</span>
+                                <span>·</span>
+                                <Badge variant="outline" className="text-[9px] bg-blue-500/10 text-blue-600 border-blue-500/20">
+                                  完播率: {w.completionRateFull}%
+                                </Badge>
+                                <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                                  推荐流: {w.trafficRecommendPct}%
+                                </Badge>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        {/* 快捷操作 */}
-                        <div className="flex items-center gap-2 shrink-0">
-                          {onSendToDedup && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                onSendToDedup("", w.title, 0);
-                                toast.success(`已将爆款素材【${w.title.slice(0, 16)}...】送入去重面板！`);
-                              }}
-                              className="h-7 text-xs gap-1 border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
-                              title="将该爆款作品送入智能去重进行重混生成矩阵变体"
-                            >
-                              <LuScissors className="size-3" />
-                              送入去重重混
-                            </Button>
-                          )}
+                          {/* 快捷操作 */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {w.videoUrl && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  invoke("open_url_in_browser", { url: w.videoUrl });
+                                }}
+                                className="h-7 text-xs gap-1 border-blue-500/30 text-blue-600 hover:bg-blue-500/10"
+                                title="在默认浏览器中打开并播放该视频"
+                              >
+                                <LuExternalLink className="size-3" />
+                                在线观看
+                              </Button>
+                            )}
+                            {onSendToDedup && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  onSendToDedup("", w.title, 0);
+                                  toast.success(`已将爆款素材【${w.title.slice(0, 16)}...】送入去重面板！`);
+                                }}
+                                className="h-7 text-xs gap-1 border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
+                                title="将该爆款作品送入智能去重进行重混生成矩阵变体"
+                              >
+                                <LuScissors className="size-3" />
+                                送入去重重混
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
+
                 </div>
               )}
 

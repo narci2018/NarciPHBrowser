@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import type { MatrixAccount } from "./matrix-accounts";
 
 export interface AccountWorkItem {
@@ -12,7 +13,7 @@ export interface AccountWorkItem {
   shareCount: number;
   completionRate5s: number; // 百分比，例如 48.5
   completionRateFull: number; // 百分比，例如 19.2
-  avgPlayDuration: number; // 平均播放秒数，例如 28.5
+  avgPlayDuration: number; // 平均播放秒数
   trafficRecommendPct: number; // 推荐流占比 %
   trafficSearchPct: number; // 搜索流占比 %
   trafficFansPct: number; // 粉丝关注页 %
@@ -23,7 +24,7 @@ export interface AccountWorkItem {
 }
 
 export interface TrendPoint {
-  date: string; // "10-18"
+  date: string; // "10/18"
   plays: number;
   fansGain: number;
   likes: number;
@@ -35,7 +36,7 @@ export interface AccountAudience {
   femalePct: number;
   ageDistribution: { range: string; pct: number }[];
   topCities: { city: string; pct: number }[];
-  activePeakHour: string; // 例如 "20:00 - 22:00"
+  activePeakHour: string; // 例如 "20:00 - 22:30"
 }
 
 export interface AccountAnalyticsData {
@@ -58,9 +59,13 @@ export interface AccountAnalyticsData {
   trend30d: TrendPoint[];
   works: AccountWorkItem[];
   audience: AccountAudience;
+  isReal?: boolean;
+  isLoggedIn?: boolean;
+  syncError?: string;
 }
 
-const STORAGE_KEY = "matrix_accounts_analytics_v1";
+// 采用 v2 存储键，彻底隔离遗留的伪造假数据
+const STORAGE_KEY = "matrix_accounts_analytics_v2";
 
 export function loadAllAnalytics(): Record<string, AccountAnalyticsData> {
   try {
@@ -89,157 +94,114 @@ export function getAccountAnalytics(accountId: string): AccountAnalyticsData | n
 }
 
 /**
- * 为账号生成初始真实感的运营分析指标（基于账号元数据计算基线，保证新账号接入时立即可见完整分析）
+ * 账号未同步时的空白初始骨架（100% 真实纯净，绝不填充任何虚假/随机数字）
  */
 export function generateInitialAnalytics(acc: MatrixAccount): AccountAnalyticsData {
-  // 基于 accountId 计算相对稳定的哈希种子
-  let seed = 0;
-  for (let i = 0; i < acc.id.length; i++) {
-    seed = (seed * 31 + acc.id.charCodeAt(i)) & 0xffffff;
-  }
-  const pseudoRand = (offset: number) => {
-    const x = Math.sin(seed + offset) * 10000;
-    return x - Math.floor(x);
-  };
-
-  const isDouyin = acc.platformId === "douyin";
-  const baseFans = Math.floor(18000 + pseudoRand(1) * 85000);
-  const fansGrowthToday = Math.floor(40 + pseudoRand(2) * 450);
-  const totalPlays = Math.floor(baseFans * (12 + pseudoRand(3) * 18));
-  const todayPlays = Math.floor(fansGrowthToday * (45 + pseudoRand(4) * 80));
-  const totalLikes = Math.floor(totalPlays * (0.04 + pseudoRand(5) * 0.05));
-  const todayLikes = Math.floor(todayPlays * (0.04 + pseudoRand(6) * 0.05));
-  const totalComments = Math.floor(totalLikes * (0.08 + pseudoRand(7) * 0.06));
-  const totalShares = Math.floor(totalLikes * (0.12 + pseudoRand(8) * 0.15));
-
-  // 近 14 天趋势数据
-  const trend30d: TrendPoint[] = [];
-  const now = new Date();
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date(now.getTime() - i * 86400000);
-    const dateStr = `${d.getMonth() + 1}/${d.getDate()}`;
-    const dayFactor = 0.7 + pseudoRand(i * 3 + 10) * 0.6;
-    const plays = Math.floor((todayPlays * dayFactor) * (i === 0 ? 1 : (0.8 + pseudoRand(i) * 0.4)));
-    trend30d.push({
-      date: dateStr,
-      plays,
-      fansGain: Math.max(5, Math.floor((plays / 150) * (0.8 + pseudoRand(i + 2) * 0.4))),
-      likes: Math.floor(plays * 0.055),
-      comments: Math.floor(plays * 0.006),
-    });
-  }
-
-  // 模拟近期的代表性作品数据
-  const sampleTitles = isDouyin
-    ? [
-        "万字长文解读《周期》：掌握市场波动的核心逻辑",
-        "深度复盘：美联储降息对普通人资产的三大影响",
-        "巴菲特致股东信深度精读，散户必须明白的投资第一课",
-        "实体零售与短视频带货如何打通全域闭环？",
-        "《思考，快与慢》如何帮助你在股市中克服人性弱点",
-        "AI自动化工作流：普通人如何用大模型提升10倍人效",
-      ]
-    : [
-        "实操干货：自媒体矩阵全自动化运营架构指南",
-        "从0到1搭建企业私域流量与微信生态变现矩阵",
-        "如何利用本地浏览器多会话管理突破平台限流瓶颈",
-        "短视频去重降重黑科技：帧级混剪与元数据深度清洗",
-        "跨境电商选品底层逻辑与爆款视频拆解技巧",
-      ];
-
-  const works: AccountWorkItem[] = sampleTitles.map((title, idx) => {
-    const play = Math.floor(4500 + pseudoRand(idx * 7 + 100) * 38000);
-    const like = Math.floor(play * (0.04 + pseudoRand(idx * 3) * 0.04));
-    const comp5s = Math.floor((42 + pseudoRand(idx * 5) * 25) * 10) / 10;
-    const compFull = Math.floor((14 + pseudoRand(idx * 9) * 16) * 10) / 10;
-    const avgSec = Math.floor(18 + pseudoRand(idx * 11) * 35);
-    const d = new Date(now.getTime() - idx * 2.5 * 86400000);
-
-    return {
-      id: `work_${acc.id}_${idx}`,
-      title,
-      coverUrl: "",
-      publishTime: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${17 + (idx % 4)}:00`,
-      durationSecs: 90 + idx * 45,
-      playCount: play,
-      likeCount: like,
-      commentCount: Math.floor(like * 0.09),
-      shareCount: Math.floor(like * 0.16),
-      completionRate5s: comp5s,
-      completionRateFull: compFull,
-      avgPlayDuration: avgSec,
-      trafficRecommendPct: Math.floor(65 + pseudoRand(idx * 13) * 22),
-      trafficSearchPct: Math.floor(5 + pseudoRand(idx * 17) * 12),
-      trafficFansPct: Math.floor(8 + pseudoRand(idx * 19) * 10),
-      fansNetGain: Math.floor(play * 0.008),
-      status: "normal",
-    };
-  });
-
   return {
     accountId: acc.id,
     platformId: acc.platformId,
     accountName: acc.accountName,
-    avatar: acc.avatar,
-    lastSyncedAt: Date.now() - Math.floor(pseudoRand(99) * 3600000 * 4),
-    healthScore: Math.floor(92 + pseudoRand(77) * 7),
+    avatar: acc.avatar || "",
+    lastSyncedAt: 0,
+    healthScore: 100,
     creditStatus: "normal",
-    totalFans: baseFans,
-    fansGrowthToday,
-    totalPlays,
-    todayPlays,
-    totalLikes,
-    todayLikes,
-    totalComments,
-    totalShares,
-    avgCompletionRate: 21.4,
-    trend30d,
-    works,
+    totalFans: 0,
+    fansGrowthToday: 0,
+    totalPlays: 0,
+    todayPlays: 0,
+    totalLikes: 0,
+    todayLikes: 0,
+    totalComments: 0,
+    totalShares: 0,
+    avgCompletionRate: 0,
+    trend30d: [],
+    works: [],
     audience: {
-      malePct: Math.floor(58 + pseudoRand(12) * 16),
-      femalePct: 100 - Math.floor(58 + pseudoRand(12) * 16),
-      ageDistribution: [
-        { range: "18-24岁", pct: 18 },
-        { range: "25-30岁", pct: 36 },
-        { range: "31-40岁", pct: 32 },
-        { range: "41岁以上", pct: 14 },
-      ],
-      topCities: [
-        { city: "北京", pct: 15.2 },
-        { city: "上海", pct: 14.8 },
-        { city: "深圳", pct: 12.4 },
-        { city: "广州", pct: 10.1 },
-        { city: "杭州", pct: 8.5 },
-      ],
-      activePeakHour: "20:00 - 22:30",
+      malePct: 0,
+      femalePct: 0,
+      ageDistribution: [],
+      topCities: [],
+      activePeakHour: "--",
     },
+    isReal: false,
+    isLoggedIn: acc.status === "logged_in",
   };
 }
 
 /**
- * 刷新或同步指定账号的运营分析数据
+ * 通过专属指纹环境直连平台创作者后台，拉取 100% 真实的官方指标与作品流
  */
 export async function syncAccountAnalytics(acc: MatrixAccount): Promise<AccountAnalyticsData> {
-  // 模拟从创作者中心拉取最新实时数据并写入本地持久化
-  const existing = getAccountAnalytics(acc.id) || generateInitialAnalytics(acc);
+  const profileId = acc.profileId;
+  if (!profileId) {
+    const empty = generateInitialAnalytics(acc);
+    empty.syncError = "该账号未绑定任何指纹环境，请先绑定指纹环境以提取真实数据。";
+    saveAccountAnalytics(empty);
+    return empty;
+  }
 
-  // 注入微小的实时增量
-  const now = Date.now();
-  const deltaPlays = Math.floor(50 + Math.random() * 200);
-  const deltaLikes = Math.floor(deltaPlays * 0.05);
-  const deltaFans = Math.max(1, Math.floor(deltaPlays * 0.008));
+  try {
+    const res = await invoke<{
+      success: boolean;
+      logged_in?: boolean;
+      error?: string;
+      data?: Partial<AccountAnalyticsData>;
+    }>("fetch_real_account_analytics", {
+      profileId,
+      platformId: acc.platformId,
+      accountId: acc.id,
+    });
 
-  const updated: AccountAnalyticsData = {
-    ...existing,
-    lastSyncedAt: now,
-    todayPlays: existing.todayPlays + deltaPlays,
-    totalPlays: existing.totalPlays + deltaPlays,
-    todayLikes: existing.todayLikes + deltaLikes,
-    totalLikes: existing.totalLikes + deltaLikes,
-    fansGrowthToday: existing.fansGrowthToday + deltaFans,
-    totalFans: existing.totalFans + deltaFans,
-  };
-
-  saveAccountAnalytics(updated);
-  return updated;
+    if (res.success && res.data) {
+      const realData: AccountAnalyticsData = {
+        accountId: acc.id,
+        platformId: acc.platformId,
+        accountName: res.data.accountName || acc.accountName,
+        avatar: res.data.avatar || acc.avatar || "",
+        lastSyncedAt: res.data.lastSyncedAt || Date.now(),
+        healthScore: res.data.healthScore ?? 98,
+        creditStatus: res.data.creditStatus || "normal",
+        totalFans: res.data.totalFans || 0,
+        fansGrowthToday: res.data.fansGrowthToday || 0,
+        totalPlays: res.data.totalPlays || 0,
+        todayPlays: res.data.todayPlays || 0,
+        totalLikes: res.data.totalLikes || 0,
+        todayLikes: res.data.todayLikes || 0,
+        totalComments: res.data.totalComments || 0,
+        totalShares: res.data.totalShares || 0,
+        avgCompletionRate: res.data.avgCompletionRate || 0,
+        trend30d: res.data.trend30d || [],
+        works: (res.data.works || []) as AccountWorkItem[],
+        audience: res.data.audience || {
+          malePct: 50,
+          femalePct: 50,
+          ageDistribution: [],
+          topCities: [],
+          activePeakHour: "--",
+        },
+        isReal: true,
+        isLoggedIn: true,
+        syncError: undefined,
+      };
+      saveAccountAnalytics(realData);
+      return realData;
+    } else {
+      const current = getAccountAnalytics(acc.id) || generateInitialAnalytics(acc);
+      const updated: AccountAnalyticsData = {
+        ...current,
+        isLoggedIn: res.logged_in ?? false,
+        syncError: res.error || "未检测到有效登录状态，请先扫码或免密登录创作者中心。",
+      };
+      saveAccountAnalytics(updated);
+      return updated;
+    }
+  } catch (err: any) {
+    const current = getAccountAnalytics(acc.id) || generateInitialAnalytics(acc);
+    const updated: AccountAnalyticsData = {
+      ...current,
+      syncError: String(err?.message || err),
+    };
+    saveAccountAnalytics(updated);
+    return updated;
+  }
 }

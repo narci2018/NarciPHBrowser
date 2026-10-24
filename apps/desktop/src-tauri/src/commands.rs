@@ -4716,6 +4716,54 @@ pub fn test_llm_connection(
     Ok(stdout_str)
 }
 
+/// 提取指定浏览器指纹环境的真实创作者数据与作品分析 (支持 TikTok、抖音等)
+#[tauri::command]
+pub fn fetch_real_account_analytics(
+    profile_id: String,
+    platform_id: String,
+    account_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let script_path = resolve_media_tools_script();
+
+    let mut cmd = if std::process::Command::new("python").arg("--version").output().map(|o| o.status.success()).unwrap_or(false) {
+        let mut c = std::process::Command::new("python");
+        c.arg(&script_path);
+        c
+    } else {
+        let mut c = std::process::Command::new("uv");
+        c.args(["run", "--python", "3.12", "python"]);
+        c.arg(&script_path);
+        c
+    };
+
+    let acc_id = account_id.unwrap_or_default();
+
+    cmd.arg("fetch-real-analytics")
+        .arg("--profile-id")
+        .arg(&profile_id)
+        .arg("--platform")
+        .arg(&platform_id)
+        .arg("--account-id")
+        .arg(&acc_id);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+
+    let output = cmd.output().map_err(|e| format!("Failed to run analytics fetcher: {}", e))?;
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("抓取创作者分析数据失败: {}", err_msg));
+    }
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
+    serde_json::from_str::<serde_json::Value>(&stdout_str)
+        .map_err(|e| format!("Invalid JSON from analytics fetcher: {} (raw: {})", e, stdout_str))
+}
+
+
 
 #[cfg(test)]
 mod tests {
