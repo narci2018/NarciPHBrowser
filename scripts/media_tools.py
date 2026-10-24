@@ -1614,10 +1614,10 @@ def main():
             print(json.dumps(res, ensure_ascii=False))
         elif args.action == "parse-download":
             res = parse_and_download_no_watermark(args.text, args.outdir)
-            print(json.dumps(res, ensure_ascii=False))
+            print(json.dumps(res, ensure_ascii=True))
         elif args.action == "fetch-author-posts":
             res = fetch_author_posts(args.url, args.platform, args.count)
-            print(json.dumps(res, ensure_ascii=False))
+            print(json.dumps(res, ensure_ascii=True))
         elif args.action == "llm":
             res = run_llm_copywriting(args.platform, args.topic, args.api_key, args.base_url, args.model)
             print(json.dumps(res, ensure_ascii=False))

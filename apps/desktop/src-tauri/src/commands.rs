@@ -4525,19 +4525,22 @@ pub fn fetch_author_posts(
         .find(|l| l.trim().starts_with('{') && l.trim().ends_with('}'))
         .unwrap_or(&stdout_str);
 
-    if let Ok(res) = serde_json::from_str::<FetchAuthorPostsResult>(json_line) {
-        return Ok(res);
+    match serde_json::from_str::<FetchAuthorPostsResult>(json_line) {
+        Ok(res) => Ok(res),
+        Err(e) => {
+            let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
+            eprintln!("Failed to parse fetch-author-posts JSON: {}. Stderr: {}", e, stderr_str);
+            Ok(FetchAuthorPostsResult {
+                success: false,
+                platform: Some(p),
+                author_name: Some("对标博主".to_string()),
+                avatar_url: None,
+                posts: vec![],
+                count: Some(0),
+                error: Some(format!("嗅探结果解析异常: {}. {}", e, stderr_str.chars().take(120).collect::<String>())),
+            })
+        }
     }
-
-    Ok(FetchAuthorPostsResult {
-        success: true,
-        platform: Some(p),
-        author_name: Some("对标博主".to_string()),
-        avatar_url: None,
-        posts: vec![],
-        count: Some(0),
-        error: None,
-    })
 }
 
 /// 在系统资源管理器中打开并高亮选中文件/目录
