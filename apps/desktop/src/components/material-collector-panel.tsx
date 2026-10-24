@@ -126,7 +126,10 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
       const data = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
       if (data) {
         const parsed = JSON.parse(data);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          // 彻底过滤掉早期遗留的测试演示虚拟博主 (acc_demo_...)
+          return parsed.filter((a: any) => !a.id?.startsWith("acc_demo_"));
+        }
       }
     } catch (_) {}
     return [];
@@ -138,7 +141,9 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
       const data = localStorage.getItem(STORAGE_KEY_ALBUMS);
       if (data) {
         const parsed = JSON.parse(data);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          return parsed.filter((a: any) => !a.id?.startsWith("alb_demo_"));
+        }
       }
     } catch (_) {}
     return [];
@@ -151,12 +156,19 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
       if (data) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed)) {
-          // 自动清除早期可能缓存的假演示数据，保证素材库纯净真实
+          // 彻底清除早期注入的所有虚假演示数据（包含 post_fin_, vid_demo_, unsplash 占位等）
           return parsed.filter(
             (v: any) =>
               !v.id?.startsWith("vid_demo_") &&
               !v.id?.startsWith("fin_") &&
-              !v.id?.startsWith("gen_")
+              !v.id?.startsWith("post_fin_") &&
+              !v.id?.startsWith("gen_") &&
+              !v.id?.startsWith("post_gen_") &&
+              !v.shareUrl?.includes("oceans.mp4") &&
+              !v.shareUrl?.includes("mov_bbb.mp4") &&
+              !v.shareUrl?.includes("flower.mp4") &&
+              !v.shareUrl?.includes("big_buck_bunny.mp4") &&
+              !v.coverUrl?.includes("unsplash.com")
           );
         }
       }
@@ -1177,6 +1189,25 @@ export const MaterialCollectorPanel: React.FC<MaterialCollectorPanelProps> = ({
                           title="配置定时监控策略"
                         >
                           <LuSettings className="size-4" />
+                        </Button>
+
+                        {/* 移除该博主 */}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            if (window.confirm(`确定要移除博主【${acc?.accountName}】吗？`)) {
+                              setAccounts((prev) => prev.filter((a) => a.id !== acc?.id));
+                              setVideos((prev) => prev.filter((v) => v.accountId !== acc?.id));
+                              setSelectedAccountId(null);
+                              toast.success(`已移除博主【${acc?.accountName}】`);
+                            }
+                          }}
+                          className="size-8 p-0 text-muted-foreground hover:text-destructive"
+                          title="移除该博主及未下载作品"
+                        >
+                          <LuTrash2 className="size-4" />
                         </Button>
 
                         {accVideos.some((v) => v.status !== "downloaded") && (
