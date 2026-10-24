@@ -4026,14 +4026,20 @@ pub struct FetchAuthorPostsResult {
 
 /// 智能解析 media_tools.py 脚本的绝对路径 (支持无论是开发环境、打包环境还是通过相对路径执行)
 fn resolve_media_tools_script() -> std::path::PathBuf {
+    // 1. 优先使用当前工作区开发环境下的主工程脚本（保证实时最新）
+    let primary = std::path::PathBuf::from(r"c:\Tools2\fingerBrowsers2\NarciPHBrowser\scripts\media_tools.py");
+    if primary.exists() {
+        return primary;
+    }
+
     let candidates = [
-        // 1. 同级或相对执行目录
+        // 2. 同级或相对执行目录
         std::env::current_dir().ok().map(|p| p.join("scripts").join("media_tools.py")),
-        // 2. 位于 exe 旁边的 scripts 目录 (如 target/release/scripts)
+        // 3. 位于 exe 旁边的 scripts 目录 (如 target/release/scripts)
         std::env::current_exe().ok().and_then(|exe| {
             exe.parent().map(|p| p.join("scripts").join("media_tools.py"))
         }),
-        // 3. 位于工作区根目录 (如 target/release/../../scripts)
+        // 4. 位于工作区根目录 (如 target/release/../../scripts)
         std::env::current_exe().ok().and_then(|exe| {
             exe.parent()
                 .and_then(|p| p.parent())
@@ -4045,8 +4051,6 @@ fn resolve_media_tools_script() -> std::path::PathBuf {
                 .and_then(|p| p.parent())
                 .map(|p| p.join("scripts").join("media_tools.py"))
         }),
-        // 4. 工作区绝对路径兜底
-        Some(std::path::PathBuf::from(r"c:\Tools2\fingerBrowsers2\NarciPHBrowser\scripts\media_tools.py")),
     ];
 
     for candidate in candidates.into_iter().flatten() {
