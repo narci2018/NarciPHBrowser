@@ -321,30 +321,30 @@ export function AppsPage({ profiles = [] }: AppsPageProps) {
   // Dedicated Video Deduplication Studio State
   const [dedupFiles, setDedupFiles] = useState<PickedMediaInfo[]>([]);
   const [selectedDedupIdx, setSelectedDedupIdx] = useState<number>(0);
-  const [dedupPreset, setDedupPreset] = useState<"fyp" | "pip" | "split" | "curved" | "mute" | "light" | "standard" | "deep" | "custom">("fyp");
-  const [dedupSpeed, setDedupSpeed] = useState<number>(1.04);
-  const [dedupZoom, setDedupZoom] = useState<number>(1.04);
-  const [dedupFlipH, setDedupFlipH] = useState<boolean>(true);
-  const [dedupColorTweak, setDedupColorTweak] = useState<boolean>(true);
+  const [dedupPreset, setDedupPreset] = useState<"strip_only" | "fyp" | "pip" | "split" | "curved" | "mute" | "light" | "standard" | "deep" | "custom">("strip_only");
+  const [dedupSpeed, setDedupSpeed] = useState<number>(1.0);
+  const [dedupZoom, setDedupZoom] = useState<number>(1.0);
+  const [dedupFlipH, setDedupFlipH] = useState<boolean>(false);
+  const [dedupColorTweak, setDedupColorTweak] = useState<boolean>(false);
   const [dedupVignette, setDedupVignette] = useState<boolean>(false);
   const [dedupNoise, setDedupNoise] = useState<boolean>(false);
-  const [dedupAudioVolume, setDedupAudioVolume] = useState<number>(1.02);
+  const [dedupAudioVolume, setDedupAudioVolume] = useState<number>(1.0);
   const [dedupStripBlindWatermark, setDedupStripBlindWatermark] = useState<boolean>(true);
-  const [dedupTrimStartSecs, setDedupTrimStartSecs] = useState<number>(0.5);
-  const [dedupTrimEndSecs, setDedupTrimEndSecs] = useState<number>(2.5);
-  const [dedupDelogoMode, setDedupDelogoMode] = useState<string>("tiktok");
-  const [dedupDynamicPanZoom, setDedupDynamicPanZoom] = useState<boolean>(true);
-  const [dedupDynamicLighting, setDedupDynamicLighting] = useState<boolean>(true);
+  const [dedupTrimStartSecs, setDedupTrimStartSecs] = useState<number>(0.0);
+  const [dedupTrimEndSecs, setDedupTrimEndSecs] = useState<number>(0.0);
+  const [dedupDelogoMode, setDedupDelogoMode] = useState<string>("none");
+  const [dedupDynamicPanZoom, setDedupDynamicPanZoom] = useState<boolean>(false);
+  const [dedupDynamicLighting, setDedupDynamicLighting] = useState<boolean>(false);
   const [dedupAmbientBlurredBg, setDedupAmbientBlurredBg] = useState<boolean>(false);
   const [dedupSplitCanvas, setDedupSplitCanvas] = useState<boolean>(false);
-  const [dedupAudioScramble, setDedupAudioScramble] = useState<boolean>(true);
+  const [dedupAudioScramble, setDedupAudioScramble] = useState<boolean>(false);
   const [dedupMuteAudio, setDedupMuteAudio] = useState<boolean>(false);
   const [dedupFrameJitter, setDedupFrameJitter] = useState<boolean>(false);
-  const [dedupCurvedSpeed, setDedupCurvedSpeed] = useState<boolean>(true);
+  const [dedupCurvedSpeed, setDedupCurvedSpeed] = useState<boolean>(false);
   const [dedupFilmGrain, setDedupFilmGrain] = useState<boolean>(false);
-  const [dedupMicroRotate, setDedupMicroRotate] = useState<boolean>(true);
-  const [dedupChromashift, setDedupChromashift] = useState<boolean>(true);
-  const [dedupUnsharp, setDedupUnsharp] = useState<boolean>(true);
+  const [dedupMicroRotate, setDedupMicroRotate] = useState<boolean>(false);
+  const [dedupChromashift, setDedupChromashift] = useState<boolean>(false);
+  const [dedupUnsharp, setDedupUnsharp] = useState<boolean>(false);
   const [dedupFakeCameraExif, setDedupFakeCameraExif] = useState<boolean>(true);
   const [isDedupProcessing, setIsDedupProcessing] = useState<boolean>(false);
   const [batchDedupProgress, setBatchDedupProgress] = useState<{ current: number; total: number } | null>(null);
@@ -629,9 +629,35 @@ export function AppsPage({ profiles = [] }: AppsPageProps) {
   };
 
   // 切换去重策略预设
-  const applyDedupPreset = (preset: "fyp" | "pip" | "split" | "curved" | "mute" | "light" | "standard" | "deep" | "custom") => {
+  const applyDedupPreset = (preset: "strip_only" | "fyp" | "pip" | "split" | "curved" | "mute" | "light" | "standard" | "deep" | "custom") => {
     setDedupPreset(preset);
-    if (preset === "fyp") {
+    if (preset === "strip_only") {
+      // 专属策略: 100% 物理去除暗水印 (只去除暗水印，不做其他任何去重处理)
+      setDedupSpeed(1.0);
+      setDedupZoom(1.0);
+      setDedupFlipH(false);
+      setDedupColorTweak(false);
+      setDedupVignette(false);
+      setDedupNoise(false);
+      setDedupAudioVolume(1.0);
+      setDedupStripBlindWatermark(true);
+      setDedupTrimStartSecs(0.0);
+      setDedupTrimEndSecs(0.0);
+      setDedupDelogoMode("none");
+      setDedupDynamicPanZoom(false);
+      setDedupDynamicLighting(false);
+      setDedupAmbientBlurredBg(false);
+      setDedupSplitCanvas(false);
+      setDedupAudioScramble(false);
+      setDedupMuteAudio(false);
+      setDedupFrameJitter(false);
+      setDedupCurvedSpeed(false);
+      setDedupFilmGrain(false);
+      setDedupMicroRotate(false);
+      setDedupChromashift(false);
+      setDedupUnsharp(false);
+      setDedupFakeCameraExif(true);
+    } else if (preset === "fyp") {
       // 策略 1: TikTok FYP 顶级爆破 (综合全能抗查重)
       setDedupSpeed(1.04);
       setDedupZoom(1.04);
@@ -2505,12 +2531,44 @@ export function AppsPage({ profiles = [] }: AppsPageProps) {
                 <div className="flex items-center gap-2 flex-wrap">
                   <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30 text-[11px] font-semibold flex items-center gap-1.5 py-0.5 px-2">
                     <LuShieldCheck className="size-3.5" />
-                    全部9种去重策略均已100%去除全平台暗水印 (空间解耦+DCT掩膜+SEI净化)
+                    已增加「100%物理去除暗水印」专属选项（只去除暗水印 · 不做其他任何去重）
                   </Badge>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                {/* 专属选项: 100% 物理去除暗水印 🛡️ */}
+                <div
+                  onClick={() => applyDedupPreset("strip_only")}
+                  className={`cursor-pointer rounded-xl border p-4 transition-all relative ${
+                    dedupPreset === "strip_only"
+                      ? "border-emerald-500 bg-emerald-500/10 shadow-sm ring-1 ring-emerald-500/50"
+                      : "border-border bg-card hover:border-emerald-500/40 hover:bg-card/80"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      <LuShieldCheck className="size-4 text-emerald-500" />
+                      100%物理去除暗水印 🛡️
+                    </span>
+                    {dedupPreset === "strip_only" && <LuCheck className="size-3.5 text-emerald-500" />}
+                  </div>
+                  <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
+                    只物理粉碎全平台频域与SEI暗水印，不做任何其他去重处理。原画质 1.0x · 原时长 1.0x · 不调色 · 不镜像 · 不裁切。
+                  </p>
+                  <div className="mt-3 flex items-center gap-1 flex-wrap">
+                    <Badge variant="outline" className="text-[9px] text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                      纯物理去暗水印
+                    </Badge>
+                    <Badge variant="outline" className="text-[9px] text-muted-foreground">
+                      原速原画质
+                    </Badge>
+                    <Badge variant="outline" className="text-[9px] text-muted-foreground">
+                      无多余处理
+                    </Badge>
+                  </div>
+                </div>
+
                 {/* 策略 1: TikTok FYP 顶级过审 🔥 */}
                 <div
                   onClick={() => applyDedupPreset("fyp")}
@@ -3654,7 +3712,7 @@ export function AppsPage({ profiles = [] }: AppsPageProps) {
                     <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
                       <span>去重基底:</span>
                       <Badge variant="outline" className="text-[10px] text-primary border-primary/30">
-                        {dedupPreset === "fyp" ? "TikTok FYP 顶级爆破 🔥" : dedupPreset === "pip" ? "画中画毛玻璃画布 🖼️" : dedupPreset === "split" ? "三段分屏上下模糊 🎬" : dedupPreset === "curved" ? "波浪变速+胶片微粒 ⚡" : dedupPreset === "mute" ? "纯净静音出海 🔇" : dedupPreset === "light" ? "轻度安全清洗" : dedupPreset === "standard" ? "标准矩阵防查重" : dedupPreset === "deep" ? "深度重构清洗" : "自定义专家模式"}
+                        {dedupPreset === "strip_only" ? "100% 物理去除暗水印 🛡️" : dedupPreset === "fyp" ? "TikTok FYP 顶级爆破 🔥" : dedupPreset === "pip" ? "画中画毛玻璃画布 🖼️" : dedupPreset === "split" ? "三段分屏上下模糊 🎬" : dedupPreset === "curved" ? "波浪变速+胶片微粒 ⚡" : dedupPreset === "mute" ? "纯净静音出海 🔇" : dedupPreset === "light" ? "轻度安全清洗" : dedupPreset === "standard" ? "标准矩阵防查重" : dedupPreset === "deep" ? "深度重构清洗" : "自定义专家模式"}
                       </Badge>
                     </div>
                   </div>
@@ -3955,7 +4013,7 @@ export function AppsPage({ profiles = [] }: AppsPageProps) {
                                   ) : null}
                                 </div>
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                  策略: 【{dedupPreset === "fyp" ? "TikTok FYP 顶级爆破 🔥" : dedupPreset === "pip" ? "画中画毛玻璃画布 🖼️" : dedupPreset === "split" ? "三段分屏上下模糊 🎬" : dedupPreset === "curved" ? "波浪变速+胶片微粒 ⚡" : dedupPreset === "mute" ? "纯净静音出海 🔇" : dedupPreset === "light" ? "轻度安全清洗" : dedupPreset === "standard" ? "标准矩阵防查重" : dedupPreset === "deep" ? "深度重构清洗" : "自定义专家模式"}】 (微变速 {dedupSpeed}x · 缩放 {dedupZoom}x)
+                                  策略: 【{dedupPreset === "strip_only" ? "100% 物理去除暗水印 🛡️" : dedupPreset === "fyp" ? "TikTok FYP 顶级爆破 🔥" : dedupPreset === "pip" ? "画中画毛玻璃画布 🖼️" : dedupPreset === "split" ? "三段分屏上下模糊 🎬" : dedupPreset === "curved" ? "波浪变速+胶片微粒 ⚡" : dedupPreset === "mute" ? "纯净静音出海 🔇" : dedupPreset === "light" ? "轻度安全清洗" : dedupPreset === "standard" ? "标准矩阵防查重" : dedupPreset === "deep" ? "深度重构清洗" : "自定义专家模式"}】 {dedupPreset === "strip_only" ? "(纯净去暗水印 · 原速1.0x · 原画1.0x)" : `(微变速 ${dedupSpeed}x · 缩放 ${dedupZoom}x)`}
                                 </p>
                               </div>
 

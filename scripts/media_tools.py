@@ -358,7 +358,7 @@ def run_video_remix(
     elif frame_jitter:
         vf_list.append(r"select='not(eq(mod(n\,45)\,0))'")
         vf_list.append(f"setpts={pts_factor}*(N/FRAME_RATE/TB)")
-    else:
+    elif abs(pts_factor - 1.0) > 0.0001:
         vf_list.append(f"setpts={pts_factor}*PTS")
 
     # 运镜处理：呼吸式动态位移微运镜 (打破 ViT 图像特征与 CNN 局部模板比对，严格保证偶数宽高)
