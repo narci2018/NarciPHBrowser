@@ -15,6 +15,7 @@ import {
   LuShieldCheck,
   LuCpu,
   LuLayers,
+  LuCoins,
   LuSlidersHorizontal,
   LuSend,
   LuClock,
@@ -75,6 +76,7 @@ import {
 import { MatrixAccountsPanel } from "@/components/matrix-accounts-panel";
 import { MaterialCollectorPanel } from "@/components/material-collector-panel";
 import { SelfMediaAnalyticsPanel } from "@/components/self-media-analytics-panel";
+import { AiToEarnPanel } from "@/components/ai-to-earn-panel";
 
 interface TtsResult {
   success: boolean;
@@ -1543,6 +1545,13 @@ export function AppsPage({ profiles = [] }: AppsPageProps) {
             <TabsTrigger value="hub" className="gap-2 text-xs">
               <LuLayers className="size-3.5" />
               生态扩展计划
+            </TabsTrigger>
+            <TabsTrigger
+              value="others"
+              className="gap-2 text-xs font-semibold text-violet-600 dark:text-violet-400 data-[state=active]:bg-violet-500/15 data-[state=active]:text-violet-700 dark:data-[state=active]:text-violet-300"
+            >
+              <LuLayers className="size-3.5 text-violet-500" />
+              其他
             </TabsTrigger>
           </TabsList>
 
@@ -4495,6 +4504,41 @@ export function AppsPage({ profiles = [] }: AppsPageProps) {
                 </p>
               </div>
             </div>
+          </div>
+        </TabsContent>
+
+        {/* Tab: 其他 (包含 AiToEarn 等第三方生态拓展) */}
+        <TabsContent value="others" className="m-0 flex min-h-0 flex-1 flex-col overflow-y-auto p-6 data-[state=inactive]:hidden">
+          <div className="mx-auto max-w-6xl w-full space-y-4">
+            <div className="flex items-center justify-between border-b border-border/80 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex size-7 items-center justify-center rounded-lg bg-violet-500/15 text-violet-600">
+                  <LuLayers className="size-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">其他第三方生态与工具拓展</h3>
+                  <p className="text-xs text-muted-foreground">深度复刻集成业内最顶尖的自媒体自动化与变现生态体系</p>
+                </div>
+              </div>
+
+              {/* 二级 Tab 列表 (首项固定为 AiToEarn) */}
+              <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-lg border border-border/60">
+                <button
+                  type="button"
+                  className="px-3 py-1 text-xs rounded-md bg-card text-foreground font-semibold shadow-xs flex items-center gap-1.5"
+                >
+                  <LuCoins className="size-3.5 text-violet-600" />
+                  AiToEarn (哎哟赚)
+                </button>
+              </div>
+            </div>
+
+            {/* AiToEarn 深度复刻面板 */}
+            <AiToEarnPanel
+              onOpenBrowserUrl={(url) => {
+                invoke("open_url_in_browser", { url });
+              }}
+            />
           </div>
         </TabsContent>
       </Tabs>
