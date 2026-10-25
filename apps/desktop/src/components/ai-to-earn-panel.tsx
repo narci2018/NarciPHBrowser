@@ -23,6 +23,14 @@ import {
   LuImage,
   LuFilter,
   LuPlus,
+  LuWand,
+  LuLayers,
+  LuFileText,
+  LuDownload,
+  LuSlidersHorizontal,
+  LuFolderCheck,
+  LuAward,
+  LuMic,
 } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,10 +57,112 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
   const [taskCategory, setTaskCategory] = useState<"all" | "article" | "car" | "interaction" | "offline" | "mine">("all");
   const [taskSearch, setTaskSearch] = useState<string>("");
 
-  // 创作工作区状态
-  const [aiToolType, setAiToolType] = useState<"minimax" | "nanobanana" | "musetalk" | "cosyvoice" | "narrato" | "text">("minimax");
-  const [aiPrompt, setAiPrompt] = useState<string>("科技博主评测数码新品，镜头由远及近推入，展示精湛金属倒角工艺，伴随未来感声效。");
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  // 创作工作区状态 (四合一模式)
+  const [aiWorkTab, setAiWorkTab] = useState<"agent" | "tools" | "ranking" | "drafts">("agent");
+
+  // AI 创作工具箱 (8大内置工具)
+  const [activeWebtool, setActiveWebtool] = useState<string>("gpt4o");
+  const [rankingArea, setRankingArea] = useState<"all" | "cn" | "global">("all");
+  const [rankingPeriod, setRankingPeriod] = useState<"week" | "month" | "total">("week");
+  const [rankingCategory, setRankingCategory] = useState<"all" | "video" | "image" | "audio" | "digitalHuman" | "write">("all");
+
+  // Agent 智能创作工作流状态
+  const [agentTopic, setAgentTopic] = useState<string>("一人公司如何利用AI实现自动化全网营销与矩阵变现");
+  const [agentModel, setAgentModel] = useState<string>("minimax_h3");
+  const [agentStep, setAgentStep] = useState<"idle" | "script" | "storyboard" | "render" | "done">("idle");
+  const [agentScript, setAgentScript] = useState<string>(
+    "【标题】一个人也能干翻一个团队？2026年OPC一人公司的AI变现全流程复盘！\n【黄金前3秒】你是否曾想过，不用招人、不用买专业相机，光靠一个AI智能体就能全自动产出爆款视频？\n【痛点共鸣】很多创作者每天花5小时剪辑、写脚本，播放量却不过百，核心就在于内容生产效率过低。\n【解决方案】今天带大家拆解一套自动化流程：选品→分镜生成→2K高清渲染→多平台矩阵一键分发！\n【行动号召】在评论区留言「一人公司」，获取完整自动化Agent配置脚本与实操指南！"
+  );
+  const [storyboardShots] = useState<
+    Array<{ shot: number; time: string; desc: string; voice: string; prompt: string; preview: string }>
+  >([
+    {
+      shot: 1,
+      time: "00:00 - 00:03",
+      desc: "极简科技风办公桌，笔记本荧幕代码与AI数据流涌动，微距特写推入",
+      voice: "你是否曾想过，不用招人，光靠一个AI就能全自动产出爆款视频？",
+      prompt: "Cinematic close-up of futuristic laptop keyboard, glowing cyan and purple code matrix reflection, depth of field 8k",
+      preview: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=600&auto=format&fit=crop",
+    },
+    {
+      shot: 2,
+      time: "00:03 - 00:07",
+      desc: "一人公司创作者手持咖啡，背后的巨大全息大屏展示各大社交平台收益曲线飙升",
+      voice: "每天花5小时剪辑文案，不如把这些繁琐工作交给AI工作流引擎。",
+      prompt: "Solopreneur standing before gigantic holographic analytics dashboard, exponential growth charts, cyberpunk lighting",
+      preview: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=600&auto=format&fit=crop",
+    },
+    {
+      shot: 3,
+      time: "00:07 - 00:12",
+      desc: "MiniMax H3 与 Nano Banana 自动化渲染画面展示，精美4K成片一键导出",
+      voice: "从分镜脚本、原声克隆到一键全网发布，全流程全自动完成。",
+      prompt: "Futuristic digital creation pipeline, visual nodes interconnecting, rendering high fidelity video frames",
+      preview: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop",
+    },
+    {
+      shot: 4,
+      time: "00:12 - 00:15",
+      desc: "屏幕中央弹出评论区互动引导标签与专属礼物包礼盒动效，淡出结语",
+      voice: "想要这套自动化工作流？评论区留下「一人公司」立即获取！",
+      prompt: "Modern floating call to action card with glowing gift box icon, glossy modern tech aesthetic, dark studio backdrop",
+      preview: "https://images.unsplash.com/photo-1563986768609-322da13575f3?q=80&w=600&auto=format&fit=crop",
+    },
+  ]);
+
+  // 草稿箱任务列表
+  const [draftList, setDraftList] = useState<
+    Array<{
+      id: string;
+      title: string;
+      type: "video" | "image";
+      model: string;
+      ratio: string;
+      duration: string;
+      shots: number;
+      cover: string;
+      createTime: string;
+      status: "ready" | "processing" | "published";
+    }>
+  >([
+    {
+      id: "DF-901",
+      title: "【AI一人公司】2026内容营销与矩阵变现爆款成片",
+      type: "video",
+      model: "MiniMax H3 (秘塔2K)",
+      ratio: "9:16 竖屏",
+      duration: "15s",
+      shots: 4,
+      cover: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop",
+      createTime: "刚刚",
+      status: "ready",
+    },
+    {
+      id: "DF-902",
+      title: "【数码科技】降噪耳机极致沉浸感3D视效演示",
+      type: "video",
+      model: "Seedance 2.0 Fast",
+      ratio: "16:9 横屏",
+      duration: "10s",
+      shots: 3,
+      cover: "https://images.unsplash.com/photo-1546435770-a3e426bf472b?q=80&w=600&auto=format&fit=crop",
+      createTime: "10分钟前",
+      status: "ready",
+    },
+    {
+      id: "DF-903",
+      title: "【小红书美学】极简北欧风桌面改造灵感四宫格",
+      type: "image",
+      model: "Nano Banana Pro",
+      ratio: "3:4 图文",
+      duration: "4图",
+      shots: 4,
+      cover: "https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?q=80&w=600&auto=format&fit=crop",
+      createTime: "1小时前",
+      status: "published",
+    },
+  ]);
+
   const [generatedResult, setGeneratedResult] = useState<string | null>(null);
 
   // 一键发布状态
@@ -328,8 +438,10 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                         variant="outline"
                         onClick={() => {
                           setActiveSubTab("aiTool");
-                          setAiPrompt(`为推广【${task.title}】撰写一段高转化的自媒体宣传文案与分镜脚本，强调核心卖点。`);
-                          toast.info(`已将【${task.brand}】推广要求带入 AI 创作工坊`);
+                          setAiWorkTab("agent");
+                          setAgentTopic(task.title);
+                          setAgentScript(`【标题】${task.title} 爆款推介\n【前3秒】千万别错过！今天给大家种草一款来自${task.brand}的宝藏好物！\n【核心价值】解决日常使用痛点，高品质与性价比兼具！\n【引导互动】想要同款的小伙伴，评论区留言即可获取限时专属优惠！`);
+                          toast.info(`已将【${task.brand}】推广要求带入 AI 创作工作坊`);
                         }}
                         className="h-7 text-xs border-violet-500/30 text-violet-600 hover:bg-violet-500/10"
                       >
@@ -606,172 +718,871 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
         </div>
       )}
 
-      {/* 模块 3: AI 创作工坊 (Create / AITool) */}
+      {/* 模块 3: AI 创作工作坊 (Create / AITool 完整复刻：Agent工作台 · 内置8大工具箱 · AI排行榜 · 批量草稿箱) */}
       {activeSubTab === "aiTool" && (
         <div className="space-y-4 animate-in fade-in duration-200">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-            {[
-              { id: "minimax", name: "MiniMax H3 视频", badge: "0.09元/秒", color: "border-purple-500/30 bg-purple-500/10" },
-              { id: "nanobanana", name: "Nano Banana Pro 生图", badge: "2K顶级渲染", color: "border-yellow-500/30 bg-yellow-500/10" },
-              { id: "musetalk", name: "MuseTalk 数字人", badge: "唇形实时同步", color: "border-blue-500/30 bg-blue-500/10" },
-              { id: "cosyvoice", name: "CosyVoice 声音克隆", badge: "音色3秒极速克隆", color: "border-emerald-500/30 bg-emerald-500/10" },
-              { id: "narrato", name: "NarratoAI 智能解说", badge: "电影短剧自动解说", color: "border-indigo-500/30 bg-indigo-500/10" },
-              { id: "text", name: "MoneyPrinter 一键成片", badge: "全自动成片", color: "border-rose-500/30 bg-rose-500/10" },
-            ].map((tool) => (
-              <div
-                key={tool.id}
-                onClick={() => setAiToolType(tool.id as any)}
-                className={`cursor-pointer rounded-xl border p-3 text-center space-y-1 transition-all ${
-                  aiToolType === tool.id
-                    ? "border-violet-500 bg-violet-500/15 ring-1 ring-violet-500/50 shadow-xs"
-                    : "border-border bg-card hover:border-violet-500/30"
-                }`}
-              >
-                <div className="text-xs font-semibold text-foreground truncate">{tool.name}</div>
-                <Badge variant="outline" className="text-[9px] px-1 py-0 border-violet-500/30 text-violet-600">
-                  {tool.badge}
-                </Badge>
-              </div>
-            ))}
+          {/* 四大核心子工作区切换 */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card p-3 rounded-xl border border-border">
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              {[
+                { id: "agent", name: "✨ 智能创作 Agent (分镜成片)", icon: LuWand, desc: "爆款脚本分镜 + 音视频生成" },
+                { id: "tools", name: "🧰 官方8大AI工具箱", icon: LuLayers, desc: "吉卜力GPT/数字人/换脸/克隆/解说" },
+                { id: "ranking", name: "🏆 AI工具全网排行榜", icon: LuAward, desc: "周榜/月榜/国内外热度榜单" },
+                { id: "drafts", name: "📦 批量草稿箱 (Draft Box)", icon: LuFolderCheck, desc: "批量成片与一键直发队列" },
+              ].map((sub) => {
+                const Icon = sub.icon;
+                const isCur = aiWorkTab === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    onClick={() => setAiWorkTab(sub.id as any)}
+                    className={`flex items-center gap-2 px-3 py-2 text-xs rounded-lg transition-all ${
+                      isCur
+                        ? "bg-violet-600 text-white font-semibold shadow-xs"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    }`}
+                  >
+                    <Icon className="size-3.5" />
+                    <span>{sub.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <Badge variant="outline" className="border-violet-500/30 text-violet-600 dark:text-violet-400">
+                All-In-Agent 创作架构
+              </Badge>
+              <span>算力驱动: MiniMax H3 / Seedance 2.0 / OpenAI</span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            <div className="lg:col-span-7 space-y-4">
-              <div className="rounded-xl border border-border bg-card p-5 space-y-3.5">
-                <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
-                  <div className="flex items-center gap-2">
-                    <LuBot className="size-4 text-violet-500" />
-                    <h3 className="text-sm font-semibold text-foreground">AI 提示词创作与参数控制</h3>
+          {/* 子模块 1: 智能创作 Agent (分镜成片 & 剧本生成) */}
+          {aiWorkTab === "agent" && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                {/* 左侧控制台 (7列) */}
+                <div className="lg:col-span-7 space-y-4">
+                  {/* 1. 创作主题与灵感生成 */}
+                  <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+                    <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                      <div className="flex items-center gap-2">
+                        <LuWand className="size-4 text-violet-500" />
+                        <h3 className="text-sm font-semibold text-foreground">AI 智能脚本与分镜创作工作台</h3>
+                      </div>
+                      <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30 text-[10px]">
+                        全自动分镜管线就绪
+                      </Badge>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <Label className="text-foreground font-semibold">创作主题 / 核心痛点</Label>
+                        <span className="text-muted-foreground text-[11px]">支持自然语言输入</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          value={agentTopic}
+                          onChange={(e) => setAgentTopic(e.target.value)}
+                          placeholder="例如：一人公司如何利用AI实现自动化全网营销与矩阵变现..."
+                          className="text-xs h-9 bg-background"
+                        />
+                        <Button
+                          size="sm"
+                          disabled={agentStep === "script"}
+                          onClick={() => {
+                            setAgentStep("script");
+                            toast.info("AI Agent 正在分析全网爆款模型并生成专业短视频脚本...");
+                            setTimeout(() => {
+                              setAgentStep("storyboard");
+                              toast.success("爆款脚本与四段黄金分镜已自动构思完成！");
+                            }, 1500);
+                          }}
+                          className="h-9 text-xs bg-violet-600 text-white hover:bg-violet-700 shrink-0 gap-1.5 font-medium px-3.5"
+                        >
+                          <LuSparkles className="size-3.5" />
+                          智能生成分镜
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* 预设灵感模板快捷标签 */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[11px] text-muted-foreground">精选灵感:</span>
+                      {[
+                        "一人公司AI变现",
+                        "数码3C极客评测",
+                        "小红书美学改造",
+                        "出海短剧解说",
+                        "本地探店吃喝",
+                      ].map((tag) => (
+                        <button
+                          key={tag}
+                          onClick={() => setAgentTopic(tag)}
+                          className="text-[11px] px-2 py-0.5 rounded-full bg-muted/60 hover:bg-violet-500/10 hover:text-violet-600 border border-border/80 transition-colors"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* 参数配置 */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">成片模型</Label>
+                        <select
+                          value={agentModel}
+                          onChange={(e) => setAgentModel(e.target.value)}
+                          className="w-full h-7 rounded border border-input bg-background px-2 text-[11px] mt-1"
+                        >
+                          <option value="minimax_h3">MiniMax H3 (0.09元/秒)</option>
+                          <option value="seedance_2">Seedance 2.0 Fast</option>
+                          <option value="veo_3">Veo 3.1 电影级</option>
+                          <option value="nanobanana">Nano Banana Pro 2K</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">画面画幅比例</Label>
+                        <select className="w-full h-7 rounded border border-input bg-background px-2 text-[11px] mt-1">
+                          <option value="9:16">📱 9:16 竖屏短视频</option>
+                          <option value="16:9">💻 16:9 横屏影视/B站</option>
+                          <option value="3:4">📷 3:4 小红书比例</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">声音配音 (TTS)</Label>
+                        <select className="w-full h-7 rounded border border-input bg-background px-2 text-[11px] mt-1">
+                          <option value="voice_yunxi">晓晓 (年轻知性女声)</option>
+                          <option value="voice_yunjian">云希 (阳光活力男声)</option>
+                          <option value="voice_cosy">CosyVoice 自克隆音色</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">背景配乐风格</Label>
+                        <select className="w-full h-7 rounded border border-input bg-background px-2 text-[11px] mt-1">
+                          <option value="bgm_tech">节奏感科技未来 (Future)</option>
+                          <option value="bgm_jazz">轻快爵士轻音乐 (Jazz)</option>
+                          <option value="bgm_epic">史诗宏大电影氛围</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* 脚本编辑区 */}
+                    <div className="space-y-1.5 pt-2 border-t border-border/60">
+                      <div className="flex items-center justify-between text-xs">
+                        <Label className="text-foreground font-semibold flex items-center gap-1.5">
+                          <LuFileText className="size-3.5 text-violet-500" />
+                          AI 结构化短视频脚本
+                        </Label>
+                        <span className="text-[10px] text-muted-foreground">
+                          黄金前3秒钩子 · 痛点挖掘 · 价值提供 · 评论区截流引导
+                        </span>
+                      </div>
+                      <textarea
+                        rows={4}
+                        value={agentScript}
+                        onChange={(e) => setAgentScript(e.target.value)}
+                        className="w-full rounded-md border border-input bg-background p-2.5 text-xs font-mono leading-relaxed focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
                   </div>
-                  <Badge variant="secondary" className="text-[10px]">
-                    MiniMax H3 / OpenAI 协议原生兼容
-                  </Badge>
+
+                  {/* 2. 四段分镜拆解列表 */}
+                  <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+                    <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <LuSlidersHorizontal className="size-4 text-violet-500" />
+                        <h4 className="text-xs font-semibold text-foreground">分镜拆解与英文渲染提示词 (Storyboard)</h4>
+                      </div>
+                      <Badge variant="outline" className="text-[10px]">
+                        共 4 个精细分镜 · 15 秒总长
+                      </Badge>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {storyboardShots.map((shot) => (
+                        <div
+                          key={shot.shot}
+                          className="rounded-lg border border-border/70 bg-muted/20 p-3 flex flex-col sm:flex-row items-start gap-3 hover:border-violet-500/40 transition-colors"
+                        >
+                          <div className="relative w-full sm:w-28 h-20 rounded-md overflow-hidden bg-black shrink-0 border border-border">
+                            <img src={shot.preview} alt={`Shot ${shot.shot}`} className="w-full h-full object-cover" />
+                            <Badge className="absolute top-1 left-1 bg-black/70 text-white text-[9px] px-1 py-0">
+                              镜头 {shot.shot}
+                            </Badge>
+                            <span className="absolute bottom-1 right-1 bg-black/70 text-[9px] font-mono text-white/90 px-1 rounded">
+                              {shot.time}
+                            </span>
+                          </div>
+
+                          <div className="flex-1 space-y-1 min-w-0">
+                            <div className="text-xs font-medium text-foreground line-clamp-1">{shot.desc}</div>
+                            <div className="text-[11px] text-violet-600 dark:text-violet-400 flex items-center gap-1 line-clamp-1">
+                              <LuMic className="size-3 shrink-0" />
+                              <span>解说词: {shot.voice}</span>
+                            </div>
+                            <div className="text-[10px] text-muted-foreground font-mono truncate bg-background/80 px-2 py-0.5 rounded border border-border/60">
+                              Prompt: {shot.prompt}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-3 border-t border-border/60">
+                      <div className="text-[11px] text-muted-foreground">
+                        单次生成消耗约 1.35 积分 · 视频将自动带入草稿箱
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const newDraft = {
+                              id: `DF-${Math.floor(Math.random() * 900 + 100)}`,
+                              title: `【${agentTopic}】分镜草稿任务`,
+                              type: "video" as const,
+                              model: "MiniMax H3",
+                              ratio: "9:16 竖屏",
+                              duration: "15s",
+                              shots: 4,
+                              cover: storyboardShots[0].preview,
+                              createTime: "刚刚",
+                              status: "ready" as const,
+                            };
+                            setDraftList([newDraft, ...draftList]);
+                            toast.success("已保存该分镜大纲至批量草稿箱！");
+                          }}
+                          className="h-8 text-xs border-border"
+                        >
+                          保存至草稿箱
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={agentStep === "render"}
+                          onClick={() => {
+                            setAgentStep("render");
+                            toast.info("MiniMax H3 渲染引擎正在并行处理4个分镜，音画同步管线调度中...");
+                            setTimeout(() => {
+                              setAgentStep("done");
+                              setGeneratedResult(storyboardShots[0].preview);
+                              toast.success("AI 完整成片渲染完成！音轨配音与全息特效已无缝合成！");
+                            }, 3000);
+                          }}
+                          className="h-8 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-sm gap-1.5 font-medium px-4"
+                        >
+                          {agentStep === "render" ? (
+                            <LuRefreshCw className="size-3.5 animate-spin" />
+                          ) : (
+                            <LuPlay className="size-3.5" />
+                          )}
+                          {agentStep === "render" ? "正在合成渲染 2K 成片..." : "一键开始合成成片"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-xs">
-                    <Label className="text-foreground font-semibold">生成提示词 (Prompt)</Label>
-                    <span className="text-muted-foreground text-[11px]">支持中英文混合 · 自动增强光影分镜</span>
+                {/* 右侧实时成片预览区 (5列) */}
+                <div className="lg:col-span-5 space-y-4">
+                  <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                        <LuPlay className="size-3.5 text-violet-500" />
+                        AI Agent 成片播放器 (2K 渲染)
+                      </span>
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                        音画同步 · 动态字幕
+                      </Badge>
+                    </div>
+
+                    <div className="relative rounded-lg overflow-hidden bg-black aspect-[9/16] max-h-[420px] flex items-center justify-center border border-border/80 mx-auto">
+                      {generatedResult || agentStep === "done" ? (
+                        <div className="relative w-full h-full group">
+                          <img
+                            src={generatedResult || storyboardShots[0].preview}
+                            alt="Generated Preview"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-4 text-white">
+                            <Badge className="w-fit mb-1.5 bg-violet-600 text-white text-[10px]">
+                              MiniMax H3 2K 电影级
+                            </Badge>
+                            <span className="text-xs font-bold leading-tight">{agentTopic}</span>
+                            <p className="text-[10px] text-white/80 line-clamp-2 mt-1">
+                              字幕: {storyboardShots[0].voice}
+                            </p>
+                          </div>
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/30 transition-opacity cursor-pointer">
+                            <div className="size-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
+                              <LuPlay className="size-6 text-white ml-0.5" />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center p-6 space-y-3 text-muted-foreground">
+                          {agentStep === "render" ? (
+                            <>
+                              <LuRefreshCw className="size-8 mx-auto text-violet-500 animate-spin" />
+                              <p className="text-xs text-foreground font-medium">GPU 渲染节点正在合成音画素材...</p>
+                              <p className="text-[11px] text-muted-foreground">正在同步晓晓知性配音与动态字幕</p>
+                            </>
+                          ) : (
+                            <>
+                              <LuSparkles className="size-8 mx-auto text-violet-500/60 animate-pulse" />
+                              <p className="text-xs">等待生成，配置左侧分镜后点击「一键开始合成成片」</p>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center justify-between">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => toast.success("已下载 2K 高清短视频 (MP4) 到本地")}
+                          className="h-8 text-xs border-border flex-1 mr-2 gap-1"
+                        >
+                          <LuDownload className="size-3" />
+                          下载无水印成片
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setActiveSubTab("publish");
+                            setPublishTitle(`【${agentTopic}】一人公司自动化AI内容实操！`);
+                            toast.success("已将 AI 成片载入一键发布待发队列！");
+                          }}
+                          className="h-8 text-xs bg-emerald-600 text-white hover:bg-emerald-700 flex-1 gap-1"
+                        >
+                          <LuSend className="size-3" />
+                          一键推送到发布
+                        </Button>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          const newDraft = {
+                            id: `DF-${Math.floor(Math.random() * 900 + 100)}`,
+                            title: `【${agentTopic}】已渲染成片`,
+                            type: "video" as const,
+                            model: "MiniMax H3",
+                            ratio: "9:16 竖屏",
+                            duration: "15s",
+                            shots: 4,
+                            cover: storyboardShots[0].preview,
+                            createTime: "刚刚",
+                            status: "ready" as const,
+                          };
+                          setDraftList([newDraft, ...draftList]);
+                          setAiWorkTab("drafts");
+                          toast.success("已将成片加入草稿箱！");
+                        }}
+                        className="w-full h-7 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        加入批量草稿箱统一管理 →
+                      </Button>
+                    </div>
                   </div>
-                  <textarea
-                    rows={4}
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                    className="w-full rounded-md border border-input bg-background p-2.5 text-xs shadow-xs focus:outline-none focus:ring-1 focus:ring-primary leading-relaxed"
-                    placeholder="详细描述画面构图、镜头运镜、主体动作、光影材质与氛围..."
-                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 子模块 2: 官方 8 大内置 AI 工具箱 (Webview 工具集) */}
+          {aiWorkTab === "tools" && (
+            <div className="space-y-4">
+              {/* 工具导航条 (8大官方工具) */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+                {[
+                  { id: "gpt4o", name: "吉卜力 GPT-4o", tag: "AI创意绘图", url: "https://www.yikart.cn/chat" },
+                  { id: "musetalk", name: "MuseTalk 数字人", tag: "唇形实时同步", url: "http://39.100.101.239:6006" },
+                  { id: "parse", name: "短视频无水印解析", tag: "多平台解析", url: "http://39.100.101.239:5043" },
+                  { id: "facefusion", name: "FaceFusion 换脸", tag: "AI智能换脸", url: "http://39.100.101.239:5042" },
+                  { id: "cosyvoice", name: "CosyVoice 声音克隆", tag: "3秒极速克隆", url: "http://39.100.101.239:5046" },
+                  { id: "narrato", name: "NarratoAI 解说", tag: "影视全自动解说", url: "http://39.100.101.239:6007" },
+                  { id: "moneyprinter", name: "MoneyPrinter 成片", tag: "全自动剪辑成片", url: "http://39.100.101.239:6008" },
+                  { id: "minimax", name: "MiniMax H3 引擎", tag: "秘塔2K生视频", url: "https://metaso.cn/minimax-h3/?s=ATE" },
+                ].map((tool) => (
+                  <button
+                    key={tool.id}
+                    onClick={() => setActiveWebtool(tool.id)}
+                    className={`p-2.5 rounded-xl border text-left space-y-1 transition-all ${
+                      activeWebtool === tool.id
+                        ? "border-violet-500 bg-violet-500/15 ring-1 ring-violet-500/50 shadow-xs"
+                        : "border-border bg-card hover:border-violet-500/30"
+                    }`}
+                  >
+                    <div className="text-xs font-semibold text-foreground truncate">{tool.name}</div>
+                    <Badge variant="outline" className="text-[9px] px-1 py-0 border-violet-500/30 text-violet-600 truncate">
+                      {tool.tag}
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+
+              {/* 工具工作容器与内嵌/弹窗控制 */}
+              {(() => {
+                const toolsMap: Record<string, { title: string; desc: string; url: string; badge: string }> = {
+                  gpt4o: {
+                    title: "吉卜力风格 GPT-4o 交互创意工坊",
+                    desc: "专为内容创作者定制的吉卜力动漫艺术风大模型绘图与文案生成体系",
+                    url: "https://www.yikart.cn/chat?isHideNav=true&mask=100005#new-chat?mask=100005",
+                    badge: "官方定制对话系统",
+                  },
+                  musetalk: {
+                    title: "MuseTalk 实时高清数字人驱动系统",
+                    desc: "基于腾讯开源 MuseTalk 架构，输入一张人物照片与任意语音音频，实时生成无缝口型同步的数字人视频",
+                    url: "http://39.100.101.239:6006",
+                    badge: "GPU 实时渲染节点",
+                  },
+                  parse: {
+                    title: "在线短视频无水印解析与格式转换 (video_spider)",
+                    desc: "支持抖音、小红书、快手、TikTok、B站等主流短视频平台一键抓取无水印原画视频素材",
+                    url: "http://39.100.101.239:5043",
+                    badge: "全网解析服务",
+                  },
+                  facefusion: {
+                    title: "FaceFusion 下一代高清人脸替换系统",
+                    desc: "专业级电影人物换脸工具，支持单图替换、多脸智能跟踪、光照自适应与高分辨率重绘",
+                    url: "http://39.100.101.239:5042",
+                    badge: "本地/云端换脸引擎",
+                  },
+                  cosyvoice: {
+                    title: "CosyVoice 极速多语言音色克隆 (FunAudioLLM)",
+                    desc: "只需 3 秒参考音频，完美克隆目标人物音色、情感语调与口音，支持中英文双语跨语种合成",
+                    url: "http://39.100.101.239:5046",
+                    badge: "阿里开源音色大模型",
+                  },
+                  narrato: {
+                    title: "NarratoAI 全自动影视解说与剧情生成",
+                    desc: "自动分析电影片段，智能切分剧情高潮节点，自动生成扣人心弦的解说文案与字幕配音",
+                    url: "http://39.100.101.239:6007",
+                    badge: "爆款解说生成器",
+                  },
+                  moneyprinter: {
+                    title: "MoneyPrinterTurbo 短视频一键成片流水线",
+                    desc: "输入一句话主题，自动完成文案构思、素材抓取、背景音乐匹配、字幕对齐与视频渲染",
+                    url: "http://39.100.101.239:6008",
+                    badge: "OPC 爆款流水线",
+                  },
+                  minimax: {
+                    title: "MiniMax H3 视频生成 API (秘塔科技专属)",
+                    desc: "原生 2K 电影级画质，音画高度同步，兼容 OpenAI 协议与 ComfyUI，低至 0.09 元/秒",
+                    url: "https://metaso.cn/minimax-h3/?s=ATE",
+                    badge: "官方赞助合作伙伴",
+                  },
+                };
+
+                const currentTool = toolsMap[activeWebtool] || toolsMap.gpt4o;
+
+                return (
+                  <div className="rounded-xl border border-border bg-card overflow-hidden flex flex-col min-h-[620px] shadow-sm">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-border bg-muted/40 px-4 py-3 gap-2">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-semibold text-foreground">{currentTool.title}</h4>
+                          <Badge className="bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30 text-[10px]">
+                            {currentTool.badge}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{currentTool.desc}</p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleCopy(currentTool.url, "工具服务地址")}
+                          className="h-7 text-xs border-border gap-1"
+                        >
+                          <LuCopy className="size-3" />
+                          复制直链
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleOpenExternal(currentTool.url)}
+                          className="h-7 text-xs bg-violet-600 text-white hover:bg-violet-700 gap-1"
+                        >
+                          <LuExternalLink className="size-3" />
+                          指纹浏览器独立窗口打开
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* 内嵌 iframe / 模拟 Webview */}
+                    <div className="flex-1 w-full relative bg-background">
+                      <iframe
+                        key={currentTool.url}
+                        src={currentTool.url}
+                        className="w-full h-full min-h-[550px] border-none"
+                        title={currentTool.title}
+                        sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* 子模块 3: AI 工具全网排行榜 (aiRanking) */}
+          {aiWorkTab === "ranking" && (
+            <div className="space-y-4">
+              {/* 榜单筛选栏 */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card p-4 rounded-xl border border-border">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-foreground">类型:</span>
+                    {[
+                      { key: "all", label: "总榜" },
+                      { key: "cn", label: "国内榜" },
+                      { key: "global", label: "国外榜" },
+                    ].map((item) => (
+                      <button
+                        key={item.key}
+                        onClick={() => setRankingArea(item.key as any)}
+                        className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                          rankingArea === item.key
+                            ? "bg-violet-600 text-white font-semibold"
+                            : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-foreground">周期:</span>
+                    {[
+                      { key: "week", label: "周榜" },
+                      { key: "month", label: "月榜" },
+                      { key: "total", label: "年度榜" },
+                    ].map((item) => (
+                      <button
+                        key={item.key}
+                        onClick={() => setRankingPeriod(item.key as any)}
+                        className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                          rankingPeriod === item.key
+                            ? "bg-violet-600 text-white font-semibold"
+                            : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-foreground">分类:</span>
+                    {[
+                      { key: "all", label: "全部" },
+                      { key: "video", label: "AI视频" },
+                      { key: "image", label: "AI绘画" },
+                      { key: "digitalHuman", label: "数字人" },
+                      { key: "audio", label: "声音/解说" },
+                    ].map((item) => (
+                      <button
+                        key={item.key}
+                        onClick={() => setRankingCategory(item.key as any)}
+                        className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                          rankingCategory === item.key
+                            ? "bg-violet-500/20 text-violet-600 font-semibold"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <Label className="text-[11px] text-muted-foreground">分辨率画质</Label>
-                    <select className="w-full h-8 rounded border border-input bg-background px-2 text-xs mt-1">
-                      <option value="768p">768P 高清 (0.09 元/秒)</option>
-                      <option value="1080p">1080P 全高清 (0.12 元/秒)</option>
-                      <option value="2k">原生 2K 电影级 (0.15 元/秒)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <Label className="text-[11px] text-muted-foreground">画面画幅比例</Label>
-                    <select className="w-full h-8 rounded border border-input bg-background px-2 text-xs mt-1">
-                      <option value="9:16">📱 9:16 竖屏短视频 (推荐)</option>
-                      <option value="16:9">💻 16:9 横屏影视/B站</option>
-                      <option value="3:4">📷 3:4 小红书黄金比例</option>
-                      <option value="1:1">⏹️ 1:1 正方形</option>
-                    </select>
-                  </div>
-                  <div>
-                    <Label className="text-[11px] text-muted-foreground">时长规格</Label>
-                    <select className="w-full h-8 rounded border border-input bg-background px-2 text-xs mt-1">
-                      <option value="6s">6 秒黄金钩子</option>
-                      <option value="10s">10 秒标准短视频片段</option>
-                      <option value="15s">15 秒完整故事分镜</option>
-                    </select>
-                  </div>
+                <div className="text-xs text-muted-foreground">
+                  数据来源: AiToEarn 全球AI工具雷达 · 每周一实时同步
+                </div>
+              </div>
+
+              {/* 榜单数据表格 */}
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-muted/50 text-muted-foreground border-b border-border/80">
+                      <tr>
+                        <th className="py-2.5 px-3 text-center w-12 font-semibold">#</th>
+                        <th className="py-2.5 px-3 font-semibold">产品名 / 开发者</th>
+                        <th className="py-2.5 px-3 font-semibold">所属赛道</th>
+                        <th className="py-2.5 px-3 font-semibold">月访问量</th>
+                        <th className="py-2.5 px-3 font-semibold">周作品提及量</th>
+                        <th className="py-2.5 px-3 font-semibold">综合声望值</th>
+                        <th className="py-2.5 px-3 font-semibold">综合评分</th>
+                        <th className="py-2.5 px-3 text-right font-semibold">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {[
+                        {
+                          rank: 1,
+                          name: "MiniMax H3 (秘塔视频)",
+                          cat: "video",
+                          catLabel: "AI视频",
+                          desc: "原生2K超清、音画同步对齐、低至0.09元/秒",
+                          visits: "1,820万",
+                          mentions: "36.8万",
+                          reputation: "98.7",
+                          score: "99.2",
+                          url: "https://metaso.cn/minimax-h3/?s=ATE",
+                          change: "+2",
+                        },
+                        {
+                          rank: 2,
+                          name: "Nano Banana Pro",
+                          cat: "image",
+                          catLabel: "AI绘画",
+                          desc: "小红书爆款图文神器、支持2K高质感商品排版渲染",
+                          visits: "940万",
+                          mentions: "24.5万",
+                          reputation: "96.4",
+                          score: "98.0",
+                          url: "https://aitoearn.cn",
+                          change: "+1",
+                        },
+                        {
+                          rank: 3,
+                          name: "MuseTalk 腾讯数字人",
+                          cat: "digitalHuman",
+                          catLabel: "数字人",
+                          desc: "实时唇形与语音极致匹配、电商直播与解说带货首选",
+                          visits: "680万",
+                          mentions: "18.2万",
+                          reputation: "94.8",
+                          score: "96.5",
+                          url: "http://39.100.101.239:6006",
+                          change: "+5",
+                        },
+                        {
+                          rank: 4,
+                          name: "CosyVoice 阿里声音克隆",
+                          cat: "audio",
+                          catLabel: "声音/解说",
+                          desc: "3秒音频极速克隆原声、多语种跨语言声线合成",
+                          visits: "520万",
+                          mentions: "15.9万",
+                          reputation: "93.1",
+                          score: "95.2",
+                          url: "http://39.100.101.239:5046",
+                          change: "0",
+                        },
+                        {
+                          rank: 5,
+                          name: "FaceFusion 下一代换脸",
+                          cat: "video",
+                          catLabel: "AI视频",
+                          desc: "无痕实时人脸替换与多目标智能追踪算法",
+                          visits: "490万",
+                          mentions: "12.4万",
+                          reputation: "91.6",
+                          score: "93.8",
+                          url: "http://39.100.101.239:5042",
+                          change: "-1",
+                        },
+                        {
+                          rank: 6,
+                          name: "NarratoAI 影视剧解说",
+                          cat: "audio",
+                          catLabel: "声音/解说",
+                          desc: "长视频剧情全自动分段、高能爆点智能解说配音",
+                          visits: "380万",
+                          mentions: "9.7万",
+                          reputation: "90.2",
+                          score: "92.4",
+                          url: "http://39.100.101.239:6007",
+                          change: "+3",
+                        },
+                        {
+                          rank: 7,
+                          name: "MoneyPrinterTurbo 成片",
+                          cat: "video",
+                          catLabel: "AI视频",
+                          desc: "一键批量生成短视频、文案/素材/字幕一气呵成",
+                          visits: "310万",
+                          mentions: "8.6万",
+                          reputation: "89.5",
+                          score: "91.0",
+                          url: "http://39.100.101.239:6008",
+                          change: "+2",
+                        },
+                      ]
+                        .filter((item) => rankingCategory === "all" || item.cat === rankingCategory)
+                        .map((item) => (
+                          <tr key={item.rank} className="hover:bg-muted/40 transition-colors">
+                            <td className="py-3 px-3 text-center">
+                              {item.rank <= 3 ? (
+                                <span className="inline-flex items-center justify-center size-6 rounded-full bg-violet-600 text-white font-bold text-xs shadow-xs">
+                                  {item.rank}
+                                </span>
+                              ) : (
+                                <span className="font-semibold text-muted-foreground">{item.rank}</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3">
+                              <div className="font-semibold text-foreground flex items-center gap-1.5">
+                                <span>{item.name}</span>
+                                <Badge variant="secondary" className="text-[9px] px-1 py-0 text-emerald-600">
+                                  {item.change}
+                                </Badge>
+                              </div>
+                              <div className="text-[11px] text-muted-foreground line-clamp-1">{item.desc}</div>
+                            </td>
+                            <td className="py-3 px-3">
+                              <Badge variant="outline" className="text-[10px]">
+                                {item.catLabel}
+                              </Badge>
+                            </td>
+                            <td className="py-3 px-3 font-mono font-medium">{item.visits}</td>
+                            <td className="py-3 px-3 font-mono">{item.mentions}</td>
+                            <td className="py-3 px-3 font-mono text-muted-foreground">{item.reputation}</td>
+                            <td className="py-3 px-3 font-mono font-bold text-violet-600 dark:text-violet-400">
+                              {item.score}
+                            </td>
+                            <td className="py-3 px-3 text-right">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleOpenExternal(item.url)}
+                                className="h-7 text-xs border-violet-500/30 text-violet-600 hover:bg-violet-500/10 gap-1"
+                              >
+                                立即体验
+                                <LuExternalLink className="size-3" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 子模块 4: 批量草稿箱 (Draft Box - 批量成片与分发) */}
+          {aiWorkTab === "drafts" && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card p-4 rounded-xl border border-border">
+                <div className="space-y-0.5">
+                  <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <LuFolderCheck className="size-4 text-violet-500" />
+                    批量草稿箱 (Draft Box)
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    所有通过 AI Agent、分镜创作与外部工具生成的成片/图文草稿均统一存储于此，支持一键批量下发全网发布
+                  </p>
                 </div>
 
-                <div className="flex items-center justify-between pt-2 border-t border-border/60">
-                  <div className="text-[11px] text-muted-foreground">
-                    通过秘塔科技专属渠道接入 · 享受免GPU自建算力低延迟直出
-                  </div>
+                <div className="flex items-center gap-2">
                   <Button
                     size="sm"
-                    disabled={isGenerating}
+                    variant="outline"
                     onClick={() => {
-                      setIsGenerating(true);
-                      toast.info("AI 正在调度 MiniMax H3 视频生成引擎与音画同步管线...");
-                      setTimeout(() => {
-                        setIsGenerating(false);
-                        setGeneratedResult(
-                          "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop"
-                        );
-                        toast.success("AI 视频分镜成片生成完毕！已生成 2K 预览！");
-                      }, 2500);
+                      toast.info("已清空已发布草稿记录");
+                      setDraftList(draftList.filter((d) => d.status !== "published"));
                     }}
-                    className="h-8 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-sm gap-1.5 font-medium"
+                    className="h-8 text-xs border-border"
                   >
-                    {isGenerating ? <LuRefreshCw className="size-3.5 animate-spin" /> : <LuSparkles className="size-3.5" />}
-                    {isGenerating ? "正在渲染生成中..." : "启动 AI 极速生成"}
+                    清除已发布草稿
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setActiveSubTab("publish");
+                      toast.success(`已将全部 ${draftList.length} 条成片载入矩阵发布队列！`);
+                    }}
+                    className="h-8 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-sm gap-1.5"
+                  >
+                    <LuSend className="size-3.5" />
+                    一键批量发布全部成片 ({draftList.length})
                   </Button>
                 </div>
               </div>
-            </div>
 
-            {/* 右侧预览区 (5列) */}
-            <div className="lg:col-span-5 space-y-4">
-              <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-                <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                    <LuPlay className="size-3.5 text-violet-500" />
-                    成片与分镜素材实时预览
-                  </span>
-                  <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                    MiniMax H3 Output
-                  </Badge>
-                </div>
+              {/* 草稿列表卡片 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {draftList.map((draft) => (
+                  <div
+                    key={draft.id}
+                    className="rounded-xl border border-border bg-card p-4 space-y-3 hover:border-violet-500/40 hover:shadow-sm transition-all flex flex-col justify-between"
+                  >
+                    <div className="space-y-2">
+                      <div className="relative aspect-video rounded-lg overflow-hidden bg-black border border-border">
+                        <img src={draft.cover} alt={draft.title} className="w-full h-full object-cover" />
+                        <Badge className="absolute top-2 left-2 bg-black/70 text-white text-[10px]">
+                          {draft.type === "video" ? "短视频成片" : "小红书图文"}
+                        </Badge>
+                        <span className="absolute bottom-2 right-2 bg-black/75 text-[10px] font-mono text-white px-1.5 py-0.5 rounded">
+                          {draft.duration}
+                        </span>
+                      </div>
 
-                <div className="relative rounded-lg overflow-hidden bg-black/90 aspect-[9/16] max-h-[380px] flex items-center justify-center border border-border/80 mx-auto">
-                  {generatedResult ? (
-                    <div className="relative w-full h-full">
-                      <img src={generatedResult} alt="Generated Preview" className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3 text-white">
-                        <span className="text-xs font-bold">2K 电影级画质 · 音画完全对齐</span>
-                        <span className="text-[10px] text-white/80 line-clamp-1">{aiPrompt}</span>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span className="font-mono">{draft.id}</span>
+                          <span>{draft.createTime}</span>
+                        </div>
+                        <h5 className="text-xs font-semibold text-foreground line-clamp-1">{draft.title}</h5>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Badge variant="outline" className="text-[10px]">
+                            {draft.model}
+                          </Badge>
+                          <Badge variant="outline" className="text-[10px]">
+                            {draft.ratio}
+                          </Badge>
+                          <Badge
+                            className={`text-[9px] px-1 py-0 ${
+                              draft.status === "published"
+                                ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30"
+                                : "bg-violet-500/15 text-violet-600 border-violet-500/30"
+                            }`}
+                          >
+                            {draft.status === "published" ? "已全网发布" : "草稿待发布"}
+                          </Badge>
+                        </div>
                       </div>
                     </div>
-                  ) : (
-                    <div className="text-center p-6 space-y-2 text-muted-foreground">
-                      <LuSparkles className="size-8 mx-auto text-violet-500/60 animate-pulse" />
-                      <p className="text-xs">等待生成，点击左侧按钮立即调用 AI 大模型渲染</p>
-                    </div>
-                  )}
-                </div>
 
-                {generatedResult && (
-                  <div className="flex items-center justify-between pt-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => toast.success("已下载高清成片到本地素材库")}
-                      className="h-7 text-xs border-border"
-                    >
-                      下载高清素材
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setActiveSubTab("publish");
-                        toast.success("已将 AI 生成素材载入一键发布待发队列！");
-                      }}
-                      className="h-7 text-xs bg-emerald-600 text-white hover:bg-emerald-700"
-                    >
-                      带入一键全网发布
-                    </Button>
+                    <div className="flex items-center justify-between pt-3 border-t border-border/60">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setDraftList(draftList.filter((d) => d.id !== draft.id));
+                          toast.info("已删除该草稿");
+                        }}
+                        className="h-7 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 p-0 px-2"
+                      >
+                        删除
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setActiveSubTab("publish");
+                          setPublishTitle(draft.title);
+                          toast.success(`已载入「${draft.title}」至发布队列！`);
+                        }}
+                        className="h-7 text-xs bg-emerald-600 text-white hover:bg-emerald-700 gap-1"
+                      >
+                        <LuSend className="size-3" />
+                        发布该作品
+                      </Button>
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -999,8 +1810,10 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                     variant="ghost"
                     onClick={() => {
                       setActiveSubTab("aiTool");
-                      setAiPrompt(`围绕当前全网热搜第一的话题【${hot.title}】，撰写一篇具有极强传播力的自媒体爆款文案。`);
-                      toast.info(`已将热搜【${hot.title}】载入 AI 创作工坊`);
+                      setAiWorkTab("agent");
+                      setAgentTopic(hot.title);
+                      setAgentScript(`【热点聚焦】最新全网热议：${hot.title}！\n【深度拆解】这背后到底反映了怎样的趋势和机会？\n【独家观点】普通创作者如何借势这波流量红利实现破圈？\n【讨论互动】你怎么看这个热搜？快在评论区发表你的观点！`);
+                      toast.info(`已将热搜【${hot.title}】载入 AI 创作工作坊`);
                     }}
                     className="h-6 text-[10px] text-violet-600 hover:text-violet-700 p-0"
                   >
