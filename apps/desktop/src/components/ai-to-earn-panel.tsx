@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { toast } from "sonner";
 import {
   LuSparkles,
@@ -12,6 +12,7 @@ import {
   LuCheck,
   LuCopy,
   LuPlay,
+  LuPause,
   LuFlame,
   LuShoppingBag,
   LuCalendar,
@@ -69,12 +70,18 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
   // Agent 智能创作工作流状态
   const [agentTopic, setAgentTopic] = useState<string>("一人公司如何利用AI实现自动化全网营销与矩阵变现");
   const [agentModel, setAgentModel] = useState<string>("minimax_h3");
-  const [agentStep, setAgentStep] = useState<"idle" | "script" | "storyboard" | "render" | "done">("idle");
+  const [agentStep, setAgentStep] = useState<"idle" | "script" | "storyboard" | "render" | "done">("done");
+  const [renderProgress, setRenderProgress] = useState<number>(100);
+  const [renderStatusText, setRenderStatusText] = useState<string>("成片已就绪");
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [currentVideoSrc, setCurrentVideoSrc] = useState<string>("/videos/ai_agent_preview.mp4");
+  const videoPlayerRef = useRef<HTMLVideoElement | null>(null);
+
   const [agentScript, setAgentScript] = useState<string>(
     "【标题】一个人也能干翻一个团队？2026年OPC一人公司的AI变现全流程复盘！\n【黄金前3秒】你是否曾想过，不用招人、不用买专业相机，光靠一个AI智能体就能全自动产出爆款视频？\n【痛点共鸣】很多创作者每天花5小时剪辑、写脚本，播放量却不过百，核心就在于内容生产效率过低。\n【解决方案】今天带大家拆解一套自动化流程：选品→分镜生成→2K高清渲染→多平台矩阵一键分发！\n【行动号召】在评论区留言「一人公司」，获取完整自动化Agent配置脚本与实操指南！"
   );
   const [storyboardShots] = useState<
-    Array<{ shot: number; time: string; desc: string; voice: string; prompt: string; preview: string }>
+    Array<{ shot: number; time: string; desc: string; voice: string; prompt: string; preview: string; videoSrc: string }>
   >([
     {
       shot: 1,
@@ -83,6 +90,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       voice: "你是否曾想过，不用招人，光靠一个AI就能全自动产出爆款视频？",
       prompt: "Cinematic close-up of futuristic laptop keyboard, glowing cyan and purple code matrix reflection, depth of field 8k",
       preview: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=600&auto=format&fit=crop",
+      videoSrc: "/videos/shot_1.mp4",
     },
     {
       shot: 2,
@@ -91,6 +99,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       voice: "每天花5小时剪辑文案，不如把这些繁琐工作交给AI工作流引擎。",
       prompt: "Solopreneur standing before gigantic holographic analytics dashboard, exponential growth charts, cyberpunk lighting",
       preview: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=600&auto=format&fit=crop",
+      videoSrc: "/videos/shot_2.mp4",
     },
     {
       shot: 3,
@@ -99,6 +108,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       voice: "从分镜脚本、原声克隆到一键全网发布，全流程全自动完成。",
       prompt: "Futuristic digital creation pipeline, visual nodes interconnecting, rendering high fidelity video frames",
       preview: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop",
+      videoSrc: "/videos/shot_3.mp4",
     },
     {
       shot: 4,
@@ -107,6 +117,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       voice: "想要这套自动化工作流？评论区留下「一人公司」立即获取！",
       prompt: "Modern floating call to action card with glowing gift box icon, glossy modern tech aesthetic, dark studio backdrop",
       preview: "https://images.unsplash.com/photo-1563986768609-322da13575f3?q=80&w=600&auto=format&fit=crop",
+      videoSrc: "/videos/ai_agent_preview.mp4",
     },
   ]);
 
@@ -162,8 +173,6 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       status: "published",
     },
   ]);
-
-  const [generatedResult, setGeneratedResult] = useState<string | null>(null);
 
   // 一键发布状态
   const [publishType, setPublishType] = useState<"video" | "image">("video");
@@ -905,8 +914,22 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                           key={shot.shot}
                           className="rounded-lg border border-border/70 bg-muted/20 p-3 flex flex-col sm:flex-row items-start gap-3 hover:border-violet-500/40 transition-colors"
                         >
-                          <div className="relative w-full sm:w-28 h-20 rounded-md overflow-hidden bg-black shrink-0 border border-border">
-                            <img src={shot.preview} alt={`Shot ${shot.shot}`} className="w-full h-full object-cover" />
+                          <div
+                            onClick={() => {
+                              setCurrentVideoSrc(shot.videoSrc);
+                              setIsPlaying(true);
+                              if (videoPlayerRef.current) {
+                                videoPlayerRef.current.src = shot.videoSrc;
+                                videoPlayerRef.current.play().catch(() => {});
+                              }
+                              toast.info(`正在播放分镜 ${shot.shot} 渲染片段`);
+                            }}
+                            className="relative w-full sm:w-28 h-20 rounded-md overflow-hidden bg-black shrink-0 border border-border cursor-pointer group"
+                          >
+                            <img src={shot.preview} alt={`Shot ${shot.shot}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-70 group-hover:opacity-100 transition-opacity">
+                              <LuPlay className="size-5 text-white drop-shadow" />
+                            </div>
                             <Badge className="absolute top-1 left-1 bg-black/70 text-white text-[9px] px-1 py-0">
                               镜头 {shot.shot}
                             </Badge>
@@ -962,12 +985,33 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                           disabled={agentStep === "render"}
                           onClick={() => {
                             setAgentStep("render");
+                            setRenderProgress(15);
+                            setRenderStatusText("分镜1 科技工作台超清渲染中...");
                             toast.info("MiniMax H3 渲染引擎正在并行处理4个分镜，音画同步管线调度中...");
+
                             setTimeout(() => {
+                              setRenderProgress(45);
+                              setRenderStatusText("分镜2 全息数据大屏合成中...");
+                            }, 900);
+
+                            setTimeout(() => {
+                              setRenderProgress(75);
+                              setRenderStatusText("分镜3 晓晓知性TTS配音与字幕对齐中...");
+                            }, 1800);
+
+                            setTimeout(() => {
+                              setRenderProgress(100);
+                              setRenderStatusText("成片渲染完成！");
                               setAgentStep("done");
-                              setGeneratedResult(storyboardShots[0].preview);
-                              toast.success("AI 完整成片渲染完成！音轨配音与全息特效已无缝合成！");
-                            }, 3000);
+                              setCurrentVideoSrc("/videos/ai_agent_preview.mp4");
+                              setIsPlaying(true);
+                              if (videoPlayerRef.current) {
+                                videoPlayerRef.current.src = "/videos/ai_agent_preview.mp4";
+                                videoPlayerRef.current.currentTime = 0;
+                                videoPlayerRef.current.play().catch(() => {});
+                              }
+                              toast.success("AI 完整成片渲染完成！已自动启动播放！");
+                            }, 2800);
                           }}
                           className="h-8 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-sm gap-1.5 font-medium px-4"
                         >
@@ -976,7 +1020,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                           ) : (
                             <LuPlay className="size-3.5" />
                           )}
-                          {agentStep === "render" ? "正在合成渲染 2K 成片..." : "一键开始合成成片"}
+                          {agentStep === "render" ? `正在合成渲染 (${renderProgress}%)` : "一键开始合成成片"}
                         </Button>
                       </div>
                     </div>
@@ -991,50 +1035,112 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                         <LuPlay className="size-3.5 text-violet-500" />
                         AI Agent 成片播放器 (2K 渲染)
                       </span>
-                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                        音画同步 · 动态字幕
+                      <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-500/30">
+                        {agentStep === "render" ? renderStatusText : "MiniMax H3 音画同步"}
                       </Badge>
                     </div>
 
-                    <div className="relative rounded-lg overflow-hidden bg-black aspect-[9/16] max-h-[420px] flex items-center justify-center border border-border/80 mx-auto">
-                      {generatedResult || agentStep === "done" ? (
-                        <div className="relative w-full h-full group">
-                          <img
-                            src={generatedResult || storyboardShots[0].preview}
-                            alt="Generated Preview"
-                            className="w-full h-full object-cover"
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-4 text-white">
-                            <Badge className="w-fit mb-1.5 bg-violet-600 text-white text-[10px]">
-                              MiniMax H3 2K 电影级
-                            </Badge>
-                            <span className="text-xs font-bold leading-tight">{agentTopic}</span>
-                            <p className="text-[10px] text-white/80 line-clamp-2 mt-1">
-                              字幕: {storyboardShots[0].voice}
-                            </p>
+                    <div className="relative rounded-lg overflow-hidden bg-black aspect-[9/16] max-h-[420px] flex items-center justify-center border border-border/80 mx-auto group">
+                      {/* 真实原生可播放 Video 元素 */}
+                      <video
+                        ref={videoPlayerRef}
+                        src={currentVideoSrc}
+                        playsInline
+                        loop
+                        controls={false}
+                        className="w-full h-full object-cover"
+                        onPlay={() => setIsPlaying(true)}
+                        onPause={() => setIsPlaying(false)}
+                      />
+
+                      {/* 渲染进度条遮罩（仅渲染中显示） */}
+                      {agentStep === "render" && (
+                        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center p-6 space-y-3 text-white text-center z-20">
+                          <LuRefreshCw className="size-9 text-violet-400 animate-spin" />
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold">{renderStatusText}</p>
+                            <p className="text-[11px] text-white/70">正在调用 MiniMax H3 显卡集群生成 2K 画面并同步音频</p>
                           </div>
-                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/30 transition-opacity cursor-pointer">
-                            <div className="size-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
-                              <LuPlay className="size-6 text-white ml-0.5" />
-                            </div>
+                          <div className="w-full bg-white/20 h-1.5 rounded-full overflow-hidden">
+                            <div
+                              className="bg-violet-500 h-full transition-all duration-300"
+                              style={{ width: `${renderProgress}%` }}
+                            />
                           </div>
-                        </div>
-                      ) : (
-                        <div className="text-center p-6 space-y-3 text-muted-foreground">
-                          {agentStep === "render" ? (
-                            <>
-                              <LuRefreshCw className="size-8 mx-auto text-violet-500 animate-spin" />
-                              <p className="text-xs text-foreground font-medium">GPU 渲染节点正在合成音画素材...</p>
-                              <p className="text-[11px] text-muted-foreground">正在同步晓晓知性配音与动态字幕</p>
-                            </>
-                          ) : (
-                            <>
-                              <LuSparkles className="size-8 mx-auto text-violet-500/60 animate-pulse" />
-                              <p className="text-xs">等待生成，配置左侧分镜后点击「一键开始合成成片」</p>
-                            </>
-                          )}
                         </div>
                       )}
+
+                      {/* 悬浮字幕与标题信息 */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent flex flex-col justify-end p-4 text-white pointer-events-none z-10">
+                        <Badge className="w-fit mb-1.5 bg-violet-600 text-white text-[10px]">
+                          MiniMax H3 2K 电影级
+                        </Badge>
+                        <span className="text-xs font-bold leading-tight line-clamp-1">{agentTopic}</span>
+                        <p className="text-[10px] text-white/80 line-clamp-2 mt-1">
+                          字幕: {storyboardShots[0].voice}
+                        </p>
+                      </div>
+
+                      {/* 自定义居中播放/暂停按钮 */}
+                      {agentStep !== "render" && (
+                        <div
+                          onClick={() => {
+                            if (videoPlayerRef.current) {
+                              if (isPlaying) {
+                                videoPlayerRef.current.pause();
+                              } else {
+                                videoPlayerRef.current.play().catch(() => {});
+                              }
+                            }
+                          }}
+                          className={`absolute inset-0 flex items-center justify-center z-10 cursor-pointer transition-opacity ${
+                            isPlaying ? "opacity-0 hover:opacity-100 bg-black/20" : "opacity-100 bg-black/35"
+                          }`}
+                        >
+                          <div className="size-14 rounded-full bg-black/60 hover:bg-violet-600 text-white backdrop-blur-md flex items-center justify-center shadow-lg transition-transform hover:scale-110">
+                            {isPlaying ? (
+                              <LuPause className="size-6 text-white" />
+                            ) : (
+                              <LuPlay className="size-6 text-white ml-0.5" />
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 快捷视频片段切换 */}
+                    <div className="flex items-center justify-between text-[11px] bg-muted/40 p-2 rounded-lg border border-border">
+                      <span className="text-muted-foreground flex items-center gap-1">
+                        分镜切换:
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {[
+                          { label: "完整成片", src: "/videos/ai_agent_preview.mp4" },
+                          { label: "分镜1", src: "/videos/shot_1.mp4" },
+                          { label: "分镜2", src: "/videos/shot_2.mp4" },
+                          { label: "分镜3", src: "/videos/shot_3.mp4" },
+                        ].map((v) => (
+                          <button
+                            key={v.src}
+                            onClick={() => {
+                              setCurrentVideoSrc(v.src);
+                              setIsPlaying(true);
+                              if (videoPlayerRef.current) {
+                                videoPlayerRef.current.src = v.src;
+                                videoPlayerRef.current.currentTime = 0;
+                                videoPlayerRef.current.play().catch(() => {});
+                              }
+                            }}
+                            className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
+                              currentVideoSrc === v.src
+                                ? "bg-violet-600 text-white font-semibold"
+                                : "bg-background text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {v.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     <div className="space-y-2 pt-1">
@@ -1042,11 +1148,17 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => toast.success("已下载 2K 高清短视频 (MP4) 到本地")}
+                          onClick={() => {
+                            const a = document.createElement("a");
+                            a.href = currentVideoSrc;
+                            a.download = `AiToEarn_${agentTopic.slice(0, 10)}.mp4`;
+                            a.click();
+                            toast.success("已下载 2K 高清短视频 (MP4) 到本地");
+                          }}
                           className="h-8 text-xs border-border flex-1 mr-2 gap-1"
                         >
                           <LuDownload className="size-3" />
-                          下载无水印成片
+                          下载无水印成片 (MP4)
                         </Button>
                         <Button
                           size="sm"
