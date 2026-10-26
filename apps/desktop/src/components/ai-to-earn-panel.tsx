@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import {
   LuSparkles,
   LuSend,
@@ -33,8 +33,10 @@ import {
   LuPlus,
   LuSearch,
   LuTrash2,
-  LuPlay,
   LuCircleAlert,
+  LuFolderOpen,
+  LuCircleCheck,
+  LuFileText,
 } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -183,7 +185,6 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
   const [mptBgm, setMptBgm] = useState<string>("tech_rhythm");
   const [mptSubtitleStyle, setMptSubtitleStyle] = useState<string>("yellow_highlight");
   const [mptSource, setMptSource] = useState<string>("pexels_curated");
-  const [isMptRendering, setIsMptRendering] = useState<boolean>(false);
 
   // -------------------------------------------------------------
   // 短视频无水印解析状态 (真实调用后端)
@@ -211,67 +212,62 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
     name: string;
     size: string;
     url: string;
+    path?: string;
+    sizeMb?: number;
     type: "video" | "image";
   } | null>(null);
 
   const [draftList, setDraftList] = useState<Array<{
     id: string;
     title: string;
+    desc?: string;
     type: "video" | "image";
+    filePath?: string;
     fileName?: string;
-    cover: string;
+    fileSize?: string;
+    fileSizeMb?: number;
     duration?: string;
     date: string;
     platforms: string[];
-    status: "draft" | "published" | "scheduled";
+    status: "draft" | "launched";
   }>>(() => {
-    const saved = localStorage.getItem("ate_draft_list");
+    localStorage.removeItem("ate_draft_list"); // 清理历史遗留的假数据缓存
+    const saved = localStorage.getItem("ate_real_media_drafts");
     if (saved) {
       try {
-        return JSON.parse(saved);
-      } catch {
-        // ignore
-      }
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((item: any) => item && item.filePath);
+        }
+      } catch {}
     }
-    return [
-      {
-        id: "d-101",
-        title: "【一人公司】2026全网AI自动化矩阵变现流程揭秘",
-        type: "video",
-        fileName: "auto_matrix_guide.mp4",
-        cover: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop",
-        duration: "00:45",
-        date: "2026-10-25 18:30",
-        platforms: ["douyin", "xhs", "wx_sph", "kuaishou"],
-        status: "published",
-      },
-      {
-        id: "d-102",
-        title: "【好物种草】高性价比智能办公桌面数码拆解",
-        type: "video",
-        fileName: "desk_setup_review.mp4",
-        cover: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=600&auto=format&fit=crop",
-        duration: "00:32",
-        date: "2026-10-25 14:20",
-        platforms: ["douyin", "xhs"],
-        status: "published",
-      },
-      {
-        id: "d-103",
-        title: "【小红书图文】5个让你工作效率翻10倍的AI开源神器",
-        type: "image",
-        fileName: "top5_tools_cards.zip",
-        cover: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=600&auto=format&fit=crop",
-        date: "2026-10-25 11:15",
-        platforms: ["xhs", "wx_gzh"],
-        status: "draft",
-      },
-    ];
+    return [];
   });
 
   useEffect(() => {
-    localStorage.setItem("ate_draft_list", JSON.stringify(draftList));
+    localStorage.setItem("ate_real_media_drafts", JSON.stringify(draftList));
   }, [draftList]);
+
+  // 获取指纹浏览器中创建的真实环境配置文件
+  const [browserProfiles, setBrowserProfiles] = useState<Array<{ id: string; name: string; group?: string; proxy?: string }>>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>("");
+
+  useEffect(() => {
+    invoke<{ profiles: Array<{ id: string; name: string; group?: string; proxy?: string }> }>("list_profiles")
+      .then((res) => {
+        if (res && res.profiles) {
+          setBrowserProfiles(res.profiles);
+          if (res.profiles.length > 0) {
+            setSelectedProfileId(res.profiles[0].id);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // MoneyPrinterTurbo 本地 Edge-TTS 音频结果与测试状态
+  const [mptAudioResult, setMptAudioResult] = useState<{ audio_path: string; duration_secs: number } | null>(null);
+  const [isSynthesizingTts, setIsSynthesizingTts] = useState<boolean>(false);
 
   // -------------------------------------------------------------
   // 数据中心状态 (统计指标 / 7日走势 / 爆款明细)
@@ -292,28 +288,19 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
     proxy: string;
     creatorUrl: string;
   }>>(() => {
-    const saved = localStorage.getItem("ate_matrix_accounts");
+    localStorage.removeItem("ate_matrix_accounts"); // 清理历史假账号缓存
+    const saved = localStorage.getItem("ate_real_matrix_accounts");
     if (saved) {
       try {
-        return JSON.parse(saved);
-      } catch {
-        // ignore
-      }
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {}
     }
-    return [
-      { id: "dy-1", platform: "抖音", platformKey: "douyin", name: "科技小极客 (主号)", fans: "14.2万", works: 82, status: "online", proxy: "124.239.12.8:8080 (北京)", creatorUrl: "https://creator.douyin.com" },
-      { id: "xhs-1", platform: "小红书", platformKey: "xhs", name: "AI高效研究所", fans: "8.9万", works: 114, status: "online", proxy: "124.239.12.9:8080 (上海)", creatorUrl: "https://creator.xiaohongshu.com" },
-      { id: "sph-1", platform: "视频号", platformKey: "wx_sph", name: "一人公司实操营", fans: "5.4万", works: 65, status: "online", proxy: "124.239.12.10:8080 (广州)", creatorUrl: "https://channels.weixin.qq.com" },
-      { id: "ks-1", platform: "快手", platformKey: "kuaishou", name: "极客老张聊数码", fans: "11.8万", works: 93, status: "online", proxy: "124.239.12.11:8080 (深圳)", creatorUrl: "https://cp.kuaishou.com" },
-      { id: "bili-1", platform: "Bilibili", platformKey: "bilibili", name: "极客开发者实验室", fans: "6.1万", works: 47, status: "online", proxy: "124.239.12.12:8080 (杭州)", creatorUrl: "https://member.bilibili.com" },
-      { id: "tt-1", platform: "TikTok", platformKey: "tiktok", name: "TechFlow Global", fans: "22.5万", works: 156, status: "online", proxy: "US-Residential-01", creatorUrl: "https://www.tiktok.com/creator-center" },
-      { id: "yt-1", platform: "YouTube", platformKey: "youtube", name: "AI Automation Hub", fans: "3.8万", works: 34, status: "online", proxy: "US-Residential-02", creatorUrl: "https://studio.youtube.com" },
-      { id: "x-1", platform: "X (Twitter)", platformKey: "x", name: "@TechBuilder_AI", fans: "1.9万", works: 230, status: "online", proxy: "US-Residential-03", creatorUrl: "https://x.com" },
-    ];
+    return [];
   });
 
   useEffect(() => {
-    localStorage.setItem("ate_matrix_accounts", JSON.stringify(accountList));
+    localStorage.setItem("ate_real_matrix_accounts", JSON.stringify(accountList));
   }, [accountList]);
 
   // -------------------------------------------------------------
@@ -1175,44 +1162,97 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
 
                               {/* 流水线启动操作 */}
                               <div className="pt-2 flex items-center gap-2">
-                                <Button
-                                  onClick={() => {
-                                    setIsMptRendering(true);
-                                    setTimeout(() => {
-                                      setIsMptRendering(false);
-                                      const newDraft = {
-                                        id: `mpt-${Date.now()}`,
-                                        title: `【成片就绪】${mptSubject}`,
-                                        type: "video" as const,
-                                        fileName: `mpt_render_${Date.now().toString().slice(-4)}.mp4`,
-                                        cover: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop",
-                                        duration: "00:38",
-                                        date: new Date().toLocaleString(),
-                                        platforms: ["douyin", "xhs", "wx_sph", "kuaishou"],
-                                        status: "draft" as const,
-                                      };
-                                      setDraftList([newDraft, ...draftList]);
-                                      toast.success("MoneyPrinterTurbo 全流程渲染成功！成片已存入【发布记录与草稿队列】。");
-                                      setActiveSubTab("publish");
-                                      setPublishSubTab("pubRecord");
-                                    }, 1500);
-                                  }}
-                                  disabled={isMptRendering}
-                                  className="flex-1 h-9 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-xs font-semibold gap-1.5"
-                                >
-                                  {isMptRendering ? (
-                                    <>
-                                      <LuRefreshCw className="size-3.5 animate-spin" />
-                                      正在全自动合成与对齐短视频...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <LuWand className="size-3.5" />
-                                      启动一键成片并加入分发队列
-                                    </>
-                                  )}
-                                </Button>
+                                {/* 真实本地实用工具与成片导入 */}
+                                <div className="pt-2 space-y-2.5">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    {/* 本地 Edge-TTS 合成配音 */}
+                                    <Button
+                                      onClick={async () => {
+                                        if (!mptScript.trim()) {
+                                          toast.error("脚本文案不能为空！");
+                                          return;
+                                        }
+                                        setIsSynthesizingTts(true);
+                                        try {
+                                          const res = await invoke<{ audio_path: string; duration_secs: number }>("generate_edge_tts", {
+                                            text: mptScript,
+                                            voice: mptVoice,
+                                            rate: "+0%",
+                                            pitch: "+0Hz",
+                                          });
+                                          setMptAudioResult(res);
+                                          toast.success(`微软 Edge-TTS 配音合成成功 (${res.duration_secs.toFixed(1)}s)！音频文件已存盘。`);
+                                        } catch (err: any) {
+                                          toast.error(`语音合成失败: ${err?.message || err}`);
+                                        } finally {
+                                          setIsSynthesizingTts(false);
+                                        }
+                                      }}
+                                      disabled={isSynthesizingTts}
+                                      className="flex-1 h-9 text-xs bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs font-semibold gap-1.5"
+                                    >
+                                      {isSynthesizingTts ? (
+                                        <>
+                                          <LuRefreshCw className="size-3.5 animate-spin" /> 正在调用本地 Edge-TTS 合成配音...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <LuMic className="size-3.5" /> 本地合成配音 MP3 文件
+                                        </>
+                                      )}
+                                    </Button>
 
+                                    {/* 选择已渲染成片导入发布库 */}
+                                    <Button
+                                      onClick={async () => {
+                                        try {
+                                          const res = await invoke<{ path: string; name: string; size_mb: number } | null>("pick_media_file", { filterType: "video" });
+                                          if (res) {
+                                            setSelectedLocalFile({
+                                              name: res.name,
+                                              size: `${res.size_mb.toFixed(2)} MB`,
+                                              url: convertFileSrc(res.path),
+                                              path: res.path,
+                                              sizeMb: res.size_mb,
+                                              type: "video",
+                                            });
+                                            setPublishTitle(mptSubject || res.name.replace(/\.[^/.]+$/, ""));
+                                            setPublishDesc(mptScript);
+                                            setActiveSubTab("publish");
+                                            setPublishSubTab("video");
+                                            toast.success(`已导入真实成片: ${res.name}，正在前往【视频发布】页面！`);
+                                          }
+                                        } catch (err: any) {
+                                          toast.error(`导入视频文件失败: ${err?.message || err}`);
+                                        }
+                                      }}
+                                      className="flex-1 h-9 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-xs font-semibold gap-1.5"
+                                    >
+                                      <LuFolderOpen className="size-3.5" /> 导入本地成片 (MP4) 并发布
+                                    </Button>
+                                  </div>
+
+                                  {/* 本地生成的真实音频播放卡片 */}
+                                  {mptAudioResult && (
+                                    <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 space-y-2">
+                                      <div className="flex items-center justify-between text-xs">
+                                        <span className="font-semibold text-emerald-700 flex items-center gap-1.5 truncate">
+                                          <LuCircleCheck className="size-3.5 text-emerald-600 shrink-0" />
+                                          本地合成音频: {mptAudioResult.audio_path.split(/[\\/]/).pop()}
+                                        </span>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => invoke("open_path_in_explorer", { path: mptAudioResult.audio_path })}
+                                          className="h-6 text-[10px] text-emerald-700 hover:text-emerald-800 gap-1"
+                                        >
+                                          <LuFolderOpen className="size-3" /> 定位文件
+                                        </Button>
+                                      </div>
+                                      <audio src={convertFileSrc(mptAudioResult.audio_path)} controls className="w-full h-8" />
+                                    </div>
+                                  )}
+                                </div>
                                 <Button
                                   variant="outline"
                                   onClick={() => {
@@ -1288,13 +1328,8 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                                       throw new Error(res?.error || "未能获取有效视频流");
                                     }
                                   } catch (err: any) {
-                                    // 模拟兜底解析体验
-                                    setParsedVideoResult({
-                                      title: "【已解析视频】全网自媒体高赞素材原画",
-                                      videoUrl: "https://www.w3schools.com/html/mov_bbb.mp4",
-                                      coverUrl: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=600&auto=format&fit=crop",
-                                    });
-                                    toast.success("解析成功！已提取无水印视频流与元数据。");
+                                    setParsedVideoResult(null);
+                                    toast.error(`视频去水印解析失败: ${err?.message || err || "请确认分享链接有效且本地环境具备 yt-dlp/playwright"}`);
                                   } finally {
                                     setIsParsingVideo(false);
                                   }
@@ -1745,22 +1780,59 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
 
                   {!selectedLocalFile ? (
                     <div
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={async () => {
+                        try {
+                          if (publishSubTab === "video") {
+                            const res = await invoke<{ path: string; name: string; size_mb: number } | null>("pick_media_file", { filterType: "video" });
+                            if (res) {
+                              setSelectedLocalFile({
+                                name: res.name,
+                                size: `${res.size_mb.toFixed(2)} MB`,
+                                url: convertFileSrc(res.path),
+                                path: res.path,
+                                sizeMb: res.size_mb,
+                                type: "video",
+                              });
+                              if (!publishTitle.trim()) {
+                                setPublishTitle(res.name.replace(/\.[^/.]+$/, ""));
+                              }
+                            }
+                          } else {
+                            const res = await invoke<Array<{ path: string; name: string; size_mb: number }>>("pick_multiple_media_files", { filterType: "image" });
+                            if (res && res.length > 0) {
+                              setSelectedLocalFile({
+                                name: `${res.length} 张图片 (${res[0].name} 等)`,
+                                size: `${res.reduce((acc, c) => acc + c.size_mb, 0).toFixed(2)} MB`,
+                                url: convertFileSrc(res[0].path),
+                                path: res[0].path,
+                                sizeMb: res[0].size_mb,
+                                type: "image",
+                              });
+                              if (!publishTitle.trim()) {
+                                setPublishTitle(res[0].name.replace(/\.[^/.]+$/, ""));
+                              }
+                            }
+                          }
+                        } catch (err: any) {
+                          toast.error(`打开本地文件选择器失败: ${err?.message || err}`);
+                        }
+                      }}
                       className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-violet-500/50 transition-colors bg-muted/20 cursor-pointer"
                     >
-                      <LuDownload className="size-8 text-muted-foreground mx-auto mb-2" />
-                      <p className="text-xs font-medium text-foreground">
-                        点击浏览本地电脑文件，或拖拽{publishSubTab === "video" ? "短视频 (.mp4, .mov)" : "图片 (.jpg, .png)"}到此处
+                      <LuFolderOpen className="size-8 text-violet-500 mx-auto mb-2" />
+                      <p className="text-xs font-semibold text-foreground">
+                        点击选择本地真实电脑{publishSubTab === "video" ? "视频文件 (MP4, MOV, MKV, FLV, AVI)" : "图片文件 (JPG, PNG, WEBP)"}
                       </p>
                       <p className="text-[11px] text-muted-foreground mt-1">
-                        系统自动执行高分辨率转码与防查重元数据清洗
+                        调用系统原生选择器，选取磁盘真实作品；已选文件可直接在下方实时播放预览
                       </p>
                     </div>
                   ) : (
                     <div className="rounded-xl border border-violet-500/40 bg-card p-3 space-y-2">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-semibold text-foreground flex items-center gap-1.5 truncate">
-                          <LuPlay className="size-3.5 text-violet-500" /> {selectedLocalFile.name}
+                          {selectedLocalFile.type === "video" ? <LuVideo className="size-3.5 text-violet-500 shrink-0" /> : <LuImage className="size-3.5 text-violet-500 shrink-0" />}
+                          {selectedLocalFile.name}
                         </span>
                         <Badge variant="outline" className="text-[10px] font-mono">{selectedLocalFile.size}</Badge>
                       </div>
@@ -1780,6 +1852,22 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                             alt="preview"
                             className="w-full h-full object-contain"
                           />
+                        </div>
+                      )}
+
+                      {selectedLocalFile.path && (
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground font-mono pt-1 border-t border-border/40">
+                          <span className="truncate max-w-[80%]" title={selectedLocalFile.path}>
+                            物理路径: {selectedLocalFile.path}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => invoke("open_path_in_explorer", { path: selectedLocalFile.path! })}
+                            className="h-6 text-[10px] text-violet-600 hover:text-violet-700 gap-1"
+                          >
+                            <LuFolderOpen className="size-3" /> 定位文件
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -1879,46 +1967,116 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                     })}
                   </div>
 
-                  <Button
-                    onClick={() => {
-                      if (!publishTitle.trim()) {
-                        toast.error("请输入作品标题！");
-                        return;
-                      }
-                      setIsPublishing(true);
-                      setTimeout(() => {
-                        setIsPublishing(false);
+                  <div className="space-y-2">
+                    <Button
+                      onClick={async () => {
+                        if (!selectedLocalFile) {
+                          toast.error(`请先选择本地真实${publishSubTab === "video" ? "视频" : "图文"}文件！`);
+                          return;
+                        }
+                        if (!publishTitle.trim()) {
+                          toast.error("请输入作品标题！");
+                          return;
+                        }
+                        if (selectedPlatforms.length === 0) {
+                          toast.error("请至少勾选一个分发平台！");
+                          return;
+                        }
+
+                        setIsPublishing(true);
+                        try {
+                          const fullCopyText = `${publishTitle}\n\n${publishDesc}`;
+                          try {
+                            await navigator.clipboard.writeText(fullCopyText);
+                          } catch {}
+
+                          const platformUrls: Record<string, string> = {
+                            douyin: "https://creator.douyin.com/creator-micro/content/upload",
+                            xhs: "https://creator.xiaohongshu.com/publish/publish",
+                            wx_sph: "https://channels.weixin.qq.com/platform/post/create",
+                            kuaishou: "https://cp.kuaishou.com/article/publish/video",
+                            bilibili: "https://member.bilibili.com/platform/upload/video/frame",
+                            tiktok: "https://www.tiktok.com/creator-center/upload",
+                          };
+
+                          for (const p of selectedPlatforms) {
+                            const uploadUrl = platformUrls[p] || "https://creator.douyin.com";
+                            const matchedProfile = browserProfiles.find((bp) => bp.name.toLowerCase().includes(p) || bp.id === selectedProfileId);
+                            if (matchedProfile) {
+                              invoke("launch_profile_with_url", { profileId: matchedProfile.id, url: uploadUrl }).catch(() => {});
+                            } else if (browserProfiles.length > 0 && selectedProfileId) {
+                              invoke("launch_profile_with_url", { profileId: selectedProfileId, url: uploadUrl }).catch(() => {});
+                            } else {
+                              invoke("open_url_in_browser", { url: uploadUrl }).catch(() => {});
+                            }
+                          }
+
+                          const newDraft = {
+                            id: `d-${Date.now()}`,
+                            title: publishTitle,
+                            desc: publishDesc,
+                            type: publishSubTab,
+                            filePath: selectedLocalFile.path,
+                            fileName: selectedLocalFile.name,
+                            fileSize: selectedLocalFile.size,
+                            fileSizeMb: selectedLocalFile.sizeMb,
+                            date: new Date().toLocaleString(),
+                            platforms: selectedPlatforms,
+                            status: "launched" as const,
+                          };
+
+                          setDraftList([newDraft, ...draftList]);
+                          toast.success(`已唤起 ${selectedPlatforms.length} 个渠道的创作者中心！标题与文案已复制到剪贴板，请在浏览器中拖拽视频上传。`);
+                        } finally {
+                          setIsPublishing(false);
+                        }
+                      }}
+                      disabled={isPublishing}
+                      className="w-full h-9 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-xs font-semibold gap-1.5"
+                    >
+                      {isPublishing ? (
+                        <>
+                          <LuRefreshCw className="size-3.5 animate-spin" /> 正在调度隔离指纹环境分发...
+                        </>
+                      ) : (
+                        <>
+                          <LuSend className="size-3.5" /> 调度指纹环境分发 ({selectedPlatforms.length} 渠道)
+                        </>
+                      )}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        if (!selectedLocalFile) {
+                          toast.error(`请先选择本地真实${publishSubTab === "video" ? "视频" : "图文"}文件！`);
+                          return;
+                        }
+                        if (!publishTitle.trim()) {
+                          toast.error("请输入作品标题！");
+                          return;
+                        }
                         const newDraft = {
                           id: `d-${Date.now()}`,
                           title: publishTitle,
+                          desc: publishDesc,
                           type: publishSubTab,
-                          fileName: selectedLocalFile ? selectedLocalFile.name : "camera_render_out.mp4",
-                          cover: selectedLocalFile?.url || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop",
-                          duration: "00:30",
+                          filePath: selectedLocalFile.path,
+                          fileName: selectedLocalFile.name,
+                          fileSize: selectedLocalFile.size,
+                          fileSizeMb: selectedLocalFile.sizeMb,
                           date: new Date().toLocaleString(),
                           platforms: selectedPlatforms,
-                          status: "published" as const,
+                          status: "draft" as const,
                         };
                         setDraftList([newDraft, ...draftList]);
-                        toast.success(`成功一键全网分发至 ${selectedPlatforms.length} 个渠道！可在发布记录中追踪播放量。`);
-                        setPublishTitle("");
-                        setPublishDesc("");
-                        setSelectedLocalFile(null);
-                      }, 1000);
-                    }}
-                    disabled={isPublishing}
-                    className="w-full h-9 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-xs font-semibold gap-1.5"
-                  >
-                    {isPublishing ? (
-                      <>
-                        <LuRefreshCw className="size-3.5 animate-spin" /> 正在执行全网并发分发...
-                      </>
-                    ) : (
-                      <>
-                        <LuSend className="size-3.5" /> 一键全网矩阵分发 ({selectedPlatforms.length} 渠道)
-                      </>
-                    )}
-                  </Button>
+                        toast.success("已存入本地草稿队列！可在【发布记录与草稿】中统一管理。");
+                      }}
+                      className="w-full h-8 text-xs border-border gap-1"
+                    >
+                      <LuFolderCheck className="size-3.5 text-muted-foreground" /> 保存为本地草稿
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1939,7 +2097,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                   size="sm"
                   variant="outline"
                   onClick={() => {
-                    setDraftList(draftList.filter((d) => d.status !== "published"));
+                    setDraftList(draftList.filter((d) => d.status !== "launched"));
                     toast.info("已清理已发布的历史记录");
                   }}
                   className="h-7 text-xs border-border"
@@ -1948,68 +2106,126 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                 </Button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {draftList.map((draft) => (
-                  <div key={draft.id} className="rounded-xl border border-border bg-card p-3.5 space-y-3 hover:border-violet-500/40 transition-all flex flex-col justify-between">
-                    <div className="space-y-2">
-                      <div className="relative aspect-video rounded-lg overflow-hidden bg-black/40 border border-border">
-                        <img src={draft.cover} alt={draft.title} className="w-full h-full object-cover" />
-                        <Badge className="absolute top-2 left-2 bg-black/70 text-white text-[10px]">
-                          {draft.type === "video" ? "短视频成片" : "小红书图文"}
-                        </Badge>
-                        {draft.duration && (
-                          <span className="absolute bottom-2 right-2 bg-black/75 text-[10px] font-mono text-white px-1.5 py-0.5 rounded">
-                            {draft.duration}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <div className="text-xs font-bold text-foreground line-clamp-1">{draft.title}</div>
-                        {draft.fileName && (
-                          <div className="text-[10px] text-muted-foreground font-mono truncate">
-                            文件: {draft.fileName}
+              {draftList.length === 0 ? (
+                <div className="py-16 text-center space-y-3">
+                  <div className="size-12 rounded-full bg-muted/60 flex items-center justify-center mx-auto text-muted-foreground">
+                    <LuFolderCheck className="size-6" />
+                  </div>
+                  <div className="text-sm font-semibold text-foreground">暂无发布记录或本地草稿</div>
+                  <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                    请在上方切换至【视频发布】或【图文发布】，点击“选择本地真实文件”选取作品，配置标题与分发渠道后即可创建真实草稿或调度指纹浏览器一键分发。
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {draftList.map((draft) => (
+                    <div key={draft.id} className="rounded-xl border border-border bg-card p-3.5 space-y-3 hover:border-violet-500/40 transition-all flex flex-col justify-between">
+                      <div className="space-y-2">
+                        {draft.filePath ? (
+                          <div className="relative aspect-video rounded-lg overflow-hidden bg-black/80 border border-border flex items-center justify-center">
+                            {draft.type === "video" ? (
+                              <video src={convertFileSrc(draft.filePath)} preload="metadata" className="w-full h-full object-contain" />
+                            ) : (
+                              <img src={convertFileSrc(draft.filePath)} alt={draft.title} className="w-full h-full object-contain" />
+                            )}
+                            <Badge className="absolute top-2 left-2 bg-black/70 text-white text-[10px]">
+                              {draft.type === "video" ? "短视频成片" : "图文作品"}
+                            </Badge>
+                            {draft.fileSize && (
+                              <span className="absolute bottom-2 right-2 bg-black/75 text-[10px] font-mono text-white px-1.5 py-0.5 rounded">
+                                {draft.fileSize}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="aspect-video rounded-lg bg-muted/40 border border-border flex flex-col items-center justify-center text-muted-foreground gap-1">
+                            <LuFileText className="size-6" />
+                            <span className="text-[11px]">文案草稿</span>
                           </div>
                         )}
-                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                          <span>{draft.date}</span>
-                          <Badge
+
+                        <div className="space-y-1.5">
+                          <div className="text-xs font-bold text-foreground line-clamp-1">{draft.title}</div>
+                          {draft.filePath && (
+                            <div className="text-[10px] text-muted-foreground font-mono truncate" title={draft.filePath}>
+                              文件: {draft.fileName || draft.filePath.split(/[\\/]/).pop()}
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                            <span>{draft.date}</span>
+                            <Badge
+                              variant="outline"
+                              className={`text-[9px] ${
+                                draft.status === "launched"
+                                  ? "border-emerald-500/30 text-emerald-600 bg-emerald-500/5"
+                                  : "border-amber-500/30 text-amber-600 bg-amber-500/5"
+                              }`}
+                            >
+                              {draft.status === "launched" ? "● 已调度环境分发" : "○ 本地草稿就绪"}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 pt-2 border-t border-border/40">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {draft.platforms.map((p) => (
+                            <Badge key={p} variant="secondary" className="text-[9px] px-1 py-0">
+                              {p}
+                            </Badge>
+                          ))}
+                        </div>
+                        <div className="flex items-center justify-between gap-1 pt-1">
+                          {draft.filePath && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => invoke("open_path_in_explorer", { path: draft.filePath! })}
+                              className="h-6 text-[10px] px-2 border-border gap-1"
+                            >
+                              <LuFolderOpen className="size-3" /> 定位文件
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
                             variant="outline"
-                            className={`text-[9px] ${
-                              draft.status === "published"
-                                ? "border-emerald-500/30 text-emerald-600"
-                                : "border-amber-500/30 text-amber-600"
-                            }`}
+                            onClick={() => {
+                              if (draft.filePath) {
+                                setSelectedLocalFile({
+                                  name: draft.fileName || "draft_media",
+                                  size: draft.fileSize || "未知大小",
+                                  url: convertFileSrc(draft.filePath),
+                                  path: draft.filePath,
+                                  type: draft.type,
+                                });
+                              }
+                              setPublishTitle(draft.title);
+                              if (draft.desc) setPublishDesc(draft.desc);
+                              setSelectedPlatforms(draft.platforms);
+                              setPublishSubTab(draft.type);
+                              toast.info("已将草稿内容载入发布编辑区");
+                            }}
+                            className="h-6 text-[10px] px-2 border-border gap-1"
                           >
-                            {draft.status === "published" ? "● 已全网发布" : "○ 草稿箱就绪"}
-                          </Badge>
+                            <LuExternalLink className="size-3" /> 编辑发布
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setDraftList(draftList.filter((d) => d.id !== draft.id));
+                              toast.info("已删除该条记录");
+                            }}
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive ml-auto"
+                          >
+                            <LuTrash2 className="size-3" />
+                          </Button>
                         </div>
                       </div>
                     </div>
-
-                    <div className="flex items-center justify-between pt-2 border-t border-border/40">
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {draft.platforms.map((p) => (
-                          <Badge key={p} variant="secondary" className="text-[9px] px-1 py-0">
-                            {p}
-                          </Badge>
-                        ))}
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setDraftList(draftList.filter((d) => d.id !== draft.id));
-                          toast.info("已删除该条记录");
-                        }}
-                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                      >
-                        <LuTrash2 className="size-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
