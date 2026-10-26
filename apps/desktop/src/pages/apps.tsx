@@ -4509,7 +4509,7 @@ export function AppsPage({ profiles = [] }: AppsPageProps) {
 
         {/* Tab: 其他 (包含 AiToEarn 等第三方生态拓展) */}
         <TabsContent value="others" className="m-0 flex min-h-0 flex-1 flex-col overflow-y-auto p-6 data-[state=inactive]:hidden">
-          <div className="mx-auto max-w-6xl w-full space-y-4">
+          <div className="w-full space-y-4">
             <div className="flex items-center justify-between border-b border-border/80 pb-3">
               <div className="flex items-center gap-2">
                 <div className="flex size-7 items-center justify-center rounded-lg bg-violet-500/15 text-violet-600">

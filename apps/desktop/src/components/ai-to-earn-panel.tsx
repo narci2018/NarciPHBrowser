@@ -2828,32 +2828,99 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       {/* 模块 11: 官方云端实时镜像 (LiveWeb - aitoearn.cn/zh-CN 原站直连) */}
       {/* ============================================================= */}
       {activeSubTab === "liveWeb" && (
-        <div className="rounded-xl border border-border bg-card overflow-hidden flex flex-col flex-1 min-h-[660px] shadow-sm animate-in fade-in duration-200">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-muted/40 border-b border-border/80 text-xs">
-            <div className="flex items-center gap-2">
-              <LuGlobe className="size-4 text-violet-600" />
-              <span className="font-semibold text-foreground">AiToEarn 官方云端镜像工作台</span>
-              <Badge variant="outline" className="border-violet-500/30 text-violet-600 text-[10px]">
-                https://aitoearn.cn/zh-CN
-              </Badge>
+        <div className="rounded-xl border border-border bg-card overflow-hidden shadow-xs flex flex-col animate-in fade-in duration-200">
+          {/* 顶部控制栏 */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-3.5 border-b border-border bg-muted/20">
+            <div className="flex items-center gap-3">
+              <div className="size-8 rounded-lg bg-gradient-to-tr from-[#c565ef] to-[#55D9ED] flex items-center justify-center text-white shadow-xs font-black text-sm tracking-wider">
+                ATE
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                  AiToEarn 官方生产级工作台 (https://github.com/yikart/AiToEarn)
+                  <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px]">
+                    ● 官方服务直连 · 100%真实功能
+                  </Badge>
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  包含原版全部功能：Monetize 内容赚钱 · Publish 全网分发与日历 · Engage 智能互动 · Create 视频/图文AI批量生成 · Relay 配置
+                </p>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* 版本与节点切换 */}
+              <div className="flex items-center gap-1 p-0.5 bg-muted/80 rounded-lg border border-border text-xs">
+                {[
+                  { id: "cn", label: "🇨🇳 中国区云端", url: "https://aitoearn.cn/zh-CN" },
+                  { id: "ai", label: "🌍 国际海外版", url: "https://www.aitoearn.ai" },
+                  { id: "local", label: "💻 本地私有化 (Docker)", url: "http://localhost:8080" },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setEnvMode(item.id as any);
+                      setToolIframeKey((prev) => prev + 1);
+                      toast.success(`已切换至: ${item.label}`);
+                    }}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                      envMode === item.id
+                        ? "bg-card text-foreground shadow-xs font-semibold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* 刷新工作台 */}
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => handleLaunchInBrowser("https://aitoearn.cn/zh-CN")}
-                className="h-7 text-xs gap-1 border-violet-500/30 text-violet-600 hover:bg-violet-500/10"
+                onClick={() => {
+                  setToolIframeKey((prev) => prev + 1);
+                  toast.info("工作台已刷新");
+                }}
+                className="h-7 text-xs gap-1 border-border"
+                title="刷新工作区"
+              >
+                <LuRefreshCw className="size-3" /> 刷新
+              </Button>
+
+              {/* 在外部/指纹浏览器中打开 */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const targetUrl =
+                    envMode === "cn"
+                      ? "https://aitoearn.cn/zh-CN"
+                      : envMode === "ai"
+                      ? "https://www.aitoearn.ai"
+                      : "http://localhost:8080";
+                  handleLaunchInBrowser(targetUrl);
+                }}
+                className="h-7 text-xs gap-1 border-violet-500/30 text-violet-600 hover:bg-violet-500/10 font-medium"
               >
                 <LuExternalLink className="size-3" /> 在独立指纹标签打开
               </Button>
             </div>
           </div>
 
-          <div className="flex-1 w-full bg-background relative min-h-[640px]">
+          {/* 全屏工作区 */}
+          <div className="w-full h-[calc(100vh-250px)] min-h-[750px] bg-background relative">
             <iframe
-              src="https://aitoearn.cn/zh-CN"
-              title="AiToEarn Official Web Mirror"
-              className="w-full h-[660px] border-none"
+              key={`studio-${envMode}-${toolIframeKey}`}
+              src={
+                envMode === "cn"
+                  ? "https://aitoearn.cn/zh-CN"
+                  : envMode === "ai"
+                  ? "https://www.aitoearn.ai"
+                  : "http://localhost:8080"
+              }
+              title="AiToEarn Complete Official Studio"
+              className="w-full h-full border-none"
               allow="camera; microphone; clipboard-read; clipboard-write; display-capture"
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
             />
