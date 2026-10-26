@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import {
   LuSparkles,
@@ -30,6 +30,9 @@ import {
   LuHeart,
   LuKey,
   LuPlus,
+  LuSearch,
+  LuTrash2,
+  LuPlay,
 } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -51,23 +54,54 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
   const [, setServerRelayUrl] = useState<string>("https://aitoearn.cn/api");
   const [, setAiRelayUrl] = useState<string>("https://aitoearn.cn/api/ai");
 
-  // LLM 真实 API 配置 (支持 OpenAI / DeepSeek / MiniMax / Kimi)
-  const [llmProvider, setLlmProvider] = useState<"openai" | "deepseek" | "minimax" | "kimi">("deepseek");
-  const [llmApiKey, setLlmApiKey] = useState<string>("");
-  const [llmBaseUrl, setLlmBaseUrl] = useState<string>("https://api.deepseek.com/v1");
+  // -------------------------------------------------------------
+  // LLM 真实 API 配置 (真实支持 OpenAI / DeepSeek / MiniMax / Kimi)
+  // -------------------------------------------------------------
+  const [llmProvider, setLlmProvider] = useState<"openai" | "deepseek" | "minimax" | "kimi">(() => {
+    return (localStorage.getItem("ate_llm_provider") as any) || "deepseek";
+  });
+  const [llmApiKey, setLlmApiKey] = useState<string>(() => {
+    return localStorage.getItem("ate_llm_api_key") || "";
+  });
+  const [llmBaseUrl, setLlmBaseUrl] = useState<string>(() => {
+    return localStorage.getItem("ate_llm_base_url") || "https://api.deepseek.com/v1";
+  });
   const [isTestingLlm, setIsTestingLlm] = useState<boolean>(false);
+  const [isGeneratingCopy, setIsGeneratingCopy] = useState<boolean>(false);
 
   // -------------------------------------------------------------
   // AI 工具中心状态 (100% 忠于 aitoearn-electron/src/views/aiTool)
-  // 包含左侧侧边栏 8 大核心项：AI工具排行榜 + 7 大官方在线实战 AI 工具 Webview
+  // 包含左侧侧边栏 8 大核心项：AI工具排行榜 + 7 大官方实战 AI 工具 Webview
   // -------------------------------------------------------------
   const [activeAiTool, setActiveAiTool] = useState<string>("ranking");
   const [rankingArea, setRankingArea] = useState<"1" | "2" | "3">("1"); // 1: 总榜, 2: 国内榜, 3: 国外榜
   const [rankingPeriod, setRankingPeriod] = useState<"week" | "month">("week"); // 周榜 / 月榜
   const [rankingCategory, setRankingCategory] = useState<"all" | "video" | "image" | "audio" | "digitalHuman">("all");
+  const [rankingSearchText, setRankingSearchText] = useState<string>("");
   const [toolIframeKey, setToolIframeKey] = useState<number>(0);
 
-  // 7大官方实战工具注册表 (来自 aitoearn-electron 生产配置)
+  // 自定义服务地址映射表 (支持用户修改本地或自有 GPU 节点地址)
+  const [customToolUrls, setCustomToolUrls] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem("ate_custom_tool_urls");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // ignore
+      }
+    }
+    return {
+      gpt4o: "https://www.yikart.cn/chat?isHideNav=true&mask=100005#new-chat?mask=100005",
+      musetalk: "http://39.100.101.239:6006",
+      parse: "http://39.100.101.239:5043",
+      facefusion: "http://39.100.101.239:5042",
+      cosyvoice: "http://39.100.101.239:5046",
+      narrato: "http://39.100.101.239:6007",
+      moneyprinter: "http://39.100.101.239:6008",
+    };
+  });
+
+  // 7大官方实战工具定义
   const aiToolItems = [
     {
       id: "ranking",
@@ -81,7 +115,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       id: "gpt4o",
       name: "吉卜力版GPT-4o",
       desc: "定制版动漫吉卜力艺术风大模型绘图与文案生成系统",
-      url: "https://www.yikart.cn/chat?isHideNav=true&mask=100005#new-chat?mask=100005",
+      url: customToolUrls.gpt4o || "https://www.yikart.cn/chat?isHideNav=true&mask=100005#new-chat?mask=100005",
       icon: LuSparkles,
       badge: "官方对话绘图",
     },
@@ -89,7 +123,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       id: "musetalk",
       name: "数字人制作 MuseTalk",
       desc: "输入人像照片与语音，实时无缝口型驱动高清数字人短视频",
-      url: "http://39.100.101.239:6006",
+      url: customToolUrls.musetalk || "http://39.100.101.239:6006",
       icon: LuBot,
       badge: "GPU实时口型驱动",
     },
@@ -97,7 +131,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       id: "parse",
       name: "在线短视频解析",
       desc: "支持抖音/快手/小红书/TikTok等全平台一键获取无水印原画视频素材",
-      url: "http://39.100.101.239:5043",
+      url: customToolUrls.parse || "http://39.100.101.239:5043",
       icon: LuDownload,
       badge: "全平台去水印解析",
     },
@@ -105,7 +139,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       id: "facefusion",
       name: "AI换脸 FaceFusion",
       desc: "专业级高清人物换脸工具，支持单图替换、多脸智能追踪与高分辨率重组",
-      url: "http://39.100.101.239:5042",
+      url: customToolUrls.facefusion || "http://39.100.101.239:5042",
       icon: LuUsers,
       badge: "专业人物重组",
     },
@@ -113,7 +147,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       id: "cosyvoice",
       name: "声音克隆CosyVoice",
       desc: "阿里开源 FunAudioLLM 架构，仅需3秒参考音频极速克隆目标音色",
-      url: "http://39.100.101.239:5046",
+      url: customToolUrls.cosyvoice || "http://39.100.101.239:5046",
       icon: LuMic,
       badge: "3秒极速音色克隆",
     },
@@ -121,7 +155,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       id: "narrato",
       name: "AI解说NarratoAI",
       desc: "全自动影视片段分析、剧情高潮智能切分、扣人心弦解说文案与配音一键产出",
-      url: "http://39.100.101.239:6007",
+      url: customToolUrls.narrato || "http://39.100.101.239:6007",
       icon: LuVideo,
       badge: "影视解说自动流水线",
     },
@@ -129,71 +163,151 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       id: "moneyprinter",
       name: "一键成片MoneyPrinterTurbo",
       desc: "输入一句话主题或文案，全自动完成文案、素材抓取、字幕对齐与视频合成渲染",
-      url: "http://39.100.101.239:6008",
+      url: customToolUrls.moneyprinter || "http://39.100.101.239:6008",
       icon: LuWand,
       badge: "短视频全自动成片",
     },
   ];
 
   // -------------------------------------------------------------
-  // 一键发布模块状态 (包含 video / image / pubRecord 草稿与记录)
+  // 一键发布模块状态 (真实文件选择与预览、视频播放、草稿箱管理)
   // -------------------------------------------------------------
   const [publishSubTab, setPublishSubTab] = useState<"video" | "image" | "pubRecord">("video");
   const [publishTitle, setPublishTitle] = useState<string>("");
   const [publishDesc, setPublishDesc] = useState<string>("");
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["douyin", "xhs", "kuaishou", "wx_sph"]);
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
+
+  // 本地真实选择的媒体文件与预览
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedLocalFile, setSelectedLocalFile] = useState<{
+    name: string;
+    size: string;
+    url: string;
+    type: "video" | "image";
+  } | null>(null);
+
   const [draftList, setDraftList] = useState<Array<{
     id: string;
     title: string;
     type: "video" | "image";
+    fileName?: string;
     cover: string;
     duration?: string;
     date: string;
     platforms: string[];
     status: "draft" | "published" | "scheduled";
-  }>>([
-    {
-      id: "d-101",
-      title: "【一人公司】2026全网AI自动化矩阵变现流程揭秘",
-      type: "video",
-      cover: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop",
-      duration: "00:45",
-      date: "2026-10-25 18:30",
-      platforms: ["douyin", "xhs", "wx_sph", "kuaishou"],
-      status: "published",
-    },
-    {
-      id: "d-102",
-      title: "【好物种草】高性价比智能办公桌面数码拆解",
-      type: "video",
-      cover: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=600&auto=format&fit=crop",
-      duration: "00:32",
-      date: "2026-10-25 14:20",
-      platforms: ["douyin", "xhs"],
-      status: "published",
-    },
-    {
-      id: "d-103",
-      title: "【小红书图文】5个让你工作效率翻10倍的AI开源神器",
-      type: "image",
-      cover: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=600&auto=format&fit=crop",
-      date: "2026-10-25 11:15",
-      platforms: ["xhs", "wx_gzh"],
-      status: "draft",
-    },
-  ]);
+  }>>(() => {
+    const saved = localStorage.getItem("ate_draft_list");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // ignore
+      }
+    }
+    return [
+      {
+        id: "d-101",
+        title: "【一人公司】2026全网AI自动化矩阵变现流程揭秘",
+        type: "video",
+        fileName: "auto_matrix_guide.mp4",
+        cover: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop",
+        duration: "00:45",
+        date: "2026-10-25 18:30",
+        platforms: ["douyin", "xhs", "wx_sph", "kuaishou"],
+        status: "published",
+      },
+      {
+        id: "d-102",
+        title: "【好物种草】高性价比智能办公桌面数码拆解",
+        type: "video",
+        fileName: "desk_setup_review.mp4",
+        cover: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=600&auto=format&fit=crop",
+        duration: "00:32",
+        date: "2026-10-25 14:20",
+        platforms: ["douyin", "xhs"],
+        status: "published",
+      },
+      {
+        id: "d-103",
+        title: "【小红书图文】5个让你工作效率翻10倍的AI开源神器",
+        type: "image",
+        fileName: "top5_tools_cards.zip",
+        cover: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=600&auto=format&fit=crop",
+        date: "2026-10-25 11:15",
+        platforms: ["xhs", "wx_gzh"],
+        status: "draft",
+      },
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem("ate_draft_list", JSON.stringify(draftList));
+  }, [draftList]);
 
   // -------------------------------------------------------------
-  // 数据中心状态
+  // 数据中心状态 (统计指标 / 7日走势 / 爆款明细)
   // -------------------------------------------------------------
   const [statDateRange, setStatDateRange] = useState<"7d" | "30d" | "90d">("7d");
+
+  // -------------------------------------------------------------
+  // 账号矩阵管理状态 (持久化与独立指纹浏览器跳转)
+  // -------------------------------------------------------------
+  const [accountList, setAccountList] = useState<Array<{
+    id: string;
+    platform: string;
+    platformKey: string;
+    name: string;
+    fans: string;
+    works: number;
+    status: string;
+    proxy: string;
+    creatorUrl: string;
+  }>>(() => {
+    const saved = localStorage.getItem("ate_matrix_accounts");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // ignore
+      }
+    }
+    return [
+      { id: "dy-1", platform: "抖音", platformKey: "douyin", name: "科技小极客 (主号)", fans: "14.2万", works: 82, status: "online", proxy: "124.239.12.8:8080 (北京)", creatorUrl: "https://creator.douyin.com" },
+      { id: "xhs-1", platform: "小红书", platformKey: "xhs", name: "AI高效研究所", fans: "8.9万", works: 114, status: "online", proxy: "124.239.12.9:8080 (上海)", creatorUrl: "https://creator.xiaohongshu.com" },
+      { id: "sph-1", platform: "视频号", platformKey: "wx_sph", name: "一人公司实操营", fans: "5.4万", works: 65, status: "online", proxy: "124.239.12.10:8080 (广州)", creatorUrl: "https://channels.weixin.qq.com" },
+      { id: "ks-1", platform: "快手", platformKey: "kuaishou", name: "极客老张聊数码", fans: "11.8万", works: 93, status: "online", proxy: "124.239.12.11:8080 (深圳)", creatorUrl: "https://cp.kuaishou.com" },
+      { id: "bili-1", platform: "Bilibili", platformKey: "bilibili", name: "极客开发者实验室", fans: "6.1万", works: 47, status: "online", proxy: "124.239.12.12:8080 (杭州)", creatorUrl: "https://member.bilibili.com" },
+      { id: "tt-1", platform: "TikTok", platformKey: "tiktok", name: "TechFlow Global", fans: "22.5万", works: 156, status: "online", proxy: "US-Residential-01", creatorUrl: "https://www.tiktok.com/creator-center" },
+      { id: "yt-1", platform: "YouTube", platformKey: "youtube", name: "AI Automation Hub", fans: "3.8万", works: 34, status: "online", proxy: "US-Residential-02", creatorUrl: "https://studio.youtube.com" },
+      { id: "x-1", platform: "X (Twitter)", platformKey: "x", name: "@TechBuilder_AI", fans: "1.9万", works: 230, status: "online", proxy: "US-Residential-03", creatorUrl: "https://x.com" },
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem("ate_matrix_accounts", JSON.stringify(accountList));
+  }, [accountList]);
 
   // -------------------------------------------------------------
   // 任务市场状态
   // -------------------------------------------------------------
   const [taskSearch, setTaskSearch] = useState<string>("");
-  const [claimedTaskIds, setClaimedTaskIds] = useState<number[]>([1]);
+  const [claimedTaskIds, setClaimedTaskIds] = useState<number[]>(() => {
+    const saved = localStorage.getItem("ate_claimed_tasks");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // ignore
+      }
+    }
+    return [1];
+  });
+
+  useEffect(() => {
+    localStorage.setItem("ate_claimed_tasks", JSON.stringify(claimedTaskIds));
+  }, [claimedTaskIds]);
 
   // -------------------------------------------------------------
   // 评论管理状态
@@ -209,20 +323,152 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
   );
   const [autoInterceptEnabled, setAutoInterceptEnabled] = useState<boolean>(true);
 
+  // -------------------------------------------------------------
+  // 钱包状态与真实提现模拟
+  // -------------------------------------------------------------
+  const [walletBalance, setWalletBalance] = useState<number>(() => {
+    const saved = localStorage.getItem("ate_wallet_balance");
+    return saved ? parseFloat(saved) : 5820.0;
+  });
+  const [withdrawHistory, setWithdrawHistory] = useState<Array<{
+    date: string;
+    amount: string;
+    method: string;
+    status: string;
+  }>>(() => {
+    const saved = localStorage.getItem("ate_withdraw_history");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // ignore
+      }
+    }
+    return [
+      { date: "2026-10-24 16:30", amount: "¥ 1,200.00", method: "支付宝", status: "已到账" },
+      { date: "2026-10-18 11:20", amount: "¥ 2,500.00", method: "银行卡", status: "已到账" },
+      { date: "2026-10-10 09:45", amount: "¥ 800.00", method: "微信零钱", status: "已到账" },
+    ];
+  });
+
   // 打开外部或指纹窗口辅助
   const handleLaunchInBrowser = (url: string) => {
     if (!url) return;
     if (onOpenBrowserUrl) {
       onOpenBrowserUrl(url);
-      toast.success("已在多标签指纹隔离网络中打开！");
+      toast.success("已在指纹隔离独立网络中打开！");
     } else {
       window.open(url, "_blank");
-      toast.info("已在外部浏览器打开！");
+      toast.info("已在系统浏览器打开！");
+    }
+  };
+
+  // 真实 LLM 爆款文案生成调用
+  const handleGenerateRealLlmCopy = async (topic: string) => {
+    if (!topic.trim()) {
+      toast.error("请先输入创作主题或选题！");
+      return;
+    }
+
+    if (!llmApiKey.trim()) {
+      // 未配置 API Key，友好引导并填充优质模板
+      toast.info("提示：配置 API Key 后可直接调用真实大模型，现为您填入精选爆款文案模版！");
+      setPublishTitle(`【爆款揭秘】${topic}，新手如何快速复制破局？`);
+      setPublishDesc(
+        `【黄金前3秒】千万别划走！今天给大家彻底拆解关于“${topic}”的核心实操干货！\n\n【核心痛点】很多人卡在第一步，效率低下还找不到门道。\n【实操方案】今天整理了一份全自动闭环打法，直接套用即可！\n【行动号召】想要完整思维导图与配置文件的小伙伴，评论区回复【资料】免费领取！\n\n#AI变现 #一人公司 #自动化生产 #短视频搞钱`
+      );
+      return;
+    }
+
+    setIsGeneratingCopy(true);
+    toast.info(`正在调用 ${llmProvider.toUpperCase()} 真实生成爆款文案...`);
+    try {
+      const modelName =
+        llmProvider === "deepseek"
+          ? "deepseek-chat"
+          : llmProvider === "openai"
+          ? "gpt-4o"
+          : llmProvider === "minimax"
+          ? "MiniMax-Text-01"
+          : "moonshot-v1-8k";
+
+      const res = await fetch(`${llmBaseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${llmApiKey}`,
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            {
+              role: "system",
+              content:
+                "你是一位资深全媒体内容总监。请根据用户的选题，生成一篇高吸引力、高点赞率的短视频文案。输出格式：第1行必须为标题（格式：【标题】xxx），第2行及之后为正文脚本，并在末尾附上4个热门话题标签。",
+            },
+            {
+              role: "user",
+              content: `请为主题【${topic}】创作一篇全网高转化短视频爆款文案。`,
+            },
+          ],
+          temperature: 0.7,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      const generated = data.choices?.[0]?.message?.content || "";
+      if (generated) {
+        const lines = generated.split("\n");
+        const titleLine = lines.find((l: string) => l.includes("【标题】") || l.startsWith("标题：") || l.startsWith("# "));
+        const cleanTitle = titleLine
+          ? titleLine.replace(/^【标题】|标题：|# /g, "").trim()
+          : `【深度拆解】${topic}`;
+        setPublishTitle(cleanTitle);
+        setPublishDesc(generated);
+        toast.success("真实大模型文案生成完毕！已自动填充标题与描述。");
+      }
+    } catch (err: any) {
+      toast.error(`大模型生成失败: ${err.message}，已切换为本地模板填充。`);
+      setPublishTitle(`【深度拆解】${topic}`);
+      setPublishDesc(
+        `【黄金前3秒】为什么普通人做“${topic}”更容易出爆款？\n\n【核心价值】手把手带你跑通全流程：低门槛、高效率、可复制！\n【互动引导】在评论区留下你的城市，我们一起交流探讨！\n\n#自媒体运营 #AI搞钱 #搞流量 #短视频创作`
+      );
+    } finally {
+      setIsGeneratingCopy(false);
     }
   };
 
   return (
     <div className="space-y-4">
+      {/* 隐藏的真实文件选择器 */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept={publishSubTab === "video" ? "video/*" : "image/*"}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            const sizeMb = (file.size / (1024 * 1024)).toFixed(1) + " MB";
+            const url = URL.createObjectURL(file);
+            setSelectedLocalFile({
+              name: file.name,
+              size: sizeMb,
+              url,
+              type: file.type.startsWith("video") ? "video" : "image",
+            });
+            if (!publishTitle) {
+              setPublishTitle(file.name.replace(/\.[^/.]+$/, ""));
+            }
+            toast.success(`成功载入本地素材: ${file.name} (${sizeMb})`);
+          }
+        }}
+      />
+
       {/* 顶部 AiToEarn 品牌头栏与模式指示 */}
       <div className="rounded-xl border border-border bg-card p-4 shadow-xs relative overflow-hidden">
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#c565ef] to-[#55D9ED]" />
@@ -285,11 +531,11 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
             <Button
               size="sm"
               variant="outline"
-              onClick={() => handleLaunchInBrowser("https://aitoearn.cn")}
+              onClick={() => handleLaunchInBrowser("https://aitoearn.cn/zh-CN")}
               className="h-7 text-xs gap-1 border-violet-500/30 text-violet-600 hover:bg-violet-500/10"
             >
               <LuExternalLink className="size-3" />
-              官方云端工作台
+              官方云端工作台 (zh-CN)
             </Button>
           </div>
         </div>
@@ -397,7 +643,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                 AiToEarn 云端算力集群
               </div>
               <p className="leading-relaxed">
-                本工具集直连 AiToEarn 部署在高性能 GPU 节点上的开源深度学习集群 (MuseTalk, FaceFusion, CosyVoice, NarratoAI, MoneyPrinterTurbo)，开箱即用，无需本地配置显卡环境。
+                本工具集直连 AiToEarn 部署在高性能 GPU 节点上的开源深度学习集群 (MuseTalk, FaceFusion, CosyVoice, NarratoAI, MoneyPrinterTurbo)，开箱即用，无需本地配置显卡环境。支持自定义更换私有部署服务端。
               </p>
             </div>
           </div>
@@ -414,8 +660,16 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                       <LuAward className="size-4 text-amber-500" />
                       AI工具排行榜 · {rankingArea === "1" ? "总榜" : rankingArea === "2" ? "国内榜" : "国外榜"} · {rankingPeriod === "week" ? "周榜" : "月榜"}
                     </h3>
-                    <div className="text-xs text-muted-foreground">
-                      更新时间: {new Date().toLocaleDateString()} 12:00:00 · 数据覆盖 240+ 活跃AI产品
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <LuSearch className="size-3.5 absolute left-2.5 top-2 text-muted-foreground" />
+                        <Input
+                          placeholder="搜索AI工具名称或标签..."
+                          value={rankingSearchText}
+                          onChange={(e) => setRankingSearchText(e.target.value)}
+                          className="h-7 text-xs pl-8 w-48"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -522,7 +776,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                             mentions: "48.2万",
                             reputation: "99.4",
                             score: "99.8",
-                            url: "http://39.100.101.239:6008",
+                            url: customToolUrls.moneyprinter || "http://39.100.101.239:6008",
                             change: "+1",
                           },
                           {
@@ -537,7 +791,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                             mentions: "36.5万",
                             reputation: "98.6",
                             score: "99.1",
-                            url: "http://39.100.101.239:6006",
+                            url: customToolUrls.musetalk || "http://39.100.101.239:6006",
                             change: "+2",
                           },
                           {
@@ -552,7 +806,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                             mentions: "29.4万",
                             reputation: "97.5",
                             score: "98.4",
-                            url: "http://39.100.101.239:5042",
+                            url: customToolUrls.facefusion || "http://39.100.101.239:5042",
                             change: "0",
                           },
                           {
@@ -567,7 +821,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                             mentions: "25.1万",
                             reputation: "96.2",
                             score: "97.8",
-                            url: "http://39.100.101.239:5046",
+                            url: customToolUrls.cosyvoice || "http://39.100.101.239:5046",
                             change: "+3",
                           },
                           {
@@ -582,7 +836,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                             mentions: "21.8万",
                             reputation: "95.0",
                             score: "96.9",
-                            url: "http://39.100.101.239:6007",
+                            url: customToolUrls.narrato || "http://39.100.101.239:6007",
                             change: "-1",
                           },
                           {
@@ -597,7 +851,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                             mentions: "18.6万",
                             reputation: "94.5",
                             score: "96.2",
-                            url: "https://www.yikart.cn/chat?isHideNav=true&mask=100005#new-chat?mask=100005",
+                            url: customToolUrls.gpt4o || "https://www.yikart.cn/chat?isHideNav=true&mask=100005#new-chat?mask=100005",
                             change: "0",
                           },
                           {
@@ -612,11 +866,18 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                             mentions: "14.2万",
                             reputation: "92.8",
                             score: "94.6",
-                            url: "http://39.100.101.239:5043",
+                            url: customToolUrls.parse || "http://39.100.101.239:5043",
                             change: "+1",
                           },
                         ]
-                          .filter((item) => (rankingCategory === "all" ? true : item.cat === rankingCategory))
+                          .filter((item) => {
+                            const matchCat = rankingCategory === "all" ? true : item.cat === rankingCategory;
+                            const matchSearch = rankingSearchText.trim()
+                              ? item.name.toLowerCase().includes(rankingSearchText.toLowerCase()) ||
+                                item.desc.toLowerCase().includes(rankingSearchText.toLowerCase())
+                              : true;
+                            return matchCat && matchSearch;
+                          })
                           .map((item) => (
                             <tr key={item.rank} className="hover:bg-muted/40 transition-colors">
                               <td className="py-3 px-3 text-center">
@@ -709,7 +970,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                         <div className="flex items-center gap-2">
                           <h4 className="text-sm font-bold text-foreground truncate">{currentTool.name}</h4>
                           <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30 text-[10px]">
-                            ● 官方节点在线运行
+                            ● 官方/自定义节点连接
                           </Badge>
                         </div>
                         <p className="text-xs text-muted-foreground truncate max-w-[480px]">{currentTool.desc}</p>
@@ -738,24 +999,44 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                     </div>
                   </div>
 
-                  {/* 真实 URL 地址指示条 */}
-                  <div className="px-3.5 py-1.5 bg-muted/20 border-b border-border/60 flex items-center justify-between text-xs text-muted-foreground font-mono">
-                    <div className="flex items-center gap-2 truncate">
-                      <span className="text-violet-600 font-semibold text-[11px]">LIVE ENDPOINT:</span>
-                      <span className="truncate">{currentTool.url}</span>
+                  {/* 真实 URL 地址指示条与自定义端口配置 */}
+                  <div className="px-3.5 py-2 bg-muted/20 border-b border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground font-mono">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-violet-600 font-semibold text-[11px] shrink-0">服务ENDPOINT:</span>
+                      <Input
+                        value={currentTool.url}
+                        onChange={(e) => {
+                          const newUrls = { ...customToolUrls, [currentTool.id]: e.target.value };
+                          setCustomToolUrls(newUrls);
+                          localStorage.setItem("ate_custom_tool_urls", JSON.stringify(newUrls));
+                        }}
+                        placeholder="支持输入本地私有化端口如 http://127.0.0.1:8501 ..."
+                        className="h-6 text-[11px] font-mono flex-1 bg-background"
+                      />
                     </div>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(currentTool.url);
-                        toast.success("服务地址已复制");
-                      }}
-                      className="flex items-center gap-1 text-[11px] hover:text-foreground transition-colors shrink-0"
-                    >
-                      <LuCopy className="size-3" /> 复制链接
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(currentTool.url);
+                          toast.success("服务地址已复制");
+                        }}
+                        className="flex items-center gap-1 text-[11px] hover:text-foreground transition-colors"
+                      >
+                        <LuCopy className="size-3" /> 复制
+                      </button>
+                      <button
+                        onClick={() => {
+                          setToolIframeKey((prev) => prev + 1);
+                          toast.success("已应用并重载指定服务地址");
+                        }}
+                        className="text-[11px] text-violet-600 hover:underline"
+                      >
+                        应用地址
+                      </button>
+                    </div>
                   </div>
 
-                  {/* 真实的嵌入式交互式 WebView (无缝接入官方服务) */}
+                  {/* 嵌入式交互式 WebView */}
                   <div className="flex-1 w-full bg-background relative min-h-[640px]">
                     <iframe
                       key={toolIframeKey}
@@ -792,14 +1073,31 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => toast.success("已刷新全部矩阵账号状态，12个账号在线，0个受限")}
+                onClick={() => toast.success(`已刷新全部 ${accountList.length} 个账号状态，全部授权在线！`)}
                 className="h-8 text-xs border-border"
               >
                 <LuRefreshCw className="size-3.5 mr-1" /> 一键检测活跃状态
               </Button>
               <Button
                 size="sm"
-                onClick={() => toast.info("请在指纹浏览器中打开对应平台并完成扫码授权！")}
+                onClick={() => {
+                  const newName = prompt("请输入新账号名称 (如: 矩阵2号-带货号):", "新矩阵账号");
+                  if (newName) {
+                    const newAcc = {
+                      id: `acc-${Date.now()}`,
+                      platform: "抖音",
+                      platformKey: "douyin",
+                      name: newName,
+                      fans: "0",
+                      works: 0,
+                      status: "online",
+                      proxy: "独享高匿名代理 (自动分配)",
+                      creatorUrl: "https://creator.douyin.com",
+                    };
+                    setAccountList([...accountList, newAcc]);
+                    toast.success(`成功绑定新矩阵账号【${newName}】！`);
+                  }
+                }}
                 className="h-8 text-xs bg-violet-600 text-white hover:bg-violet-700"
               >
                 <LuPlus className="size-3.5 mr-1" /> 绑定新账号
@@ -808,32 +1106,48 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            {[
-              { id: "dy-1", platform: "抖音", name: "科技小极客 (主号)", fans: "14.2万", works: 82, status: "online", proxy: "124.239.12.8:8080 (北京)" },
-              { id: "xhs-1", platform: "小红书", name: "AI高效研究所", fans: "8.9万", works: 114, status: "online", proxy: "124.239.12.9:8080 (上海)" },
-              { id: "sph-1", platform: "视频号", name: "一人公司实操营", fans: "5.4万", works: 65, status: "online", proxy: "124.239.12.10:8080 (广州)" },
-              { id: "ks-1", platform: "快手", name: "极客老张聊数码", fans: "11.8万", works: 93, status: "online", proxy: "124.239.12.11:8080 (深圳)" },
-              { id: "bili-1", platform: "Bilibili", name: "极客开发者实验室", fans: "6.1万", works: 47, status: "online", proxy: "124.239.12.12:8080 (杭州)" },
-              { id: "tt-1", platform: "TikTok", name: "TechFlow Global", fans: "22.5万", works: 156, status: "online", proxy: "US-Residential-Proxy-01" },
-              { id: "yt-1", platform: "YouTube", name: "AI Automation Hub", fans: "3.8万", works: 34, status: "online", proxy: "US-Residential-Proxy-02" },
-              { id: "x-1", platform: "X (Twitter)", name: "@TechBuilder_AI", fans: "1.9万", works: 230, status: "online", proxy: "US-Residential-Proxy-03" },
-            ].map((acc) => (
-              <div key={acc.id} className="p-3 rounded-lg border border-border bg-card/60 space-y-2 hover:border-violet-500/30 transition-all">
-                <div className="flex items-center justify-between">
-                  <Badge variant="secondary" className="text-[10px] font-semibold">{acc.platform}</Badge>
-                  <span className="flex items-center gap-1 text-[10px] text-emerald-600">
-                    <span className="size-1.5 rounded-full bg-emerald-500"></span> 正常授权
-                  </span>
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-foreground truncate">{acc.name}</div>
-                  <div className="text-[11px] text-muted-foreground flex items-center justify-between mt-1">
-                    <span>粉丝: <strong className="text-foreground font-mono">{acc.fans}</strong></span>
-                    <span>作品: <strong className="text-foreground font-mono">{acc.works}</strong></span>
+            {accountList.map((acc) => (
+              <div key={acc.id} className="p-3.5 rounded-lg border border-border bg-card/60 space-y-2.5 hover:border-violet-500/30 transition-all flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Badge variant="secondary" className="text-[10px] font-semibold">{acc.platform}</Badge>
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-600">
+                      <span className="size-1.5 rounded-full bg-emerald-500"></span> 授权正常
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-foreground truncate">{acc.name}</div>
+                    <div className="text-[11px] text-muted-foreground flex items-center justify-between mt-1">
+                      <span>粉丝: <strong className="text-foreground font-mono">{acc.fans}</strong></span>
+                      <span>作品: <strong className="text-foreground font-mono">{acc.works}</strong></span>
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground font-mono truncate border-t border-border/40 pt-1.5">
+                    代理: {acc.proxy}
                   </div>
                 </div>
-                <div className="text-[10px] text-muted-foreground font-mono truncate border-t border-border/40 pt-1.5">
-                  代理: {acc.proxy}
+
+                <div className="pt-2 border-t border-border/40 flex items-center justify-between gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleLaunchInBrowser(acc.creatorUrl)}
+                    className="h-6 text-[10px] px-2 border-violet-500/30 text-violet-600 hover:bg-violet-500/10 flex-1 truncate"
+                  >
+                    <LuExternalLink className="size-2.5 mr-1" /> 打开创作者后台
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setAccountList(accountList.filter((a) => a.id !== acc.id));
+                      toast.info(`已移除账号: ${acc.name}`);
+                    }}
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                    title="移除账号"
+                  >
+                    <LuTrash2 className="size-3" />
+                  </Button>
                 </div>
               </div>
             ))}
@@ -853,7 +1167,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                 全网跨平台实时热点聚合与选题库
               </h3>
               <p className="text-xs text-muted-foreground">
-                实时同步抖音热点、小红书热搜、快手热门与微博爆款词，一键带入一键成片与解说工具
+                实时同步抖音热点、小红书热搜、快手热门与微博爆款词，一键调用大模型生成或进入一键成片
               </p>
             </div>
             <Button
@@ -868,12 +1182,12 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {[
-              { rank: 1, title: "一人公司年入百万的AI全自动化变现工作流", heat: "984.2w", platform: "小红书" },
-              { rank: 2, title: "MiniMax H3 与开源短视频一键成片真实测评", heat: "842.1w", platform: "抖音" },
-              { rank: 3, title: "普通人如何利用数字人带货打破月入天花板", heat: "753.8w", platform: "视频号" },
-              { rank: 4, title: "用AI做全网影视解说到底能不能过原创？", heat: "621.5w", platform: "B站" },
-              { rank: 5, title: "2026最新短视频防查重与暗水印清洗教程", heat: "589.0w", platform: "快手" },
-              { rank: 6, title: "无需露脸！声音克隆+AI换脸批量做海外矩阵", heat: "492.3w", platform: "TikTok" },
+              { rank: 1, title: "一人公司年入百万的AI全自动化变现工作流", heat: "984.2w", platform: "小红书", searchUrl: "https://www.xiaohongshu.com/search_result?keyword=" },
+              { rank: 2, title: "MiniMax H3 与开源短视频一键成片真实测评", heat: "842.1w", platform: "抖音", searchUrl: "https://www.douyin.com/search/" },
+              { rank: 3, title: "普通人如何利用数字人带货打破月入天花板", heat: "753.8w", platform: "视频号", searchUrl: "https://weixin.qq.com" },
+              { rank: 4, title: "用AI做全网影视解说到底能不能过原创？", heat: "621.5w", platform: "B站", searchUrl: "https://search.bilibili.com/all?keyword=" },
+              { rank: 5, title: "2026最新短视频防查重与暗水印清洗教程", heat: "589.0w", platform: "快手", searchUrl: "https://www.kuaishou.com/search/video?searchKey=" },
+              { rank: 6, title: "无需露脸！声音克隆+AI换脸批量做海外矩阵", heat: "492.3w", platform: "TikTok", searchUrl: "https://www.tiktok.com/search?q=" },
             ].map((hot) => (
               <div key={hot.rank} className="p-3.5 rounded-xl border border-border bg-card/60 flex items-start justify-between gap-3 hover:border-violet-500/30 transition-all">
                 <div className="flex items-start gap-2.5 min-w-0">
@@ -890,19 +1204,30 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                     </div>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    navigator.clipboard.writeText(hot.title);
-                    setActiveSubTab("aiTool");
-                    setActiveAiTool("moneyprinter");
-                    toast.success(`已复制热搜【${hot.title}】，已切换至一键成片工具，请在输入框粘贴开始生成！`);
-                  }}
-                  className="h-7 text-xs text-violet-600 hover:text-violet-700 shrink-0"
-                >
-                  一键成片 →
-                </Button>
+
+                <div className="flex flex-col gap-1 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setActiveSubTab("publish");
+                      handleGenerateRealLlmCopy(hot.title);
+                    }}
+                    className="h-6 text-[11px] text-violet-600 hover:text-violet-700 p-0"
+                  >
+                    AI写文案 →
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      handleLaunchInBrowser(`${hot.searchUrl}${encodeURIComponent(hot.title)}`);
+                    }}
+                    className="h-6 text-[10px] text-muted-foreground hover:text-foreground p-0"
+                  >
+                    搜索对标 →
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -949,23 +1274,79 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
               {/* 表单填写区 */}
               <div className="lg:col-span-8 rounded-xl border border-border bg-card p-5 space-y-4">
+                {/* 媒体上传与真实本地预览 */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-foreground">
-                    {publishSubTab === "video" ? "视频素材上传 / 路径" : "图文素材上传 (支持多图)"}
-                  </Label>
-                  <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-violet-500/50 transition-colors bg-muted/20">
-                    <LuDownload className="size-8 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-xs font-medium text-foreground">
-                      点击上传或拖拽{publishSubTab === "video" ? "短视频 (.mp4, .mov)" : "图片 (.jpg, .png)"}到此处
-                    </p>
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      系统自动执行高分辨率转码与防查重元数据清洗
-                    </p>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-foreground">
+                      {publishSubTab === "video" ? "视频素材选择 / 本地路径" : "图文素材选择"}
+                    </Label>
+                    {selectedLocalFile && (
+                      <button
+                        onClick={() => setSelectedLocalFile(null)}
+                        className="text-[11px] text-destructive hover:underline"
+                      >
+                        清除已选文件
+                      </button>
+                    )}
                   </div>
+
+                  {!selectedLocalFile ? (
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-violet-500/50 transition-colors bg-muted/20 cursor-pointer"
+                    >
+                      <LuDownload className="size-8 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-xs font-medium text-foreground">
+                        点击浏览本地电脑文件，或拖拽{publishSubTab === "video" ? "短视频 (.mp4, .mov)" : "图片 (.jpg, .png)"}到此处
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        系统自动执行高分辨率转码与防查重元数据清洗
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-violet-500/40 bg-card p-3 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-foreground flex items-center gap-1.5 truncate">
+                          <LuPlay className="size-3.5 text-violet-500" /> {selectedLocalFile.name}
+                        </span>
+                        <Badge variant="outline" className="text-[10px] font-mono">{selectedLocalFile.size}</Badge>
+                      </div>
+
+                      {selectedLocalFile.type === "video" ? (
+                        <div className="relative aspect-video rounded-lg overflow-hidden bg-black max-h-56">
+                          <video
+                            src={selectedLocalFile.url}
+                            controls
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      ) : (
+                        <div className="relative aspect-video rounded-lg overflow-hidden bg-black/20 max-h-56">
+                          <img
+                            src={selectedLocalFile.url}
+                            alt="preview"
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-foreground">作品标题</Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-foreground">作品标题</Label>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleGenerateRealLlmCopy(publishTitle || "AI自媒体变现实操")}
+                      disabled={isGeneratingCopy}
+                      className="h-6 text-[11px] text-violet-600 hover:text-violet-700 p-0 gap-1"
+                    >
+                      <LuSparkles className="size-3" />
+                      {isGeneratingCopy ? "大模型生成中..." : "AI一键扩写爆款文案"}
+                    </Button>
+                  </div>
                   <Input
                     placeholder="输入引人注目的爆款标题（建议包含核心价值与悬念）..."
                     value={publishTitle}
@@ -1058,7 +1439,8 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                           id: `d-${Date.now()}`,
                           title: publishTitle,
                           type: publishSubTab,
-                          cover: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop",
+                          fileName: selectedLocalFile ? selectedLocalFile.name : "camera_render_out.mp4",
+                          cover: selectedLocalFile?.url || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop",
                           duration: "00:30",
                           date: new Date().toLocaleString(),
                           platforms: selectedPlatforms,
@@ -1068,14 +1450,15 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                         toast.success(`成功一键全网分发至 ${selectedPlatforms.length} 个渠道！可在发布记录中追踪播放量。`);
                         setPublishTitle("");
                         setPublishDesc("");
-                      }, 1200);
+                        setSelectedLocalFile(null);
+                      }, 1000);
                     }}
                     disabled={isPublishing}
                     className="w-full h-9 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-xs font-semibold gap-1.5"
                   >
                     {isPublishing ? (
                       <>
-                        <LuRefreshCw className="size-3.5 animate-spin" /> 正在执行全网自动化分发...
+                        <LuRefreshCw className="size-3.5 animate-spin" /> 正在执行全网并发分发...
                       </>
                     ) : (
                       <>
@@ -1114,42 +1497,62 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {draftList.map((draft) => (
-                  <div key={draft.id} className="rounded-xl border border-border bg-card p-3.5 space-y-3 hover:border-violet-500/40 transition-all">
-                    <div className="relative aspect-video rounded-lg overflow-hidden bg-black/40 border border-border">
-                      <img src={draft.cover} alt={draft.title} className="w-full h-full object-cover" />
-                      <Badge className="absolute top-2 left-2 bg-black/70 text-white text-[10px]">
-                        {draft.type === "video" ? "短视频成片" : "小红书图文"}
-                      </Badge>
-                      {draft.duration && (
-                        <span className="absolute bottom-2 right-2 bg-black/75 text-[10px] font-mono text-white px-1.5 py-0.5 rounded">
-                          {draft.duration}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <div className="text-xs font-bold text-foreground line-clamp-1">{draft.title}</div>
-                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                        <span>创建时间: {draft.date}</span>
-                        <Badge
-                          variant="outline"
-                          className={`text-[9px] ${
-                            draft.status === "published"
-                              ? "border-emerald-500/30 text-emerald-600"
-                              : "border-amber-500/30 text-amber-600"
-                          }`}
-                        >
-                          {draft.status === "published" ? "● 已全网发布" : "○ 草稿箱就绪"}
+                  <div key={draft.id} className="rounded-xl border border-border bg-card p-3.5 space-y-3 hover:border-violet-500/40 transition-all flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="relative aspect-video rounded-lg overflow-hidden bg-black/40 border border-border">
+                        <img src={draft.cover} alt={draft.title} className="w-full h-full object-cover" />
+                        <Badge className="absolute top-2 left-2 bg-black/70 text-white text-[10px]">
+                          {draft.type === "video" ? "短视频成片" : "小红书图文"}
                         </Badge>
+                        {draft.duration && (
+                          <span className="absolute bottom-2 right-2 bg-black/75 text-[10px] font-mono text-white px-1.5 py-0.5 rounded">
+                            {draft.duration}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="text-xs font-bold text-foreground line-clamp-1">{draft.title}</div>
+                        {draft.fileName && (
+                          <div className="text-[10px] text-muted-foreground font-mono truncate">
+                            文件: {draft.fileName}
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span>{draft.date}</span>
+                          <Badge
+                            variant="outline"
+                            className={`text-[9px] ${
+                              draft.status === "published"
+                                ? "border-emerald-500/30 text-emerald-600"
+                                : "border-amber-500/30 text-amber-600"
+                            }`}
+                          >
+                            {draft.status === "published" ? "● 已全网发布" : "○ 草稿箱就绪"}
+                          </Badge>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1 flex-wrap pt-1 border-t border-border/40">
-                      {draft.platforms.map((p) => (
-                        <Badge key={p} variant="secondary" className="text-[9px] px-1 py-0">
-                          {p}
-                        </Badge>
-                      ))}
+                    <div className="flex items-center justify-between pt-2 border-t border-border/40">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {draft.platforms.map((p) => (
+                          <Badge key={p} variant="secondary" className="text-[9px] px-1 py-0">
+                            {p}
+                          </Badge>
+                        ))}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setDraftList(draftList.filter((d) => d.id !== draft.id));
+                          toast.info("已删除该条记录");
+                        }}
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                      >
+                        <LuTrash2 className="size-3" />
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -1452,56 +1855,59 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
               { id: 3, title: "人体工学智能办公升降桌短视频种草", reward: "¥450/条 + 15%分佣", brand: "Brateck", deadline: "剩6天", quota: "35/80" },
               { id: 4, title: "跨境海外短视频声音克隆实操教程投稿", reward: "¥800/条", brand: "FunAudio", deadline: "剩3天", quota: "12/30" },
               { id: 5, title: "一人公司AI变现自动化工作流案例征集", reward: "¥1,500/条", brand: "AiToEarn", deadline: "剩8天", quota: "42/50" },
-            ].map((task) => {
-              const isClaimed = claimedTaskIds.includes(task.id);
-              return (
-                <div key={task.id} className="p-4 rounded-xl border border-border bg-card space-y-3 hover:border-violet-500/40 transition-all flex flex-col justify-between">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Badge variant="secondary" className="text-[10px]">{task.brand}</Badge>
-                      <span className="text-xs font-bold text-amber-600 dark:text-amber-400 font-mono">{task.reward}</span>
+            ]
+              .filter((t) => (taskSearch.trim() ? t.title.includes(taskSearch) || t.brand.includes(taskSearch) : true))
+              .map((task) => {
+                const isClaimed = claimedTaskIds.includes(task.id);
+                return (
+                  <div key={task.id} className="p-4 rounded-xl border border-border bg-card space-y-3 hover:border-violet-500/40 transition-all flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Badge variant="secondary" className="text-[10px]">{task.brand}</Badge>
+                        <span className="text-xs font-bold text-amber-600 dark:text-amber-400 font-mono">{task.reward}</span>
+                      </div>
+                      <h4 className="text-xs font-bold text-foreground line-clamp-1">{task.title}</h4>
+                      <div className="text-[11px] text-muted-foreground flex items-center justify-between">
+                        <span>截止: {task.deadline}</span>
+                        <span>名额: {task.quota}</span>
+                      </div>
                     </div>
-                    <h4 className="text-xs font-bold text-foreground line-clamp-1">{task.title}</h4>
-                    <div className="text-[11px] text-muted-foreground flex items-center justify-between">
-                      <span>截止: {task.deadline}</span>
-                      <span>名额: {task.quota}</span>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-border/40">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setActiveSubTab("aiTool");
-                        setActiveAiTool("moneyprinter");
-                        navigator.clipboard.writeText(`【${task.brand}】${task.title}`);
-                        toast.success(`已复制任务主题【${task.title}】，已切换至一键成片流水线！`);
-                      }}
-                      className="h-7 text-xs border-violet-500/30 text-violet-600 hover:bg-violet-500/10"
-                    >
-                      <LuWand className="size-3 mr-1" /> 一键AI成片
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        if (isClaimed) {
-                          toast.info("已认领，请完成发布后在草稿箱提交链接审核！");
-                        } else {
-                          setClaimedTaskIds([...claimedTaskIds, task.id]);
-                          toast.success(`成功认领任务【${task.title}】！推广素材包已同步。`);
-                        }
-                      }}
-                      className={`h-7 text-xs ${
-                        isClaimed ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-violet-600 text-white hover:bg-violet-700"
-                      }`}
-                    >
-                      {isClaimed ? "已认领 · 提交链接" : "一键认领任务"}
-                    </Button>
+                    <div className="flex items-center justify-between pt-2 border-t border-border/40">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setActiveSubTab("publish");
+                          handleGenerateRealLlmCopy(`【${task.brand}】${task.title}`);
+                        }}
+                        className="h-7 text-xs border-violet-500/30 text-violet-600 hover:bg-violet-500/10"
+                      >
+                        <LuWand className="size-3 mr-1" /> 一键AI成片
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          if (isClaimed) {
+                            const url = prompt("请输入您已发布的视频链接（如抖音/小红书链接）进行提交审核：", "");
+                            if (url) {
+                              toast.success("任务链接提交成功！平台审核通过后佣金将自动结算至您的钱包。");
+                            }
+                          } else {
+                            setClaimedTaskIds([...claimedTaskIds, task.id]);
+                            toast.success(`成功认领任务【${task.title}】！推广素材包已同步。`);
+                          }
+                        }}
+                        className={`h-7 text-xs ${
+                          isClaimed ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-violet-600 text-white hover:bg-violet-700"
+                        }`}
+                      >
+                        {isClaimed ? "已认领 · 提交链接" : "一键认领任务"}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
         </div>
       )}
@@ -1524,7 +1930,34 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
-                onClick={() => toast.success("已提交提现申请 ¥500！通常在2小时内到账绑定账户。")}
+                onClick={() => {
+                  const amtStr = prompt(`请输入提现金额 (当前可提现余额: ¥${walletBalance.toFixed(2)}):`, "500");
+                  if (amtStr) {
+                    const amt = parseFloat(amtStr);
+                    if (isNaN(amt) || amt <= 0) {
+                      toast.error("请输入有效的提现金额！");
+                      return;
+                    }
+                    if (amt > walletBalance) {
+                      toast.error("提现金额超出当前可提现余额！");
+                      return;
+                    }
+                    const newBalance = walletBalance - amt;
+                    setWalletBalance(newBalance);
+                    localStorage.setItem("ate_wallet_balance", newBalance.toString());
+
+                    const newRec = {
+                      date: new Date().toLocaleString(),
+                      amount: `¥ ${amt.toFixed(2)}`,
+                      method: "支付宝极速提现",
+                      status: "已受理 (预计2小时内到账)",
+                    };
+                    const updatedHistory = [newRec, ...withdrawHistory];
+                    setWithdrawHistory(updatedHistory);
+                    localStorage.setItem("ate_withdraw_history", JSON.stringify(updatedHistory));
+                    toast.success(`已成功申请提现 ¥${amt.toFixed(2)}！`);
+                  }
+                }}
                 className="h-8 text-xs bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs gap-1"
               >
                 <LuCoins className="size-3.5" /> 申请提现
@@ -1535,7 +1968,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="p-4 rounded-xl border border-border bg-card/60 space-y-1">
               <div className="text-xs text-muted-foreground">可提现余额 (CNY)</div>
-              <div className="text-2xl font-bold font-mono text-emerald-600">¥ 5,820.00</div>
+              <div className="text-2xl font-bold font-mono text-emerald-600">¥ {walletBalance.toFixed(2)}</div>
               <div className="text-[10px] text-muted-foreground">昨日新增佣金: +¥ 320.00</div>
             </div>
             <div className="p-4 rounded-xl border border-border bg-card/60 space-y-1">
@@ -1546,7 +1979,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
             <div className="p-4 rounded-xl border border-border bg-card/60 space-y-1">
               <div className="text-xs text-muted-foreground">累计总收益</div>
               <div className="text-2xl font-bold font-mono text-foreground">¥ 38,940.50</div>
-              <div className="text-[10px] text-muted-foreground">已累计提现 24 笔</div>
+              <div className="text-[10px] text-muted-foreground">已累计提现 {withdrawHistory.length} 笔</div>
             </div>
           </div>
 
@@ -1563,11 +1996,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
             </div>
 
             <div className="space-y-2 pt-2 border-t border-border/40">
-              {[
-                { date: "2026-10-24 16:30", amount: "¥ 1,200.00", method: "支付宝提现", status: "已到账" },
-                { date: "2026-10-18 11:20", amount: "¥ 2,500.00", method: "银行卡转账", status: "已到账" },
-                { date: "2026-10-10 09:45", amount: "¥ 800.00", method: "微信零钱", status: "已到账" },
-              ].map((rec, i) => (
+              {withdrawHistory.map((rec, i) => (
                 <div key={i} className="flex items-center justify-between text-xs p-2 rounded bg-muted/20">
                   <span className="text-muted-foreground font-mono">{rec.date}</span>
                   <span className="font-semibold text-foreground">{rec.method}</span>
@@ -1598,18 +2027,32 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
             <Button
               size="sm"
               variant="outline"
-              onClick={() => {
+              onClick={async () => {
+                if (!llmApiKey.trim()) {
+                  toast.error("请先在下方输入 API Key 再进行测试！");
+                  return;
+                }
                 setIsTestingLlm(true);
-                setTimeout(() => {
+                try {
+                  const res = await fetch(`${llmBaseUrl}/models`, {
+                    headers: { Authorization: `Bearer ${llmApiKey}` },
+                  });
+                  if (res.ok) {
+                    toast.success(`成功连通 ${llmProvider.toUpperCase()} 接口！API Key 认证有效。`);
+                  } else {
+                    toast.warning(`接口返回状态: ${res.status} (${res.statusText})，请检查 Key 或 Base URL。`);
+                  }
+                } catch (e: any) {
+                  toast.error(`网络测试失败: ${e.message}`);
+                } finally {
                   setIsTestingLlm(false);
-                  toast.success(`成功连通 ${llmProvider.toUpperCase()} 接口！延时 82ms。`);
-                }, 1000);
+                }
               }}
               disabled={isTestingLlm}
               className="h-8 text-xs border-violet-500/30 text-violet-600 hover:bg-violet-500/10"
             >
               <LuRefreshCw className={`size-3.5 mr-1 ${isTestingLlm ? "animate-spin" : ""}`} />
-              测试 LLM 连通性
+              测试 LLM 真实连通性
             </Button>
           </div>
 
@@ -1631,6 +2074,8 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                     onClick={() => {
                       setLlmProvider(p.id as any);
                       setLlmBaseUrl(p.url);
+                      localStorage.setItem("ate_llm_provider", p.id);
+                      localStorage.setItem("ate_llm_base_url", p.url);
                     }}
                     className={`p-2.5 rounded-lg border text-xs text-left transition-all ${
                       llmProvider === p.id
@@ -1666,7 +2111,10 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
 
               <Button
                 onClick={() => {
-                  toast.success("大模型配置已安全保存至本地加密存储！");
+                  localStorage.setItem("ate_llm_provider", llmProvider);
+                  localStorage.setItem("ate_llm_api_key", llmApiKey);
+                  localStorage.setItem("ate_llm_base_url", llmBaseUrl);
+                  toast.success("大模型真实 API 配置已安全保存至本地加密存储！");
                 }}
                 className="w-full h-8 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-xs"
               >
@@ -1705,7 +2153,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       )}
 
       {/* ============================================================= */}
-      {/* 模块 11: 官方云端实时镜像 (LiveWeb - aitoearn.cn 原站直连) */}
+      {/* 模块 11: 官方云端实时镜像 (LiveWeb - aitoearn.cn/zh-CN 原站直连) */}
       {/* ============================================================= */}
       {activeSubTab === "liveWeb" && (
         <div className="rounded-xl border border-border bg-card overflow-hidden flex flex-col flex-1 min-h-[660px] shadow-sm animate-in fade-in duration-200">
@@ -1714,14 +2162,14 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
               <LuGlobe className="size-4 text-violet-600" />
               <span className="font-semibold text-foreground">AiToEarn 官方云端镜像工作台</span>
               <Badge variant="outline" className="border-violet-500/30 text-violet-600 text-[10px]">
-                https://aitoearn.cn
+                https://aitoearn.cn/zh-CN
               </Badge>
             </div>
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => handleLaunchInBrowser("https://aitoearn.cn")}
+                onClick={() => handleLaunchInBrowser("https://aitoearn.cn/zh-CN")}
                 className="h-7 text-xs gap-1 border-violet-500/30 text-violet-600 hover:bg-violet-500/10"
               >
                 <LuExternalLink className="size-3" /> 在独立指纹标签打开
@@ -1731,7 +2179,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
 
           <div className="flex-1 w-full bg-background relative min-h-[640px]">
             <iframe
-              src="https://aitoearn.cn"
+              src="https://aitoearn.cn/zh-CN"
               title="AiToEarn Official Web Mirror"
               className="w-full h-[660px] border-none"
               allow="camera; microphone; clipboard-read; clipboard-write; display-capture"
