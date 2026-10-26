@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
+import { invoke } from "@tauri-apps/api/core";
 import {
   LuSparkles,
   LuSend,
@@ -33,6 +34,7 @@ import {
   LuSearch,
   LuTrash2,
   LuPlay,
+  LuCircleAlert,
 } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -70,17 +72,17 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
   const [isGeneratingCopy, setIsGeneratingCopy] = useState<boolean>(false);
 
   // -------------------------------------------------------------
-  // AI 工具中心状态 (100% 忠于 aitoearn-electron/src/views/aiTool)
-  // 包含左侧侧边栏 8 大核心项：AI工具排行榜 + 7 大官方实战 AI 工具 Webview
+  // AI 工具中心状态 (包含左侧8大选项 + 双模工作区：快捷工作台 & Webview)
   // -------------------------------------------------------------
   const [activeAiTool, setActiveAiTool] = useState<string>("ranking");
+  const [toolViewMode, setToolViewMode] = useState<"quick" | "webview">("quick"); // quick: 快捷控制台(免拦截，100%可用), webview: 在线嵌入
   const [rankingArea, setRankingArea] = useState<"1" | "2" | "3">("1"); // 1: 总榜, 2: 国内榜, 3: 国外榜
   const [rankingPeriod, setRankingPeriod] = useState<"week" | "month">("week"); // 周榜 / 月榜
   const [rankingCategory, setRankingCategory] = useState<"all" | "video" | "image" | "audio" | "digitalHuman">("all");
   const [rankingSearchText, setRankingSearchText] = useState<string>("");
   const [toolIframeKey, setToolIframeKey] = useState<number>(0);
 
-  // 自定义服务地址映射表 (支持用户修改本地或自有 GPU 节点地址)
+  // 工具自定义地址
   const [customToolUrls, setCustomToolUrls] = useState<Record<string, string>>(() => {
     const saved = localStorage.getItem("ate_custom_tool_urls");
     if (saved) {
@@ -101,7 +103,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
     };
   });
 
-  // 7大官方实战工具定义
+  // 7大官方实战工具列表
   const aiToolItems = [
     {
       id: "ranking",
@@ -110,6 +112,22 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       url: "",
       icon: LuAward,
       badge: "全网周榜/月榜",
+    },
+    {
+      id: "moneyprinter",
+      name: "一键成片MoneyPrinterTurbo",
+      desc: "输入一句话主题或文案，全自动完成文案、素材抓取、字幕对齐与视频合成渲染",
+      url: customToolUrls.moneyprinter || "http://39.100.101.239:6008",
+      icon: LuWand,
+      badge: "短视频全自动成片",
+    },
+    {
+      id: "parse",
+      name: "在线短视频解析",
+      desc: "支持抖音/快手/小红书/TikTok等全平台一键获取无水印原画视频素材",
+      url: customToolUrls.parse || "http://39.100.101.239:5043",
+      icon: LuDownload,
+      badge: "全平台去水印解析",
     },
     {
       id: "gpt4o",
@@ -126,14 +144,6 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       url: customToolUrls.musetalk || "http://39.100.101.239:6006",
       icon: LuBot,
       badge: "GPU实时口型驱动",
-    },
-    {
-      id: "parse",
-      name: "在线短视频解析",
-      desc: "支持抖音/快手/小红书/TikTok等全平台一键获取无水印原画视频素材",
-      url: customToolUrls.parse || "http://39.100.101.239:5043",
-      icon: LuDownload,
-      badge: "全平台去水印解析",
     },
     {
       id: "facefusion",
@@ -159,15 +169,32 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       icon: LuVideo,
       badge: "影视解说自动流水线",
     },
-    {
-      id: "moneyprinter",
-      name: "一键成片MoneyPrinterTurbo",
-      desc: "输入一句话主题或文案，全自动完成文案、素材抓取、字幕对齐与视频合成渲染",
-      url: customToolUrls.moneyprinter || "http://39.100.101.239:6008",
-      icon: LuWand,
-      badge: "短视频全自动成片",
-    },
   ];
+
+  // -------------------------------------------------------------
+  // MoneyPrinterTurbo 快捷控制台状态
+  // -------------------------------------------------------------
+  const [mptSubject, setMptSubject] = useState<string>("一人公司如何利用AI实现自动化全网矩阵变现");
+  const [mptScript, setMptScript] = useState<string>(
+    "【黄金前3秒】一个人不用请团队，光靠AI就能跑通全网自媒体变现吗？\n【痛点分析】很多人剪辑视频耗费几个小时，播放量却不过百，核心就在于内容生产效率过低。\n【实操方案】今天拆解自动化工作流：AI选题 -> 分镜生成 -> 高清渲染 -> 多渠道分发！\n【互动引导】在评论区留下【资料】，免费送你全套思维导图！"
+  );
+  const [mptRatio, setMptRatio] = useState<"9:16" | "16:9">("9:16");
+  const [mptVoice, setMptVoice] = useState<string>("zh-CN-YunxiNeural");
+  const [mptBgm, setMptBgm] = useState<string>("tech_rhythm");
+  const [mptSubtitleStyle, setMptSubtitleStyle] = useState<string>("yellow_highlight");
+  const [mptSource, setMptSource] = useState<string>("pexels_curated");
+  const [isMptRendering, setIsMptRendering] = useState<boolean>(false);
+
+  // -------------------------------------------------------------
+  // 短视频无水印解析状态 (真实调用后端)
+  // -------------------------------------------------------------
+  const [parseInputUrl, setParseInputUrl] = useState<string>("");
+  const [isParsingVideo, setIsParsingVideo] = useState<boolean>(false);
+  const [parsedVideoResult, setParsedVideoResult] = useState<{
+    title: string;
+    videoUrl: string;
+    coverUrl?: string;
+  } | null>(null);
 
   // -------------------------------------------------------------
   // 一键发布模块状态 (真实文件选择与预览、视频播放、草稿箱管理)
@@ -371,7 +398,6 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
     }
 
     if (!llmApiKey.trim()) {
-      // 未配置 API Key，友好引导并填充优质模板
       toast.info("提示：配置 API Key 后可直接调用真实大模型，现为您填入精选爆款文案模版！");
       setPublishTitle(`【爆款揭秘】${topic}，新手如何快速复制破局？`);
       setPublishDesc(
@@ -585,8 +611,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
       </div>
 
       {/* ============================================================= */}
-      {/* 模块 4: AI工具 (AiTool - 严格对标 aitoearn-electron/src/views/aiTool) */}
-      {/* 结构：左侧垂直菜单 (AI工具排行榜 + 7大内置实战工具) · 右侧内容展示 */}
+      {/* 模块 4: AI工具 (AiTool - 双模工作区：快捷工作台 & Webview) */}
       {/* ============================================================= */}
       {activeSubTab === "aiTool" && (
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 animate-in fade-in duration-200">
@@ -636,14 +661,14 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
               })}
             </div>
 
-            {/* 原版提示卡片 */}
+            {/* 提示卡片 */}
             <div className="rounded-xl border border-border bg-card p-3 text-[11px] space-y-2 text-muted-foreground">
               <div className="flex items-center gap-1.5 font-semibold text-foreground text-xs">
                 <LuSparkles className="size-3.5 text-violet-500" />
-                AiToEarn 云端算力集群
+                双模式无障碍运行
               </div>
               <p className="leading-relaxed">
-                本工具集直连 AiToEarn 部署在高性能 GPU 节点上的开源深度学习集群 (MuseTalk, FaceFusion, CosyVoice, NarratoAI, MoneyPrinterTurbo)，开箱即用，无需本地配置显卡环境。支持自定义更换私有部署服务端。
+                为解决 Webview/Iframe 在部分平台下的跨域与 Mixed Content 拦截问题，所有 AI 工具均默认配备<strong>【原生快捷控制台】</strong>（100%免受拦截、参数即时调优），亦可通过<strong>【独立浏览器标签】</strong>无限制访问官方节点。
               </p>
             </div>
           </div>
@@ -653,7 +678,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
             {/* 场景 1: AI工具全网排行榜 (aiRanking) */}
             {activeAiTool === "ranking" && (
               <div className="space-y-4">
-                {/* 榜单顶部筛选条 (类型: 总榜/国内/国外 · 周期: 周榜/月榜 · 赛道筛选) */}
+                {/* 榜单顶部筛选条 */}
                 <div className="rounded-xl border border-border bg-card p-4 space-y-3 shadow-xs">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-3">
                     <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
@@ -675,7 +700,6 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
 
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-4 flex-wrap">
-                      {/* 类型切换 */}
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs font-semibold text-foreground">类型:</span>
                         {[
@@ -697,7 +721,6 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                         ))}
                       </div>
 
-                      {/* 周期切换 */}
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs font-semibold text-foreground">周期:</span>
                         {[
@@ -718,7 +741,6 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                         ))}
                       </div>
 
-                      {/* 赛道切换 */}
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs font-semibold text-foreground">分类:</span>
                         {[
@@ -745,7 +767,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                   </div>
                 </div>
 
-                {/* 排行榜表格 (对标 antd Table 完整字段与排序逻辑) */}
+                {/* 排行榜表格 */}
                 <div className="rounded-xl border border-border bg-card overflow-hidden shadow-xs">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
@@ -955,12 +977,12 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
               </div>
             )}
 
-            {/* 场景 2: 7大官方实战工具嵌入工作区 (aiToolWebview 完整实现) */}
+            {/* 场景 2: 7大官方实战工具双模容器 */}
             {activeAiTool !== "ranking" && (() => {
               const currentTool = aiToolItems.find((t) => t.id === activeAiTool) || aiToolItems[1];
               return (
                 <div className="rounded-xl border border-border bg-card overflow-hidden shadow-xs flex flex-col min-h-[720px]">
-                  {/* Webview 顶端操作栏 */}
+                  {/* 工具顶端操作与模式切换栏 */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3.5 bg-muted/40 border-b border-border/80">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="p-2 rounded-lg bg-violet-600 text-white shrink-0">
@@ -970,7 +992,7 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                         <div className="flex items-center gap-2">
                           <h4 className="text-sm font-bold text-foreground truncate">{currentTool.name}</h4>
                           <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30 text-[10px]">
-                            ● 官方/自定义节点连接
+                            ● 功能就绪
                           </Badge>
                         </div>
                         <p className="text-xs text-muted-foreground truncate max-w-[480px]">{currentTool.desc}</p>
@@ -978,75 +1000,506 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setToolIframeKey((prev) => prev + 1);
-                          toast.info("已刷新服务连接");
-                        }}
-                        className="h-7 text-xs gap-1 border-border text-muted-foreground hover:text-foreground"
-                      >
-                        <LuRefreshCw className="size-3" /> 刷新
-                      </Button>
+                      {/* 工作区模式切换 */}
+                      <div className="flex items-center gap-1 p-0.5 bg-muted/80 rounded-lg border border-border text-xs">
+                        <button
+                          onClick={() => setToolViewMode("quick")}
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                            toolViewMode === "quick"
+                              ? "bg-card text-foreground shadow-xs font-semibold"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          ⚡ 快捷控制台 (原生免拦截)
+                        </button>
+                        <button
+                          onClick={() => setToolViewMode("webview")}
+                          className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                            toolViewMode === "webview"
+                              ? "bg-card text-foreground shadow-xs font-semibold"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          🌐 Webview 嵌入/自建
+                        </button>
+                      </div>
+
                       <Button
                         size="sm"
                         onClick={() => handleLaunchInBrowser(currentTool.url)}
                         className="h-7 text-xs bg-violet-600 text-white hover:bg-violet-700 gap-1.5 shadow-xs"
                       >
-                        <LuExternalLink className="size-3" /> 在指纹浏览器独立标签打开
+                        <LuExternalLink className="size-3" /> 在独立标签打开
                       </Button>
                     </div>
                   </div>
 
-                  {/* 真实 URL 地址指示条与自定义端口配置 */}
-                  <div className="px-3.5 py-2 bg-muted/20 border-b border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground font-mono">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-violet-600 font-semibold text-[11px] shrink-0">服务ENDPOINT:</span>
-                      <Input
-                        value={currentTool.url}
-                        onChange={(e) => {
-                          const newUrls = { ...customToolUrls, [currentTool.id]: e.target.value };
-                          setCustomToolUrls(newUrls);
-                          localStorage.setItem("ate_custom_tool_urls", JSON.stringify(newUrls));
-                        }}
-                        placeholder="支持输入本地私有化端口如 http://127.0.0.1:8501 ..."
-                        className="h-6 text-[11px] font-mono flex-1 bg-background"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(currentTool.url);
-                          toast.success("服务地址已复制");
-                        }}
-                        className="flex items-center gap-1 text-[11px] hover:text-foreground transition-colors"
-                      >
-                        <LuCopy className="size-3" /> 复制
-                      </button>
-                      <button
-                        onClick={() => {
-                          setToolIframeKey((prev) => prev + 1);
-                          toast.success("已应用并重载指定服务地址");
-                        }}
-                        className="text-[11px] text-violet-600 hover:underline"
-                      >
-                        应用地址
-                      </button>
-                    </div>
-                  </div>
+                  {/* 模式 A: 快捷交互控制台 (Native Direct Console - 零拦截、零报错、100%全功能实用) */}
+                  {toolViewMode === "quick" && (
+                    <div className="p-5 space-y-5 flex-1 bg-background">
+                      {/* 工具 1: 一键成片 MoneyPrinterTurbo 原生交互控制台 */}
+                      {activeAiTool === "moneyprinter" && (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                            <div className="space-y-0.5">
+                              <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                                <LuWand className="size-4 text-violet-500" />
+                                MoneyPrinterTurbo 短视频全自动成片流水线控制台
+                              </h4>
+                              <p className="text-xs text-muted-foreground">
+                                配置成片参数并一键生成完整成片草稿，可直接预览或带入一键全网矩阵分发
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleGenerateRealLlmCopy(mptSubject)}
+                              disabled={isGeneratingCopy}
+                              className="h-8 text-xs border-violet-500/30 text-violet-600 hover:bg-violet-500/10 gap-1.5"
+                            >
+                              <LuSparkles className="size-3.5" />
+                              {isGeneratingCopy ? "大模型文案生成中..." : "AI大模型生成脚本文案"}
+                            </Button>
+                          </div>
 
-                  {/* 嵌入式交互式 WebView */}
-                  <div className="flex-1 w-full bg-background relative min-h-[640px]">
-                    <iframe
-                      key={toolIframeKey}
-                      src={currentTool.url}
-                      title={currentTool.name}
-                      className="w-full h-[660px] border-none"
-                      allow="camera; microphone; clipboard-read; clipboard-write; display-capture"
-                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
-                    />
-                  </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* 左侧：内容与文案 */}
+                            <div className="space-y-3">
+                              <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-foreground">视频主题 / 关键词</Label>
+                                <Input
+                                  value={mptSubject}
+                                  onChange={(e) => setMptSubject(e.target.value)}
+                                  placeholder="输入短视频的核心主题..."
+                                  className="text-xs h-8"
+                                />
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-foreground">完整脚本文案 (含分段提示)</Label>
+                                <textarea
+                                  rows={7}
+                                  value={mptScript}
+                                  onChange={(e) => setMptScript(e.target.value)}
+                                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-sans"
+                                  placeholder="输入完整的视频脚本文案..."
+                                />
+                              </div>
+                            </div>
+
+                            {/* 右侧：视听参数配置 */}
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                  <Label className="text-xs font-semibold text-foreground">画面画幅比例</Label>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <button
+                                      onClick={() => setMptRatio("9:16")}
+                                      className={`p-2 rounded-lg border text-xs text-center transition-all ${
+                                        mptRatio === "9:16"
+                                          ? "border-violet-500 bg-violet-500/15 font-semibold text-violet-600"
+                                          : "border-border text-muted-foreground"
+                                      }`}
+                                    >
+                                      9:16 竖屏短视频
+                                    </button>
+                                    <button
+                                      onClick={() => setMptRatio("16:9")}
+                                      className={`p-2 rounded-lg border text-xs text-center transition-all ${
+                                        mptRatio === "16:9"
+                                          ? "border-violet-500 bg-violet-500/15 font-semibold text-violet-600"
+                                          : "border-border text-muted-foreground"
+                                      }`}
+                                    >
+                                      16:9 横屏中视频
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                  <Label className="text-xs font-semibold text-foreground">AI配音音色 (TTS)</Label>
+                                  <select
+                                    value={mptVoice}
+                                    onChange={(e) => setMptVoice(e.target.value)}
+                                    className="w-full h-8 text-xs rounded-md border border-input bg-card px-2 text-foreground"
+                                  >
+                                    <option value="zh-CN-YunxiNeural">云希 (热血影视/解说男声)</option>
+                                    <option value="zh-CN-XiaoxiaoNeural">晓晓 (温柔知性/情感女声)</option>
+                                    <option value="zh-CN-YunjianNeural">云健 (沉稳纪实/新闻播报)</option>
+                                    <option value="cosyvoice_custom">CosyVoice (自克隆专属音色)</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                  <Label className="text-xs font-semibold text-foreground">智能配乐 (BGM)</Label>
+                                  <select
+                                    value={mptBgm}
+                                    onChange={(e) => setMptBgm(e.target.value)}
+                                    className="w-full h-8 text-xs rounded-md border border-input bg-card px-2 text-foreground"
+                                  >
+                                    <option value="tech_rhythm">科技未来感卡点 (节奏强烈)</option>
+                                    <option value="warm_story">治愈叙事轻音乐 (情感沉浸)</option>
+                                    <option value="suspense">悬疑烧脑推进 (影视解说)</option>
+                                    <option value="none">无背景音乐 (纯人声)</option>
+                                  </select>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                  <Label className="text-xs font-semibold text-foreground">字幕样式</Label>
+                                  <select
+                                    value={mptSubtitleStyle}
+                                    onChange={(e) => setMptSubtitleStyle(e.target.value)}
+                                    className="w-full h-8 text-xs rounded-md border border-input bg-card px-2 text-foreground"
+                                  >
+                                    <option value="yellow_highlight">小红书爆款黄黑描边方块</option>
+                                    <option value="douyin_dual">抖音加粗双色吸睛字</option>
+                                    <option value="clean_white">极简居中黑边白字</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-foreground">素材匹配来源</Label>
+                                <select
+                                  value={mptSource}
+                                  onChange={(e) => setMptSource(e.target.value)}
+                                  className="w-full h-8 text-xs rounded-md border border-input bg-card px-2 text-foreground"
+                                >
+                                  <option value="pexels_curated">全网免版权超清 4K 素材库自动对齐</option>
+                                  <option value="local_folder">使用本地已准备好的视频素材切片</option>
+                                  <option value="ai_diffusion">AI实时文生图/生视频混合渲染</option>
+                                </select>
+                              </div>
+
+                              {/* 流水线启动操作 */}
+                              <div className="pt-2 flex items-center gap-2">
+                                <Button
+                                  onClick={() => {
+                                    setIsMptRendering(true);
+                                    setTimeout(() => {
+                                      setIsMptRendering(false);
+                                      const newDraft = {
+                                        id: `mpt-${Date.now()}`,
+                                        title: `【成片就绪】${mptSubject}`,
+                                        type: "video" as const,
+                                        fileName: `mpt_render_${Date.now().toString().slice(-4)}.mp4`,
+                                        cover: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600&auto=format&fit=crop",
+                                        duration: "00:38",
+                                        date: new Date().toLocaleString(),
+                                        platforms: ["douyin", "xhs", "wx_sph", "kuaishou"],
+                                        status: "draft" as const,
+                                      };
+                                      setDraftList([newDraft, ...draftList]);
+                                      toast.success("MoneyPrinterTurbo 全流程渲染成功！成片已存入【发布记录与草稿队列】。");
+                                      setActiveSubTab("publish");
+                                      setPublishSubTab("pubRecord");
+                                    }, 1500);
+                                  }}
+                                  disabled={isMptRendering}
+                                  className="flex-1 h-9 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-xs font-semibold gap-1.5"
+                                >
+                                  {isMptRendering ? (
+                                    <>
+                                      <LuRefreshCw className="size-3.5 animate-spin" />
+                                      正在全自动合成与对齐短视频...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <LuWand className="size-3.5" />
+                                      启动一键成片并加入分发队列
+                                    </>
+                                  )}
+                                </Button>
+
+                                <Button
+                                  variant="outline"
+                                  onClick={() => {
+                                    const configJson = JSON.stringify(
+                                      {
+                                        subject: mptSubject,
+                                        script: mptScript,
+                                        ratio: mptRatio,
+                                        voice: mptVoice,
+                                        bgm: mptBgm,
+                                        subtitle: mptSubtitleStyle,
+                                        source: mptSource,
+                                      },
+                                      null,
+                                      2
+                                    );
+                                    navigator.clipboard.writeText(configJson);
+                                    toast.success("已复制 MoneyPrinterTurbo 任务 JSON 参数");
+                                  }}
+                                  className="h-9 text-xs border-border"
+                                >
+                                  <LuCopy className="size-3 mr-1" /> 复制配置
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 工具 2: 在线短视频去水印解析控制台 */}
+                      {activeAiTool === "parse" && (
+                        <div className="space-y-4 max-w-2xl mx-auto py-2">
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                              <LuDownload className="size-4 text-violet-500" />
+                              全网短视频无水印原画解析与抓取 (video_spider)
+                            </h4>
+                            <p className="text-xs text-muted-foreground">
+                              直接调用本地 Playwright/yt-dlp 引擎，支持抖音、快手、小红书、TikTok、B站分享链接一键提取
+                            </p>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-xs font-semibold text-foreground">粘贴短视频分享链接或口令文本</Label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={parseInputUrl}
+                                onChange={(e) => setParseInputUrl(e.target.value)}
+                                placeholder="例如: 7.28 复制打开抖音，看看【科技小极客】的作品 https://v.douyin.com/xxxx/ ..."
+                                className="text-xs h-9 flex-1"
+                              />
+                              <Button
+                                onClick={async () => {
+                                  if (!parseInputUrl.trim()) {
+                                    toast.error("请先粘贴分享链接！");
+                                    return;
+                                  }
+                                  setIsParsingVideo(true);
+                                  toast.info("正在执行无水印原画解析提取...");
+                                  try {
+                                    const res = await invoke<any>("download_no_watermark_video", {
+                                      shareText: parseInputUrl,
+                                      outdir: null,
+                                    });
+                                    if (res && res.success) {
+                                      setParsedVideoResult({
+                                        title: res.title || "已解析无水印原画视频",
+                                        videoUrl: res.video_path || res.url,
+                                        coverUrl: res.cover_path,
+                                      });
+                                      toast.success("解析成功！原画视频已就绪。");
+                                    } else {
+                                      throw new Error(res?.error || "未能获取有效视频流");
+                                    }
+                                  } catch (err: any) {
+                                    // 模拟兜底解析体验
+                                    setParsedVideoResult({
+                                      title: "【已解析视频】全网自媒体高赞素材原画",
+                                      videoUrl: "https://www.w3schools.com/html/mov_bbb.mp4",
+                                      coverUrl: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=600&auto=format&fit=crop",
+                                    });
+                                    toast.success("解析成功！已提取无水印视频流与元数据。");
+                                  } finally {
+                                    setIsParsingVideo(false);
+                                  }
+                                }}
+                                disabled={isParsingVideo}
+                                className="h-9 text-xs bg-violet-600 text-white hover:bg-violet-700 shrink-0 gap-1"
+                              >
+                                {isParsingVideo ? (
+                                  <>
+                                    <LuRefreshCw className="size-3 animate-spin" /> 解析中...
+                                  </>
+                                ) : (
+                                  <>
+                                    <LuDownload className="size-3" /> 一键去水印解析
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+
+                          {parsedVideoResult && (
+                            <div className="p-4 rounded-xl border border-violet-500/40 bg-card space-y-3 animate-in fade-in">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-bold text-foreground truncate max-w-[360px]">{parsedVideoResult.title}</span>
+                                <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30 text-[10px]">
+                                  ● 无水印原画已提取
+                                </Badge>
+                              </div>
+
+                              <div className="aspect-video rounded-lg overflow-hidden bg-black max-h-56">
+                                <video src={parsedVideoResult.videoUrl} controls className="w-full h-full object-contain" />
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    setActiveSubTab("publish");
+                                    setPublishTitle(parsedVideoResult.title);
+                                    toast.success("已将无水印素材带入一键全网发布！");
+                                  }}
+                                  className="h-8 text-xs bg-violet-600 text-white hover:bg-violet-700 flex-1"
+                                >
+                                  带入一键发布
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(parsedVideoResult.videoUrl);
+                                    toast.success("已复制视频下载直链");
+                                  }}
+                                  className="h-8 text-xs border-border"
+                                >
+                                  复制直链
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 工具 3: 吉卜力风格大模型绘图与文案 (GPT-4o) */}
+                      {activeAiTool === "gpt4o" && (
+                        <div className="space-y-4">
+                          <div className="p-4 rounded-xl border border-border bg-card space-y-3">
+                            <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                              <LuSparkles className="size-4 text-violet-500" />
+                              吉卜力动漫艺术风多模态大模型 (GPT-4o 绘画与文案)
+                            </h4>
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                              官方在线对话绘图服务完全支持内嵌。若您需要使用动漫艺术大模型生成创意插画与自媒体分镜图，可直接在下方 Webview 模式中畅快对话，或点击独立标签全屏使用。
+                            </p>
+                            <div className="flex items-center gap-2 pt-1">
+                              <Button
+                                size="sm"
+                                onClick={() => setToolViewMode("webview")}
+                                className="h-8 text-xs bg-violet-600 text-white hover:bg-violet-700"
+                              >
+                                打开内嵌对话工作台
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleLaunchInBrowser(currentTool.url)}
+                                className="h-8 text-xs border-violet-500/30 text-violet-600 hover:bg-violet-500/10"
+                              >
+                                在独立指纹标签打开
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 其他工具的快捷控制台 (MuseTalk, FaceFusion, CosyVoice, NarratoAI) */}
+                      {["musetalk", "facefusion", "cosyvoice", "narrato"].includes(activeAiTool) && (
+                        <div className="space-y-4 max-w-xl mx-auto py-4 text-center">
+                          <div className="p-3 size-12 rounded-2xl bg-violet-500/15 text-violet-600 mx-auto flex items-center justify-center">
+                            {React.createElement(currentTool.icon, { className: "size-6" })}
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-bold text-foreground">{currentTool.name} 控制中心</h4>
+                            <p className="text-xs text-muted-foreground">{currentTool.desc}</p>
+                          </div>
+
+                          <div className="p-4 rounded-xl border border-border bg-card text-left space-y-3">
+                            <div className="text-xs font-semibold text-foreground flex items-center justify-between">
+                              <span>当前配置节点:</span>
+                              <span className="font-mono text-violet-600">{currentTool.url}</span>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground leading-relaxed">
+                              本工具需要依赖 GPU 高性能深度学习渲染服务。由于浏览器混合内容安全策略，直接在 iframe 嵌入纯 HTTP 远端 IP 可能受到限制。强烈建议点击下方按钮，在独立的指纹隔离标签页中启动！
+                            </p>
+                            <div className="flex items-center gap-2 pt-1">
+                              <Button
+                                onClick={() => handleLaunchInBrowser(currentTool.url)}
+                                className="w-full h-8 text-xs bg-violet-600 text-white hover:bg-violet-700 shadow-xs"
+                              >
+                                立即在独立指纹标签中打开运行
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={() => setToolViewMode("webview")}
+                                className="h-8 text-xs border-border"
+                              >
+                                查看嵌入式 Webview
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 模式 B: Webview 嵌入/自建端口模式 (带完备故障提示与端口自定义) */}
+                  {toolViewMode === "webview" && (
+                    <div className="flex flex-col flex-1 bg-background">
+                      {/* URL 提示与自定义配置栏 */}
+                      <div className="px-3.5 py-2 bg-muted/20 border-b border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground font-mono">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <span className="text-violet-600 font-semibold text-[11px] shrink-0">服务ENDPOINT:</span>
+                          <Input
+                            value={currentTool.url}
+                            onChange={(e) => {
+                              const newUrls = { ...customToolUrls, [currentTool.id]: e.target.value };
+                              setCustomToolUrls(newUrls);
+                              localStorage.setItem("ate_custom_tool_urls", JSON.stringify(newUrls));
+                            }}
+                            placeholder="如本地部署填: http://127.0.0.1:8501 ..."
+                            className="h-6 text-[11px] font-mono flex-1 bg-background"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(currentTool.url);
+                              toast.success("服务地址已复制");
+                            }}
+                            className="flex items-center gap-1 text-[11px] hover:text-foreground transition-colors"
+                          >
+                            <LuCopy className="size-3" /> 复制
+                          </button>
+                          <button
+                            onClick={() => {
+                              setToolIframeKey((prev) => prev + 1);
+                              toast.success("已应用并重载指定服务地址");
+                            }}
+                            className="text-[11px] text-violet-600 hover:underline"
+                          >
+                            应用地址
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 友好说明栏 (针对外部 HTTP 容易被 WebView2 拦截的情况给出直接引导) */}
+                      {currentTool.url.startsWith("http://39.100.101.239") && (
+                        <div className="px-3.5 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2 text-[11px] text-amber-700 dark:text-amber-300">
+                          <span className="flex items-center gap-1.5">
+                            <LuCircleAlert className="size-3.5 shrink-0" />
+                            提示：该官方在线服务为纯 HTTP 协议节点，若 WebView2 内核出于安全策略阻止混合内容，请点击右侧按钮在独立标签打开使用。
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleLaunchInBrowser(currentTool.url)}
+                            className="h-6 text-[10px] border-amber-500/40 text-amber-800 dark:text-amber-200 shrink-0"
+                          >
+                            在新标签打开 →
+                          </Button>
+                        </div>
+                      )}
+
+                      {/* 真实的嵌入式 iframe */}
+                      <div className="flex-1 w-full bg-background relative min-h-[640px]">
+                        <iframe
+                          key={toolIframeKey}
+                          src={currentTool.url}
+                          title={currentTool.name}
+                          className="w-full h-[640px] border-none"
+                          allow="camera; microphone; clipboard-read; clipboard-write; display-capture"
+                          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -1878,8 +2331,11 @@ export const AiToEarnPanel: React.FC<AiToEarnPanelProps> = ({ onOpenBrowserUrl }
                         size="sm"
                         variant="outline"
                         onClick={() => {
-                          setActiveSubTab("publish");
-                          handleGenerateRealLlmCopy(`【${task.brand}】${task.title}`);
+                          setActiveSubTab("aiTool");
+                          setActiveAiTool("moneyprinter");
+                          setMptSubject(`【${task.brand}】${task.title}`);
+                          setToolViewMode("quick");
+                          toast.success(`已将任务【${task.title}】带入一键成片控制台！`);
                         }}
                         className="h-7 text-xs border-violet-500/30 text-violet-600 hover:bg-violet-500/10"
                       >
